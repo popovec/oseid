@@ -1,0 +1,126 @@
+This target is for testing OsEID code on PC (as simulator)
+==========================================================
+
+
+top level makefile canhandle automatic pcscd run with this simulator,
+please use: build/console/run_pcscd.sh 
+
+Read next, if you plan to use this system standalone.
+
+
+Compile simulator targed (make -f Makefile.console)
+
+Standalone simulator test:
+--------------------------
+
+$ build/console/console 
+ATR
+> 00 a4 00 00 00
+select
+fs_select_df
+fs_get_fci
+card_io_stop_null
+< 61 1e 
+> 00 c0 00 00 1e
+iso7816_get_response 00 00 1E
+< c0 
+< 6f 1c 81 02 00 40 82 01 38 83 02 3f 00 86 03 11 3f ff 85 02 00 00 8a 01 07
+84 03 f0 4d 46 
+card_io_stop_null
+< 90 00 
+> 00 a4 00 00 02
+select
+< a4 
+> 3f 00
+message ID 3f00
+fs_select_df
+fs_get_fci
+card_io_stop_null
+< 61 1e 
+> 00 c0 00 00 1e
+iso7816_get_response 00 00 1E
+< c0 
+< 6f 1c 81 02 00 40 82 01 38 83 02 3f 00 86 03 11 3f ff 85 02 00 00 8a 01 07
+84 03 f0 4d 46 
+card_io_stop_null
+< 90 00 
+> reset
+CTRL-C, card reset (type 'quit' to exit)
+ATR
+> quit
+
+Connect simulator to serial line
+--------------------------------
+socat -d -d  /dev/ttyUSB1,b115200,cs8,parenb=0,cstopb=0,clocal=1,raw,echo=1 "exec:build/console/console ...,pty,raw,echo=0"
+
+
+
+Connect simulator to pcscd
+--------------------------
+expected location of the source files  is in the directory /usr/src/OsEID/
+and working directory is set to /usr/src/OsEID/ too.
+
+
+connect virtual OsEID cadr (simultor) to pcscd:
+
+$ socat -d -d pty,raw,echo=0 "exec:build/console/console ...,pty,raw,echo=0"
+2016/03/10 10:22:42 socat[8855] N PTY is /dev/pts/19
+2016/03/10 10:22:42 socat[8855] N forking off child, using pty for reading and writing
+2016/03/10 10:22:42 socat[8855] N forked off child process 8856
+2016/03/10 10:22:42 socat[8855] N forked off child process 8856
+2016/03/10 10:22:42 socat[8855] N starting data transfer loop with FDs [5,5] and [7,7]
+2016/03/10 10:22:42 socat[8856] N execvp'ing "build/console/console"
+RESET
+
+
+notice that whitch device socat uses  (/dev/pts/19)
+
+
+edit /usr/src/OsEID/build/console/reader.conf
+
+---------------- cut ---------------
+FRIENDLYNAME      "OsEIDsim"
+DEVICENAME        /dev/pts/22
+LIBPATH           /usr/src/OsEID/build/console/OsEIDsim.so.0
+CHANNELID         1
+---------------- cut ---------------
+
+Start pcscd:
+
+pcscd -d -f -c /usr/src/OsEID/build/console/reader.conf
+
+
+
+
+Connect pcscd to minicom 
+------------------------
+
+start socat:
+
+$ socat -d -d pty,raw,echo=0 pty,raw,echo=0
+2016/03/01 14:17:34 socat[1100] N PTY is /dev/pts/22
+2016/03/01 14:17:34 socat[1100] N PTY is /dev/pts/23
+2016/03/01 14:17:34 socat[1100] N starting data transfer loop with FDs [5,5]
+and [7,7]
+
+notice that whitch devices socat uses (/dev/pts/22,/dev/pts/23)
+
+start minicom, configure serial port to /dev/pts/23, no soft/hard flow
+control. 
+
+
+edit /usr/src/OsEID/build/console/reader.conf
+
+---------------- cut ---------------
+FRIENDLYNAME      "OsEIDsim"
+DEVICENAME        /dev/pts/22
+LIBPATH           /usr/src/OsEID/build/console/OsEIDsim.so.0
+CHANNELID         1
+---------------- cut ---------------
+
+Start pcscd:
+
+pcscd -d -f -c /usr/src/OsEID/build/console/reader.conf
+
+
+

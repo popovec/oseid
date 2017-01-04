@@ -1,0 +1,73 @@
+TARGET= targets/console/
+BUILD= build/console/
+
+#normal debug
+#CFLAGS= -Wall -O2 -DDEBUG -g -Wfatal-errors
+#debug EC function
+#CFLAGS= -Wall -O2 -DDEBUG -DEC_DEBUG -g -Wfatal-errors
+#debug RSA function
+CFLAGS= -Wall -O2 -DDEBUG -DRSA_DEBUG -g -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
+CC= gcc
+
+all:	$(BUILD)console $(BUILD)libOsEIDsim.so
+
+#to test secp384r1 curve on opensc 0.16 uncomment next line (to enable Infineon ATR)
+#CFLAGS +=                -DInfineon
+
+#Tested without NIST_ONLY, but not set as default
+#CFLAGS += -DNIST_ONLY
+
+.PHONY:	builddir all
+
+builddir:
+	@rm -rf $(BUILD)
+	@mkdir -p $(BUILD)
+
+#-------------------------------------------------------------------
+# target platform files
+#-------------------------------------------------------------------
+$(BUILD)card_io.o: $(TARGET)card_io.c
+	$(CC) $(CFLAGS) -o $(BUILD)card_io.o -c $(TARGET)card_io.c -I$(TARGET) -Icard_os
+
+$(BUILD)mem_device.o:	$(TARGET)mem_device.c
+	$(CC) $(CFLAGS) -o $(BUILD)mem_device.o -c $(TARGET)mem_device.c -I$(TARGET) -Icard_os
+
+$(BUILD)rnd.o:	$(TARGET)rnd.c
+	$(CC) $(CFLAGS) -o $(BUILD)rnd.o -c $(TARGET)rnd.c -Icard_os
+
+#-------------------------------------------------------------------
+# Target specific files
+#-------------------------------------------------------------------
+
+TARGET_S = $(TARGET)pcscd/OsEIDsim/
+
+sim_version="0.0.1"
+
+
+$(BUILD)libOsEIDsim.so:
+	$(CC) -shared -O2 -g -Wall -fPIC -I.  `pkg-config libpcsclite --cflags` -o $(BUILD)libOsEIDsim.so $(TARGET_S)ifdhandler.c $(TARGET_S)serial.c
+	chmod -x $(BUILD)libOsEIDsim.so
+	(cd  $(BUILD); ln -s libOsEIDsim.so libOsEIDsim.so.$(sim_version))
+	cp $(TARGET_S)run_pcscd.sh $(BUILD)
+
+
+.PHONY: all clean
+
+#-------------------------------------------------------------------
+# card_os files
+#-------------------------------------------------------------------
+
+include card_os/Makefile
+
+	
+$(BUILD)console:	builddir $(BUILD)card.o $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)iso7816.o $(BUILD)myeid_emu.o $(BUILD)fs.o $(BUILD)ec.o $(BUILD)rsa.o $(BUILD)constants.o
+	$(CC) $(CFLAGS) -o $(BUILD)console $(BUILD)card.o $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)iso7816.o $(BUILD)myeid_emu.o $(BUILD)fs.o $(BUILD)ec.o $(BUILD)rsa.o $(BUILD)constants.o
+	
+
+clean:
+	rm -f *~
+	rm -f card_os/*~
+	rm -f $(TARGET)/*~
+	rm -f $(BUILD)/*
+
+	

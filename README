@@ -1,0 +1,10 @@
+Description
+
+Atmega 128 microcontroller based open source EID smartcard with RSA
+(512-2048) and ECC (NIST prime192v1, prime256v1, secp384r1) support.
+Compatible with MyEID card from Aventra. Supported in windows and linux by
+opensc package. Allow about 64KiB space for keys/certificates. Pkcs15
+structure supported. USB token with CCID interface based on atmel
+xmega128a4u with same features as card.
+
+PDF documentation: download OSEID.20161230.tgz from https://oseid.sourceforge.io
