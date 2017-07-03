@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -30,8 +30,12 @@
 
 #include <string.h>
 
-//Warning maximum size is 2^16-256, otherwise overflow is not checked!
+
 #define MEMSIZE 32767+16384
+#if MEMSIZE > 65536
+#error filesyste is designed to use max 65536 bytes!
+#endif
+
 static int initialized;
 static uint8_t mem[MEMSIZE];
 
@@ -92,60 +96,85 @@ device_init ()
   return 0;
 }
 
-// read max 256 bytes from flash/eeprom into buffer from memory offset 
-// signalize error by non zero return value
+// size 0 is interpreted as 256!
 uint8_t
-device_read_block (void *buffer, uint16_t offset, uint8_t size)
+sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
 {
+  uint16_t overflow, s;
+
+  s = size ? size : 256;
+  overflow = offset + s - 1;
+
+  if (overflow > SECSIZE)
+    return 1;
 
   if (device_init ())
     return 1;
 
-  if (size == 0)
-    {
-      if ((uint32_t) offset + 256 > MEMSIZE)
-	{
-	  DPRINT ("%s - out of memory\n", __FUNCTION__);
-	  return 1;
-	}
-      memcpy (buffer, mem + offset, 256);
-    }
-  else
-    {
-      if ((uint32_t) offset + size > MEMSIZE)
-	{
-	  DPRINT ("%s - out of memory\n", __FUNCTION__);
-	  return 1;
-	}
-      memcpy (buffer, mem + offset, size);
-    }
+  memcpy (buffer, sd + offset, s);
   return 0;
 }
 
+// size 0 is interpreted as 256!
 uint8_t
-device_write_block (void *buffer, uint16_t offset, uint8_t size)
+sec_device_write_block (void *buffer, uint8_t offset, uint8_t size)
 {
+  uint16_t overflow, s;
+
+  s = size ? size : 256;
+  overflow = offset + s - 1;
+
+  if (overflow > SECSIZE)
+    return 1;
+
   if (device_init ())
     return 1;
 
-  if (size == 0)
-    {
-      if ((uint32_t) offset + 256 > MEMSIZE)
-	{
-	  DPRINT ("%s - out of memory\n", __FUNCTION__);
-	  return 1;
-	}
-      memcpy (mem + offset, buffer, 256);
-    }
-  else
-    {
-      if ((uint32_t) offset + size > MEMSIZE)
-	{
-	  DPRINT ("%s - out of memory\n", __FUNCTION__);
-	  return 1;
-	}
-      memcpy (mem + offset, buffer, size);
-    }
+  memcpy (sd + offset, buffer, s);
+
+  if (device_writeback ())
+    return 1;
+
+  return 0;
+}
+
+// size 0 is interpreted as 256!
+uint8_t
+device_read_block (void *buffer, uint16_t offset, uint8_t size)
+{
+  uint32_t overflow, s;
+
+  s = size ? size : 256;
+  overflow = offset + s - 1;
+
+  if (overflow > MEMSIZE)
+    return 1;
+
+  if (device_init ())
+    return 1;
+
+  memcpy (buffer, mem + offset, s);
+
+  return 0;
+}
+
+// size 0 is interpreted as 256!
+uint8_t
+device_write_block (void *buffer, uint16_t offset, uint8_t size)
+{
+  uint32_t overflow, s;
+
+  s = size ? size : 256;
+  overflow = offset + s - 1;
+
+  if (overflow > MEMSIZE)
+    return 1;
+
+  if (device_init ())
+    return 1;
+
+  memcpy (mem + offset, buffer, s);
+
   if (device_writeback ())
     return 1;
 
@@ -155,52 +184,30 @@ device_write_block (void *buffer, uint16_t offset, uint8_t size)
 // fill block at offset _offset_ with value 0xff of maximal length _size_
 // return number of filled bytes (-1 on error)
 int16_t
-device_write_ff (uint16_t offset, uint16_t size)
+device_write_ff (uint16_t offset, uint8_t size_in)
 {
+  uint32_t s;
+  uint16_t size = size_in;
+
+  if (size_in == 0)
+    size = 256;
+
   if (device_init ())
     return -1;
 
-  if ((uint32_t) offset + size > MEMSIZE)
-    {
-      DPRINT ("%s - out of memory\n", __FUNCTION__);
-      return -1;
-    }
-  memset (mem + offset, 0xff, size);
+#if MEMSIZE != 65536
+  if (offset >= MEMSIZE)
+    return -1;
+#endif
+
+  s = MEMSIZE - (uint32_t) offset;
+  if (s > size)
+    s = size;
+
+  memset (mem + offset, 0xff, s);
 
   if (device_writeback ())
     return -1;
 
-  return size;
-}
-
-uint8_t
-sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
-{
-  uint16_t overflow = size + offset;
-
-  if (device_init ())
-    return 1;
-
-  if (overflow > SECSIZE)
-    return 1;
-  memcpy (buffer, sd + offset, size);
-  return 0;
-}
-
-uint8_t
-sec_device_write_block (void *buffer, uint8_t offset, uint8_t size)
-{
-  uint16_t overflow = size + offset;
-
-  if (device_init ())
-    return 1;
-
-  if (overflow > SECSIZE)
-    return 1;
-  memcpy (sd + offset, buffer, size);
-
-  if (device_writeback ())
-    return 1;
-
-  return 0;
+  return s;
 }

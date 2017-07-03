@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,16 +18,23 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    
+    memory driver header file
 
 */
+
+// for size=0 size is interpreted as 256!!!
 
 // on error 1 is returned, 0 = no error
 uint8_t device_read_block (void *buffer, uint16_t offset, uint8_t size);
 uint8_t device_write_block (void *buffer, uint16_t offset, uint8_t size);
+
 uint8_t sec_device_read_block(void *buffer, uint8_t offset, uint8_t size);
 uint8_t sec_device_write_block(void *buffer, uint8_t offset, uint8_t size);
 
 // fill block at offset _offset_ with value 0xff of maximal length _size_
-// return number of filled bytes (-1 on error)
-int16_t device_write_ff (uint16_t offset, uint16_t size);
+// minimal _size_ is 1 maximal 256 (0 = 256)
+// return number of filled bytes (in range 1-256)
+// return value <=0 is error
+// if offset + size is out of memory, clear only to memory end
+
+int16_t device_write_ff (uint16_t offset, uint8_t size);

@@ -9,6 +9,8 @@ CPU=atmega128
 PRG=avrispmkII
 
 CFLAGS=  -Wall -Os -mmcu=$(CPU) 
+# Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
+CFLAGS+= -mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
 CFLAGS+= -Wl,--section-start=.flash_end=0x1ff00
 CFLAGS+= -fshort-enums -fjump-tables --param  case-values-threshold=10
 CFLAGS+= -DOsEID
@@ -35,6 +37,16 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=4
 
+#for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
+HAVE +=         -DRAM_LE32
+
+# disable both for environment where interrupt flag must be restored after stack pointer change
+# normal tick calculation in an environment where interrupt is always disabled
+#HAVE +=         -DISR_DISABLED
+# In an environment where interrupt is always enabled
+HAVE +=		-DISR_ENABLE_FORCE
+
+
 HAVE +=		-DHAVE_RSA_MUL_192
 HAVE +=         -DHAVE_RSA_MUL_192_NO_ABI
 TARGET_SPEC +=	$(BUILD)mp_mul_192.o
@@ -45,7 +57,9 @@ TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 
 HAVE +=		-DHAVE_RSA_SHIFTL
 HAVE +=		-DHAVE_RSA_SHIFTR_LONG
-HAVE +=		-DHAVE_RSA_ADD_LONG 
+
+# not needed if monpro is in asm
+#HAVE +=		-DHAVE_RSA_ADD_LONG
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -93,9 +107,14 @@ HAVE +=         -DHAVE_MP_ADD
 HAVE +=         -DHAVE_MP_SUB 
 HAVE +=         -DHAVE_MP_CMP 
 HAVE += 	-DHAVE_MP_SHIFTR_C -DHAVE_MP_SHIFTR -DHAVE_MP_SHIFTR_2N
-HAVE +=         -DHAVE_MP_SUB_2N
+
+# not needed HAVE_RSA_MOD is set
+#HAVE +=         -DHAVE_MP_SUB_2N
+
 HAVE +=		-DHAVE_MP_SHIFTL
 
+# this is slow, but modular addition and subtraction is side channel safe (perhaps)
+HAVE +=		-DHAVE_MP_ADDSUB_MOD
 
 $(BUILD)avr.o:	$(TARGET)avr.c
 		$(CC) $(CFLAGS) -c -o $(BUILD)avr.o $(TARGET)avr.c
@@ -103,8 +122,8 @@ $(BUILD)avr.o:	$(TARGET)avr.c
 $(BUILD)card_io.o:	$(TARGET)card_io.S card_os/card_io.h
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET)
 
-$(BUILD)mem_device.o:	 $(TARGET)mem_device.c  card_os/mem_device.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o  $(TARGET)mem_device.c -I card_os
+$(BUILD)mem_device.o:	 $(TARGET)mem_device.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o  $(TARGET)mem_device.S -I card_os
 
 $(BUILD)rnd.o:	 $(TARGET)rnd.c  card_os/rnd.h
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rnd.o  $(TARGET)rnd.c -I card_os
@@ -147,13 +166,15 @@ include card_os/Makefile
 	
 $(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
 			$(CC) $(CFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf
+			avr-size --format=SysV $(BUILD)card.elf
 			avr-size $(BUILD)card.elf
 
 $(BUILD)card_orig.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -R .eeprom -R .fuse -R .lock $(BUILD)card.elf $(BUILD)card_orig.hex
 
+#insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text "OsEID"|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
 
 $(BUILD)card.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
@@ -206,6 +227,8 @@ programRead:
 
 #	avrdude -p m128 -c $(PRG) -v -U flash:r:rom_asm_verify.hex:i
 
+eepromRead:
+	avrdude -p m128 -c $(PRG) -v -U eeprom:r:eeprom_verify.bin:r
 
 .PHONY:	clean
 clean:

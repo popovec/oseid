@@ -211,9 +211,10 @@
 #define S_CARD_ID	20
 #define C_CARD_ID	  'O','s','E','I','D',4,2,0x10,\
                           0,0,0,0,0,0,0,0,0,1,0,0
+#define N_CARD_CAP_ID	14
+#define S_CARD_CAP_ID	11
+#define C_CARD_CAP_ID	  1,0,9,8,0,0,0,0,0,1,0x80
                                                                         
-
-
 
 #ifndef NIST_ONLY
 #define C_CONSTANTS \
@@ -221,39 +222,53 @@
   N_SECP256K1_order, S_SECP256K1_order, C_SECP256K1_order,\
   N_SECP256K1_Gx,    S_SECP256K1_Gx,    C_SECP256K1_Gx,\
   N_SECP256K1_Gy,    S_SECP256K1_Gy,    C_SECP256K1_Gy,\
+  N_SECP256K1_a,     S_SECP256K1_a,     C_SECP256K1_a,\
+  N_SECP256K1_b,     S_SECP256K1_b,     C_SECP256K1_b,\
   N_P384V1_prime,    S_P384V1_prime,    C_P384V1_prime,\
   N_P384V1_order,    S_P384V1_order,    C_P384V1_order,\
   N_P384V1_Gx,       S_P384V1_Gx,       C_P384V1_Gx,\
   N_P384V1_Gy,       S_P384V1_Gy,       C_P384V1_Gy,\
+  N_P384V1_a,        S_P384V1_a,        C_P384V1_a,\
+  N_P384V1_b,        S_P384V1_b,        C_P384V1_b,\
   N_P256V1_prime,    S_P256V1_prime,    C_P256V1_prime,\
   N_P256V1_order,    S_P256V1_order,    C_P256V1_order,\
   N_P256V1_Gx,       S_P256V1_Gx,       C_P256V1_Gx,\
   N_P256V1_Gy,       S_P256V1_Gy,       C_P256V1_Gy,\
+  N_P256V1_a,        S_P256V1_a,        C_P256V1_a,\
+  N_P256V1_b,        S_P256V1_b,        C_P256V1_b,\
   N_P192V1_prime,    S_P192V1_prime,    C_P192V1_prime,\
   N_P192V1_order,    S_P192V1_order,    C_P192V1_order,\
   N_P192V1_Gx,       S_P192V1_Gx,       C_P192V1_Gx,\
   N_P192V1_Gy,       S_P192V1_Gy,       C_P192V1_Gy,\
+  N_P192V1_a,        S_P192V1_a,        C_P192V1_a,\
+  N_P192V1_b,        S_P192V1_b,        C_P192V1_b,\
   N_PSHA1_prefix,    S_PSHA1_prefix,    C_PSHA1_prefix,\
-  N_CARD_ID,	     S_CARD_ID,	        C_CARD_ID,
-
+  N_CARD_ID,	     S_CARD_ID,	        C_CARD_ID,\
+  N_CARD_CAP_ID,     S_CARD_CAP_ID,     C_CARD_CAP_ID,
 #else
 #define C_CONSTANTS \
   N_P384V1_prime,   S_P384V1_prime,   C_P384V1_prime,\
   N_P384V1_order,   S_P384V1_order,   C_P384V1_order,\
   N_P384V1_Gx,      S_P384V1_Gx,      C_P384V1_Gx,\
   N_P384V1_Gy,      S_P384V1_Gy,      C_P384V1_Gy,\
+  N_P384V1_a,        S_P384V1_a,        C_P384V1_a,\
+  N_P384V1_b,        S_P384V1_b,        C_P384V1_b,\
   N_P256V1_prime,   S_P256V1_prime,   C_P256V1_prime,\
   N_P256V1_order,   S_P256V1_order,   C_P256V1_order,\
   N_P256V1_Gx,      S_P256V1_Gx,      C_P256V1_Gx,\
   N_P256V1_Gy,      S_P256V1_Gy,      C_P256V1_Gy,\
+  N_P256V1_a,        S_P256V1_a,        C_P256V1_a,\
+  N_P256V1_b,        S_P256V1_b,        C_P256V1_b,\
   N_P192V1_prime,   S_P192V1_prime,   C_P192V1_prime,\
   N_P192V1_order,   S_P192V1_order,   C_P192V1_order,\
   N_P192V1_Gx,      S_P192V1_Gx,      C_P192V1_Gx,\
   N_P192V1_Gy,      S_P192V1_Gy,      C_P192V1_Gy,\
+  N_P192V1_a,        S_P192V1_a,        C_P192V1_a,\
+  N_P192V1_b,        S_P192V1_b,        C_P192V1_b,\
   N_PSHA1_prefix,   S_PSHA1_prefix,   C_PSHA1_prefix,\
-  N_CARD_ID,	    S_CARD_ID,	      C_CARD_ID,
+  N_CARD_ID,	    S_CARD_ID,	      C_CARD_ID,\
+  N_CARD_CAP_ID,    S_CARD_CAP_ID,    C_CARD_CAP_ID,
 #endif
-
 /* *INDENT-ON* */
 
 

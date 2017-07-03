@@ -48,9 +48,21 @@ next IO memory write
 
 // if ISR_ENABLE_FORCE is defined, interrupts are enabled, otherwise 
 // previous state of I flag is restored
-
+// if ISR_DISABLED is defined, stack pointer is changed without CLI
+#ifdef ISR_DISABLED
+// it is assumed, interrupts are always disabled
+.macro  LOAD_SP tmp   RL RH
+        out     0x3d, \RL
+        out     0x3e, \RH
+.endm
+.macro  LOAD_SP_SREG   tmp   RL RH
+        out     0x3d, \RL
+        out     0x3e, \RH
+.endm
+#else
 #ifndef ISR_ENABLE_FORCE
 #if __AVR_XMEGA__ == 1
+// reenable old state I flag 0 or 1
 // xmega code
 .macro  LOAD_SP tmp   RL RH
         out     0x3d, \RL
@@ -78,7 +90,7 @@ next IO memory write
 #endif
 #else // ISR_ENABLE_FORCE
 #if __AVR_XMEGA__ == 1
-// xmega code
+// xmega code ISR_ENABLE_FORCE
 #warning ISR_ENABLE_FORCE is not recomended for xmega!
 .macro  LOAD_SP tmp   RL RH
         out     0x3d, \RL
@@ -91,7 +103,7 @@ next IO memory write
         sei
 .endm
 #else
-// atmega code
+// atmega code ISR_ENABLE_FORCE
 .macro  LOAD_SP tmp   RL RH
         cli
         out     0x3d, \RL
@@ -106,3 +118,4 @@ next IO memory write
 .endm
 #endif                            
 #endif // ISR_ENABLE_FORCE
+#endif // ISR_DISABLED

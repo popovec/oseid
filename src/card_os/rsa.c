@@ -89,9 +89,9 @@ extern uint8_t rsa_mod (rsa_long_num * result, rsa_num * mod);
 #endif
 // add two RSA numbers
 #ifndef HAVE_RSA_ADD
-static uint8_t rsa_add (rsa_num * r, rsa_num * a, rsa_num * b);
+static uint8_t rsa_add (rsa_num * r, rsa_num * a);
 #else
-extern uint8_t rsa_add (rsa_num * r, rsa_num * a, rsa_num * b);
+extern uint8_t rsa_add (rsa_num * r, rsa_num * a);
 #endif
 
 // subtract two RSA numbers
@@ -243,14 +243,14 @@ static void __attribute__ ((unused)) print_rsa_long_num (rsa_long_num * r)
 ///////////////////////////////////////////////////////
 // generic multiple precision add
 static uint8_t
-mp_add_v (uint8_t * r, uint8_t * a, uint8_t * b, uint8_t len, uint8_t carry)
+mp_add_v (uint8_t * r, uint8_t * a, uint8_t len, uint8_t carry)
 {
   int16_t pA, pB, Res;
 
   do
     {
       pA = *a++;
-      pB = *b++;
+      pB = *r;
       Res = pA + pB + carry;
 
       *r++ = Res & 255;
@@ -263,22 +263,12 @@ mp_add_v (uint8_t * r, uint8_t * a, uint8_t * b, uint8_t len, uint8_t carry)
 #ifndef HAVE_RSA_ADD
 // fixed len add for normal rsa number
 static uint8_t
-rsa_add (rsa_num * r, rsa_num * a, rsa_num * b)
+rsa_add (rsa_num * r, rsa_num * a)
 {
-  return mp_add_v (&r->value[0], &a->value[0], &b->value[0], rsa_get_len (),
-		   0);
+  return mp_add_v (&r->value[0], &a->value[0], rsa_get_len (), 0);
 }
 #endif
-#ifndef HAVE_RSA_ADD_LONG
-// fixed len add for long rsa number
-static uint8_t
-rsa_add_long (rsa_long_num * r, rsa_long_num * a, rsa_long_num * b)
-{
-  return mp_add_v (&r->value[0], &a->value[0], &b->value[0],
-		   rsa_get_len () * 2, 0);
-}
 
-#endif
 ///////////////////////////////////////////////////////
 #if (!defined(HAVE_RSA_SUB) \
   || !defined(HAVE_RSA_SUB_LONG) \
@@ -593,16 +583,16 @@ rsa_mul_256 (uint8_t * r, uint8_t * a, uint8_t * b)
 
   memcpy (ld.l_up, r + DO_1, DO_1);
 
-  c = mp_add_v (r + DO_1, r + DO_1, r + DO_2, DO_2, 0);
+  c = mp_add_v (r + DO_1, r + DO_2, DO_2, 0);
 
-  c2 = mp_add_v (r + DO_1, r + DO_1, r, DO_1, 0);
-  c2 = mp_add_v (r + DO_2, r + DO_2, ld.l_up, DO_1, c2);
+  c2 = mp_add_v (r + DO_1, r, DO_1, 0);
+  c2 = mp_add_v (r + DO_2, ld.l_up, DO_1, c2);
 
   c += c2;
 
   if (s1 != s2)
     {
-      c += mp_add_v (r + DO_1, r + DO_1, ld.m, DO_2, 0);
+      c += mp_add_v (r + DO_1, ld.m, DO_2, 0);
       // c= 0,1,2
     }
   else
@@ -646,16 +636,16 @@ rsa_mul_512 (uint8_t * r, uint8_t * a, uint8_t * b)
 
   memcpy (ld.l_up, r + DO_1, DO_1);
 
-  c = mp_add_v (r + DO_1, r + DO_1, r + DO_2, DO_2, 0);
+  c = mp_add_v (r + DO_1, r + DO_2, DO_2, 0);
 
-  c2 = mp_add_v (r + DO_1, r + DO_1, r, DO_1, 0);
-  c2 = mp_add_v (r + DO_2, r + DO_2, ld.l_up, DO_1, c2);
+  c2 = mp_add_v (r + DO_1, r, DO_1, 0);
+  c2 = mp_add_v (r + DO_2, ld.l_up, DO_1, c2);
 
   c += c2;
 
   if (s1 != s2)
     {
-      c += mp_add_v (r + DO_1, r + DO_1, ld.m, DO_2, 0);
+      c += mp_add_v (r + DO_1, ld.m, DO_2, 0);
       // c= 0,1,2
     }
   else
@@ -701,16 +691,16 @@ rsa_mul_384 (uint8_t * r, uint8_t * a, uint8_t * b)
 
   memcpy (ld.l_up, r + DO_1, DO_1);
 
-  c = mp_add_v (r + DO_1, r + DO_1, r + DO_2, DO_2, 0);
+  c = mp_add_v (r + DO_1, r + DO_2, DO_2, 0);
 
-  c2 = mp_add_v (r + DO_1, r + DO_1, r, DO_1, 0);
-  c2 = mp_add_v (r + DO_2, r + DO_2, ld.l_up, DO_1, c2);
+  c2 = mp_add_v (r + DO_1, r, DO_1, 0);
+  c2 = mp_add_v (r + DO_2, ld.l_up, DO_1, c2);
 
   c += c2;
 
   if (s1 != s2)
     {
-      c += mp_add_v (r + DO_1, r + DO_1, ld.m, DO_2, 0);
+      c += mp_add_v (r + DO_1, ld.m, DO_2, 0);
       // c= 0,1,2
     }
   else
@@ -752,16 +742,16 @@ rsa_mul_768 (uint8_t * r, uint8_t * a, uint8_t * b)
 
   memcpy (ld.l_up, r + DO_1, DO_1);
 
-  c = mp_add_v (r + DO_1, r + DO_1, r + DO_2, DO_2, 0);
+  c = mp_add_v (r + DO_1, r + DO_2, DO_2, 0);
 
-  c2 = mp_add_v (r + DO_1, r + DO_1, r, DO_1, 0);
-  c2 = mp_add_v (r + DO_2, r + DO_2, ld.l_up, DO_1, c2);
+  c2 = mp_add_v (r + DO_1, r, DO_1, 0);
+  c2 = mp_add_v (r + DO_2, ld.l_up, DO_1, c2);
 
   c += c2;
 
   if (s1 != s2)
     {
-      c += mp_add_v (r + DO_1, r + DO_1, ld.m, DO_2, 0);
+      c += mp_add_v (r + DO_1, ld.m, DO_2, 0);
       // c= 0,1,2
     }
   else
@@ -810,16 +800,16 @@ rsa_mul_1024 (uint8_t * r, uint8_t * a, uint8_t * b)
 
   memcpy (ld.l_up, r + DO_1, DO_1);
 
-  c = mp_add_v (r + DO_1, r + DO_1, r + DO_2, DO_2, 0);
+  c = mp_add_v (r + DO_1, r + DO_2, DO_2, 0);
 
-  c2 = mp_add_v (r + DO_1, r + DO_1, r, DO_1, 0);
-  c2 = mp_add_v (r + DO_2, r + DO_2, ld.l_up, DO_1, c2);
+  c2 = mp_add_v (r + DO_1, r, DO_1, 0);
+  c2 = mp_add_v (r + DO_2, ld.l_up, DO_1, c2);
 
   c += c2;
 
   if (s1 != s2)
     {
-      c += mp_add_v (r + DO_1, r + DO_1, ld.m, DO_2, 0);
+      c += mp_add_v (r + DO_1, ld.m, DO_2, 0);
       // c= 0,1,2
     }
   else
@@ -847,10 +837,10 @@ rsa_mul_512_mod (uint8_t * r, uint8_t * a, uint8_t * b)
   memcpy (t, r, 32);
 
   rsa_mul_256 (r, b, a + 32);
-  mp_add_v (t, t, r, 32, 0);
+  mp_add_v (t, r, 32, 0);
 
   rsa_mul_256 (r, a, b);
-  mp_add_v (r + 32, r + 32, t, 32, 0);
+  mp_add_v (r + 32, t, 32, 0);
 #else
   uint8_t t[128];
   rsa_mul_512 (t, a, b);
@@ -872,10 +862,10 @@ rsa_mul_768_mod (uint8_t * r, uint8_t * a, uint8_t * b)
   memcpy (t, r, 48);
 
   rsa_mul_384 (r, b, a + 48);
-  mp_add_v (t, t, r, 48, 0);
+  mp_add_v (t, r, 48, 0);
 
   rsa_mul_384 (r, a, b);
-  mp_add_v (r + 48, r + 48, t, 48, 0);
+  mp_add_v (r + 48, t, 48, 0);
 
 }
 #else
@@ -892,10 +882,10 @@ rsa_mul_1024_mod (uint8_t * r, uint8_t * a, uint8_t * b)
   rsa_mul_512_mod (t, a, b + 64);
 
   rsa_mul_512_mod (r, b, a + 64);
-  mp_add_v (t, t, r, 64, 0);
+  mp_add_v (t, r, 64, 0);
 
   rsa_mul_512 (r, a, b);
-  mp_add_v (r + 64, r + 64, t, 64, 0);
+  mp_add_v (r + 64, t, 64, 0);
 }
 #endif
 #endif
@@ -1068,7 +1058,7 @@ rsa_inv_mod (rsa_num * n_, rsa_num * n)
 	{
 	  // constant time ..
 	  // n_ = (n_ + 0)/ 2
-	  carry = rsa_add (n_, n_, &zero);
+	  carry = rsa_add (n_, &zero);
 	  rsa_shiftr (n_);
 	  if (carry)
 	    n_->value[j - 1] |= 0x80;
@@ -1076,7 +1066,7 @@ rsa_inv_mod (rsa_num * n_, rsa_num * n)
       else
 	{
 	  // n_ = (n_ + p)/2
-	  carry = rsa_add (n_, n_, n);
+	  carry = rsa_add (n_, n);
 	  rsa_shiftr (n_);
 	  if (carry)
 	    n_->value[j - 1] |= 0x80;
@@ -1162,6 +1152,14 @@ rsa_inv_mod_full (rsa_num * n_, rsa_num * modulus)
 #ifndef HAVE_MON_PRO0
 #if USE_N0 == 0
 
+#ifndef HAVE_RSA_ADD_LONG
+// fixed len add for long rsa number
+static uint8_t
+rsa_add_long (rsa_long_num * r, rsa_long_num * a)
+{
+  return mp_add_v (&r->value[0], &a->value[0], rsa_get_len () * 2, 0);
+}
+#endif
 static uint8_t
 monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * help1, rsa_num * n,
 	 n0_t n0)
@@ -1171,7 +1169,7 @@ monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * help1, rsa_num * n,
   rsa_mul_mod (a, (rsa_num *) t, n0);
   rsa_mul (help1, a, n);
 
-  carry = rsa_add_long (help1, t, help1);
+  carry = rsa_add_long (help1, t);
 
   carry ^=
     rsa_sub ((rsa_num *) & t->value[rsa_get_len ()],
@@ -1751,7 +1749,7 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 
     //keep  constant time
     carry = rsa_sub (TMP2, M1, M2);
-    rsa_add (TMP3, TMP3, TMP2);
+    rsa_add (TMP3, TMP2);
     if (carry)
       memcpy (TMP1, TMP3, RSA_BYTES);
     else
@@ -1789,10 +1787,10 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 // prepare zero for propagating carry
   memset (TMP1, 0, RSA_BYTES);
   // calculate final m =  m2 + (h*q)
-  tmp.value[0] = rsa_add (M1, M1, M2);
+  tmp.value[0] = rsa_add (M1, M2);
 
   // propagate carry to upper bits of 'm'
-  rsa_add (TMP2, TMP2, TMP1);
+  rsa_add (TMP2, TMP1);
 
 #ifdef RSA_DEBUG
   printf ("final result:\n");

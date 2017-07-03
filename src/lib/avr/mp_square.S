@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -70,15 +70,15 @@ rsa_square_1024_no_abi - input is addressed by r22,r23 result by r24,r25
 function name            ticks (without call/ret)
 ------------------------------------------------------------------
 rsa_square_192_no_abi    1893     (uses 10 bytes on stack)
-rsa_square_256_no_abi    3139     (uses 32 bytes on stack)
+rsa_square_256_no_abi    3123     (uses 32 bytes on stack)
 rsa_square_384_no_abi   (8+rsa_square_192_no_abi)*3 + 1001 = 6714
-rsa_square_512_no_abi   (8+rsa_square_256_no_abi)*3 + 1350 = 10791
+rsa_square_512_no_abi   (8+rsa_square_256_no_abi)*3 + 1346 = 10739
 rsa_square_192
 rsa_square_256
 rsa_square_384
 rsa_square_512
 rsa_square_768          (8+rsa_square_384_no_abi)*3 + 2301 = 22467
-rsa_square_1024         (8+rsa_square_512_no_abi)*3 + 2151 = 34548
+rsa_square_1024         (8+rsa_square_512_no_abi)*3 + 2151 = 34392
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 Level  48 bits: squaring 0-5 to 0-11 bytes classical square (karatsuba is slower)
@@ -130,6 +130,7 @@ r0,r1,r28,r29 are used direct without aliases.
 .endm
 .macro  LOAD_SP_SREG   tmp   RL RH
         out     0x3d, \RL
+	out     0x3f, \tmp
         out     0x3e, \RH
 .endm
 */
@@ -519,7 +520,6 @@ r0,r1,r28,r29 are used direct without aliases.
 	clr	\ACC_14
 	adc	\ACC_14,r1
 	clr	\ACC_15
-
 // maximum result: FF00FF00FF00FE80FF00FF00FF00FF
 // double result
 	add	\ACC_1,\ACC_1
@@ -582,6 +582,245 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_15,\ZERO
 	clr	\ZERO
 .endm
+.macro SQUARE_ADD_64x	ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A7 A6 A5 A4 A3 A2 A1 A0  TMP2 TMP
+	clr	\ACC_14
+//load bit 0
+	bst	\ACC_1,0
+//divide
+	lsr	\ACC_7
+	ror	\ACC_6
+	ror	\ACC_5
+	ror	\ACC_4
+	ror	\ACC_3
+	ror	\ACC_2
+	ror	\ACC_1
+// 0
+// 1* 0+1
+// 2* 0+2
+// 3* 0+3 1-2
+// 4* 0-4 1-3
+// 5* 0+5 1-4 2/3
+// 6* 0+6 1w5 2/4
+// 7* 0+7 1w6 2u5 3/4
+// 8  1S7 2w6 3u5
+// 9  2s7 3u6 4/5
+//10  3S7 4w6
+//11  4s7 5u6
+//12  5S7
+//13  6.7
+//14
+//15
+
+// xx xx xx xx xx xx xx xx 7F FF FF FF FF FF FF FF
+	mul	\A1,\A7
+	movw	\ACC_8,r0
+
+	mul	\A3,\A7
+	movw	\ACC_10,r0
+// xx = tmp registers
+// xx xx xx xx FE 01 FE 01 7F FF FF FF FF FF FF FF
+	mul	\A0,\A7
+	movw	\ACC_12,r0
+
+	mul	\A0,\A3
+	movw	\TMP,r0
+
+	mul	\A0,\A1
+	add	\ACC_1,r0
+	adc	\ACC_2,r1
+	adc	\ACC_3,\TMP
+	adc	\TMP2,\ACC_14	//carry here or
+
+	mul	\A0,\A2
+	add	\ACC_2,r0
+	adc	\ACC_3,r1
+	adc	\TMP2,\ACC_14	//carry here, not both
+
+	mul	\A0,\A5
+	add	\ACC_4,\TMP2
+	adc	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_12
+	adc	\ACC_13,\ACC_14
+// xx xx FF xx FE 01 FE 01 81 FE 01 FE FF FF 00 FF
+//       ^^ temp for position 10
+	mul	\A0,\A6
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_13,\ACC_14
+// xx xx FF xx FE 01 FF 00 7F FF 01 FE FF FF 00 FF
+	mul	\A1,\A4
+	movw	\TMP,r0
+
+	mul	\A1,\A2
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\TMP
+	adc	\TMP2,\ACC_14	//carry here or
+
+	mul	\A1,\A3
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\TMP2,\ACC_14	//carry here, not both
+
+	mul	\A0,\A4
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_6,\TMP2
+
+	adc	\ACC_7,\ACC_14
+	adc	\ACC_8,\ACC_13
+	adc	\ACC_9,\ACC_14
+//xx xx xx xx FE 01 FF 00 80 FE FF FF 00 FF 00 FF
+
+	mul	\A3,\A4
+	movw	\TMP,r0
+
+	mul	\A2,\A3
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\TMP
+	adc	\TMP2,\ACC_14
+
+	mul	\A2,\A4
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\TMP2,\ACC_14
+
+	mul	\A4,\A5
+	add	\ACC_8,\TMP2
+	adc	\ACC_9,r0
+	adc	\ACC_10,r1
+	adc	\ACC_11,\ACC_14
+//xx xx xx xx FF 00 00 FF 80 FE 00 FF 00 FF 00 FF
+
+	mul	\A2,\A7
+	add	\ACC_9,r0
+	adc	\ACC_10,r1
+	adc	\ACC_11,\ACC_14
+// xx xx xx xx FF FE 01 FF 80 FE 00 FF 00 FF 00 FF
+
+	mul	\A4,\A7
+	movw	\TMP,r0
+
+	mul	\A2,\A6
+	movw	\ACC_12,r0
+
+	mul	\A1,\A5
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_8,\ACC_12
+	adc	\ACC_13,\ACC_14
+
+	mul	\A1,\A6
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_13,\ACC_14
+// fe 01 tt xx FF FF 00 FF 7F FF 00 FF 00 FF 00 FF
+
+	mul	\A4,\A6
+	add	\ACC_9,\ACC_13
+	adc	\ACC_10,r0
+	adc	\ACC_11,r1
+	adc	\TMP2,\ACC_14
+//temp in TMP2 TMP for   ACC_12,11 ..
+
+	mul	\A5,\A7
+	movw	\ACC_12,r0
+
+	add	\ACC_11,\TMP
+	adc	\ACC_12,\TMP2
+	adc	\ACC_13,\ACC_14
+// FE 02 xx xx FE 00 00 FF 7F FF 00 FF 00 FF 00 FF
+//
+	mul	\A3,\A6
+	movw	\TMP,r0
+
+	mul	\A2,\A5
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\TMP
+	adc	\TMP2,\ACC_14
+
+	mul	\A3,\A5
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\TMP2,\ACC_14
+
+	mul	\A5,\A6
+	add	\ACC_10,\TMP2
+	adc	\ACC_11,r0
+	adc	\ACC_12,r1
+	adc	\ACC_13,\ACC_14
+// FF00FFFF00FE80FF00FF00FF00FF
+	mul	\A6,\A7
+	add	\ACC_13,r0
+//	clr	\ACC_14
+	adc	\ACC_14,r1
+	clr	\ACC_15
+// maximum result: FF00FF00FF00FE80FF00FF00FF00FF
+// double result
+	add	\ACC_1,\ACC_1
+	adc	\ACC_2,\ACC_2
+	adc	\ACC_3,\ACC_3
+	adc	\ACC_4,\ACC_4
+	adc	\ACC_5,\ACC_5
+	adc	\ACC_6,\ACC_6
+	adc	\ACC_7,\ACC_7
+	adc	\ACC_8,\ACC_8
+	adc	\ACC_9,\ACC_9
+	adc	\ACC_10,\ACC_10
+	adc	\ACC_11,\ACC_11
+	adc	\ACC_12,\ACC_12
+	adc	\ACC_13,\ACC_13
+	adc	\ACC_14,\ACC_14
+	adc	\ACC_15,\ACC_15
+	bld	\ACC_1,0
+
+	mul	\A1,\A1
+	movw	\TMP,r0
+
+	mul	\A0,\A0
+	add	\ACC_0,r0
+	adc	\ACC_1,r1
+	adc	\ACC_2,\TMP
+	adc	\ACC_3,\TMP2
+	rol	\ACC_15		//save carry
+
+	mul	\A3,\A3
+	movw	\TMP,r0
+
+	mul	\A2,\A2
+	ror	\ACC_15		//renew carry
+	adc	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_6,\TMP
+	adc	\ACC_7,\TMP2
+	rol	\ACC_15
+
+	mul	\A5,\A5
+	movw	\TMP,r0
+
+	mul	\A4,\A4
+	ror	\ACC_15		//renew carry
+	adc	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\ACC_10,\TMP
+	adc	\ACC_11,\TMP2
+	rol	\ACC_15
+
+	mul	\A7,\A7
+	movw	\TMP,r0
+
+	mul	\A6,\A6
+	lsr	\ACC_15		//renew carry
+	adc	\ACC_12,r0
+	adc	\ACC_13,r1
+	adc	\ACC_14,\TMP
+	adc	\ACC_15,\TMP2
+//	clr	\ZERO
+.endm
+
 // 0
 // 1 0s1
 // 2 0X2
@@ -727,6 +966,7 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_9,\ZERO
 	adc	\ACC_10,\ACC_14
 	adc	\ACC_11,\ACC_15
+
 	adc	\ACC_12,\ZERO
 	adc	\ACC_13,\ZERO
 //FFFF 00FF 00FE 00FF 00FF 00FF 0100
@@ -799,6 +1039,226 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_14,\TMP
 	adc	\ACC_15,\ZERO
 	clr	\ZERO
+.endm
+// 0
+// 1 0s1
+// 2 0X2
+// 3 0o3 1s2
+// 4 0X4 1o3
+// 5 0v5 1o4 2s3
+// 6 0X6 1v5 2*4
+// 7 0v7 1/6 2_5 3o4
+// 8 1X7 2/6 3_5
+// 9 2v7 3/6 4_5
+//10 3X7 4.6
+//11 4/7 5_6
+//12 5X7
+//13 6.7
+//14
+//15
+//WARNING, A0,A1 is destroyed, ACC_15 must be cleared 1st (use SQUARE_64z_CLEAR macro)
+.macro SQUARE_64z_CLEAR ACC_15 ACC_14 ACC_13 ACC_12
+	clr	\ACC_15
+.endm
+.macro SQUARE_64z	ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A7 A6 A5 A4 A3 A2 A1 A0 TMP2 TMP
+	mul	\A0,\A2
+	movw	\ACC_2,r0
+
+	mul	\A0,\A1
+	mov	\ACC_1,r0
+	add	\ACC_2,r1
+	adc	\ACC_3,\ACC_15
+
+	mul	\A0,\A4
+	movw	\ACC_4,r0
+
+	mul	\A0,\A6
+	movw	\ACC_6,r0
+
+	mul	\A1,\A7
+	movw	\ACC_8,r0
+
+	mul	\A3,\A7
+	movw	\ACC_10,r0
+
+	mul	\A5,\A7
+	movw	\ACC_12,r0
+
+	mul	\A1,\A2
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\ACC_15
+
+	mul	\A2,\A3
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_15
+
+//FE01 FE01 FE01 FEFF FFFF FFFF 0100
+////////////////////////////
+	mul	\A1,\A4
+	movw	\TMP,r0
+
+	mul	\A0,\A3
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A1,\A3
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A3,\A4
+	add	\ACC_6,\TMP2
+	adc	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\ACC_15
+//FE01 FE01 FF00 00FE FFFF 00FF 0100
+///////////////////////////////
+	mul	\A0,\A7
+	movw	\TMP,r0
+
+	mul	\A0,\A5
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A1,\A5
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A2,\A7
+	add	\ACC_8,\TMP2
+	adc	\ACC_9,r0
+	adc	\ACC_10,r1
+	adc	\ACC_11,\ACC_15
+//FE01 FF00 00FF 00FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A4,\A5
+	movw	\TMP,r0
+
+	mul	\A2,\A5
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A3,\A5
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A5,\A6
+	add	\ACC_10,\TMP2
+	adc	\ACC_11,r0
+	adc	\ACC_12,r1
+	adc	\ACC_13,\ACC_15
+//FF00 00FF 00FE 01FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A3,\A6
+	movw	\TMP,r0
+
+	mul	\A1,\A6
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A2,\A6
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A4,\A7
+	add	\ACC_10,\TMP2
+	adc	\ACC_11,r0
+	adc	\ACC_12,r1
+	adc	\ACC_13,\ACC_15
+//FFFE 02FE 00FD 02FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A4,\A6
+	movw	\TMP,r0
+
+	mul	\A2,\A4
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_8,\ACC_15
+	adc	\ACC_9,\ACC_15
+	adc	\ACC_10,\TMP
+	adc	\ACC_11,\TMP2
+	adc	\ACC_12,\ACC_15
+	adc	\ACC_13,\ACC_15
+//FFFF 00FF 00FE 00FF 00FF 00FF 0100
+////////////////////////////////
+	mul	\A6,\A7
+	add	\ACC_13,r0
+	clr	\ACC_14
+	adc	\ACC_14,r1
+
+// maximal result 00FF00FF 00FF00FE 00FF00FF 00FF0100
+// there is no carry to ACC_15
+
+// double result
+	add	\ACC_1,\ACC_1
+	adc	\ACC_2,\ACC_2
+	adc	\ACC_3,\ACC_3
+	adc	\ACC_4,\ACC_4
+	adc	\ACC_5,\ACC_5
+	adc	\ACC_6,\ACC_6
+	adc	\ACC_7,\ACC_7
+	adc	\ACC_8,\ACC_8
+	adc	\ACC_9,\ACC_9
+	adc	\ACC_10,\ACC_10
+	adc	\ACC_11,\ACC_11
+	adc	\ACC_12,\ACC_12
+	adc	\ACC_13,\ACC_13
+	adc	\ACC_14,\ACC_14
+	adc	\ACC_15,\ACC_15
+
+	mul	\A1,\A1
+	movw	\TMP,r0
+
+	mul	\A0,\A0
+	mov	\ACC_0,r0
+	add	\ACC_1,r1
+	adc	\ACC_2,\TMP
+	adc	\ACC_3,\TMP2
+	rol	\ACC_15		//save carry
+
+	mul	\A4,\A4
+	movw	\A0,r0
+
+	mul	\A3,\A3
+	movw	\TMP,r0
+
+	mul	\A2,\A2
+	ror	\ACC_15		//renew carry
+	adc	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_6,\TMP
+	adc	\ACC_7,\TMP2
+	adc	\ACC_8,\A0
+	adc	\ACC_9,\A1
+	rol	\ACC_15
+
+	mul	\A7,\A7
+	movw	\A0,r0
+
+	mul	\A6,\A6
+	movw    \TMP,r0
+
+	mul	\A5,\A5
+	lsr	\ACC_15		//renew carry
+	adc	\ACC_10,r0
+	adc	\ACC_11,r1
+	adc	\ACC_12,\TMP
+	adc	\ACC_13,\TMP2
+	adc	\ACC_14,\A0
+	adc	\ACC_15,\A1
 .endm
 
 .macro	REG_SUB_MEM128  A15 A14 A13 A12 A11 A10 A9 A8 A7 A6 A5 A4 A3 A2 A1 A0 M TMP
@@ -1535,6 +1995,7 @@ rsa_square_256_no_abi:
 
 #define ZERO	r27
 #define TMP	r26
+#define TMP2X  r27
 
 #define SET_A	 r5,r4,r3,r2
 #define SET_B	 r9,r8,r7,r6
@@ -1563,8 +2024,8 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM	SET_A	0
 	LOAD32_FROM_Y_MEM 	SET_B	4
 
-	clr	ZERO
-	SQUARE_64   		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  ZERO TMP
+        SQUARE_64z_CLEAR	SET_3
+	SQUARE_64z   		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
 
 	STORE32_TO_MEM    0 	SET_0
 	STORE32_TO_MEM    4 	SET_1
@@ -1574,8 +2035,7 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM		SET_A	8
 	LOAD32_FROM_Y_MEM		SET_B	12
 
-
-	SQUARE_ADD_64       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A  ZERO TMP
+	SQUARE_ADD_64x       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
 
 	STORE32_TO_MEM	16	SET_2
 	STORE32_TO_MEM	20	SET_3
@@ -1595,9 +2055,11 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM		SET_A	0
 	LOAD32_FROM_Y_MEM		SET_B	4
 
-	ABS_SUB64       	SET_B,SET_A       SET_1,SET_0   ZERO TMP
+	SQUARE_64z_CLEAR	SET_3
+// r25 is cleared (SET_3), use this reg as ZERO
+	ABS_SUB64       	SET_B,SET_A       SET_1,SET_0   r25 TMP
 
-	SQUARE_64   		SET_3,SET_2,SET_1,SET_0    SET_B,SET_A      ZERO TMP
+	SQUARE_64z  		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
 
 	LOAD_FROM_MEM_		SET_A 	0
 	LOAD_FROM_MEM_		SET_B	4
@@ -1613,9 +2075,8 @@ karatchuba squaring for 128 bites:
 	LOAD_FROM_MEM_	SET_1 	20
 	ADC32		SET_B   SET_1
 	STORE32_TO_MEM	12	SET_B
-// save carry
+// save carry (0x00/0xff)
 	sbc	TMP,TMP
-	neg	TMP
 // renew borow
 	lsr	r0
 	SBC64		SET_1,SET_0   SET_3,SET_2
@@ -1631,8 +2092,11 @@ karatchuba squaring for 128 bites:
 	ADC64 SET_1 SET_0   SET_B SET_A
 
 // prepare registers to add carry:
-	adc	r0,ZERO
-	adc	r1,ZERO	
+
+	SQUARE_64z_CLEAR	SET_3
+// r25 is cleared (SET_3), use this reg as ZERO
+	adc	r0,r25
+	adc	r1,r25
 
 	STORE32_TO_MEM	16	SET_0
 	STORE32_TO_MEM	20	SET_1
@@ -1651,8 +2115,8 @@ karatchuba squaring for 128 bites:
 
 	LOAD32_FROM_Y_MEM	SET_A	0+SEEK_O
 	LOAD32_FROM_Y_MEM	SET_B	4+SEEK_O
-
-	SQUARE_64   SET_3,SET_2,SET_1,SET_0    SET_B,SET_A     ZERO TMP
+        // SQUARE_64z_CLEAR is already expanded aprox.  20 lines above.)
+	SQUARE_64z   SET_3,SET_2,SET_1,SET_0    SET_B,SET_A     TMP2X TMP
 
 	STORE32_TO_MEM 	0+SEEK_R	SET_0
 	STORE32_TO_MEM	4+SEEK_R 	SET_1
@@ -1660,7 +2124,7 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM	SET_A	8+SEEK_O
 	LOAD32_FROM_Y_MEM	SET_B	12+SEEK_O
 
-	SQUARE_ADD_64       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A  ZERO  TMP
+	SQUARE_ADD_64x       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
 
 	STORE32_TO_MEM	16+SEEK_R	SET_2
 	STORE32_TO_MEM	20+SEEK_R	SET_3
@@ -1680,9 +2144,11 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM	SET_A	0+SEEK_O
 	LOAD32_FROM_Y_MEM	SET_B	4+SEEK_O
 
-	ABS_SUB64	SET_B,SET_A       SET_1,SET_0  ZERO TMP
+	SQUARE_64z_CLEAR 	SET_3
+// r25 is cleared (SET_3), use this reg as ZERO
+	ABS_SUB64	SET_B,SET_A       SET_1,SET_0  r25 TMP
 
-	SQUARE_64   SET_3,SET_2,SET_1,SET_0    SET_B,SET_A      ZERO TMP
+	SQUARE_64z   		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
 
 	LOAD_FROM_MEM_ SET_A 	0+SEEK_R
 	LOAD_FROM_MEM_ SET_B 	4+SEEK_R
@@ -1705,6 +2171,8 @@ karatchuba squaring for 128 bites:
 
 	ADD64  SET_B SET_A    SET_3 SET_2
 	ADC64  SET_1 SET_0    SET_3 SET_2
+
+	clr	ZERO
 	adc r0, ZERO
 	adc r1, ZERO
 
@@ -1807,7 +2275,8 @@ karatchuba squaring for 128 bites:
 	PUSH32	SET_0
 	PUSH32	SET_1
 	// square  M_full_lo
-	SQUARE_64   	SET_3,SET_2,SET_1,SET_0    SET_B,SET_A      ZERO TMP
+	SQUARE_64z_CLEAR	SET_3
+	SQUARE_64z   		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
 // load M_full_hi 
 	POP32	SET_B
 	POP32	SET_A
@@ -1816,7 +2285,7 @@ karatchuba squaring for 128 bites:
 	PUSH32	SET_0
 	PUSH32	SET_1
 
-	SQUARE_ADD_64       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A  ZERO TMP
+	SQUARE_ADD_64x       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A  ZERO TMP
 
 //save BC_0,BC_4
 	PUSH32	SET_2
@@ -1852,7 +2321,8 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM		SET_B3_0	M_0
 	LOAD32_FROM_Y_MEM		SET_B7_4	M_4
 
-	SQUARE_64		SET_TMP1,SET_TMP0,SET_C7_4,SET_C3_0    SET_B7_4,SET_B3_0      ZERO TMP
+	SQUARE_64z_clear	SET_TMP1
+	SQUARE_64z		SET_TMP1,SET_TMP0,SET_C7_4,SET_C3_0    SET_B7_4,SET_B3_0  TMP2X TMP
 
 	LOAD32_FROM_Y_MEM		SET_B3_0	A_0
 	LOAD32_FROM_Y_MEM		SET_B7_4	A_4
@@ -1868,6 +2338,8 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM		SET_TMP1		BC_4
 	ADD64			SET_B7_4,SET_B3_0	SET_TMP1,SET_TMP0
 	ADC64			SET_C7_4,SET_C3_0	SET_TMP1,SET_TMP0
+
+	clr	ZERO
   	adc	r0,ZERO
   	adc	r1,ZERO
 
@@ -1897,18 +2369,17 @@ karatchuba squaring for 128 bites:
 
 // in SET3..0  is result from square(lo-hi)
 // 128 bit subtract  - from Z15..Z0 subtract 128 bit from middle part (square(lo-hi)
-// store borrow in "ZERO"
+// store borrow in "ZERO" (bit 0)
 // result = MEM - operand
 
 	REG_MEM_SUB_REG128	 SET_3r,SET_2r,SET_1r,SET_0r    0	SET_B7_4,SET_B3_0,SET_TMP1,SET_TMP0
-	sbc ZERO, ZERO
-
+	rol	ZERO
 // to result (in SET_3r..A) is now added  128 bits from square (16-31)
 // (in this part is already added high part from square 0-15)
 
 	MEM_ADD64 16 32    SET_1r SET_0r	TMP
 	MEM_ADC64 24 40	   SET_3r,SET_2r  	TMP
-// preserve carry flag
+// preserve carry flag (and full status register for LOAD_SP_SREG macro)
 	in      TMP,0x3f
 
 	LOAD32_FROM_Y_MEM		SET_B3_0	D_0
@@ -1920,6 +2391,7 @@ karatchuba squaring for 128 bites:
 	LOAD_SP_SREG TMP, r28,r29
 
 // warning, TMP is needed below!
+// get borrow from ZERO (recreate ZERO)
 	lsr	ZERO
 	REG_MEM_SBC_REG128	SET_3r,SET_2r,SET_1r,SET_0r   48  SET_B7_4,SET_B3_0,SET_C7_4,SET_C3_0
 // get borrow
@@ -1932,7 +2404,6 @@ karatchuba squaring for 128 bites:
 	MEM_ADC64  40 40	SET_3r SET_2r 	TMP
 
 // append carry/borrow to get -1,0,1
-	clr	ZERO
   	adc 	r28,ZERO
 	adc	r29,ZERO
 
@@ -2133,22 +2604,23 @@ rsa_square_512_loop1:
 	call	rsa_square_256_no_abi
 
 // load values back 
-	in	r28, 0x3d
-	in	r29, 0x3e
-	ldd	r30,Y+3	// Result
-	ldd	r31,Y+4
-
-	movw	r26,r28
+	in	r30, 0x3d
+	in	r31, 0x3e
+	movw	r26,r30
 	adiw	r26,5		// skip variables on stack to point 64 byt TMP
 
-	movw	r28,r30
-	subi	r28,lo8(-64)
-	sbci	r29,hi8(-64)
+	ldd	r28,Z+3	// Result
+	ldd	r29,Z+4
+
+	movw	r30,r28
+
+	subi	r30,lo8(-64)
+	sbci	r31,hi8(-64)
 
 // combine partial results
 //       D          C           B          A          
 //  127      96 95      64 63       32 31      0
-//                      Y                      Z
+//                      Z                      Y
 // M is addressed by X
 //-------------------------------------------------
 #define _CARRY r25
@@ -2165,11 +2637,11 @@ rsa_square_512_loop1:
 
 // load B into r15..r8 (r23..r8 is B+C cache)
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos+8,Z+32+\pos
+	ldd	\pos+8,Y+32+\pos
 .endr
 // load first 8 bytes into ACU from C
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Y+\pos
+	ldd	\pos,Z+\pos
 .endr
 //summarize 1st part BC into B+C cache
 	add	r8,r0
@@ -2179,7 +2651,7 @@ rsa_square_512_loop1:
 	rol	_CARRY	//save carry from B+C
 // load 1st part of A
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Z+\pos
+	ldd	\pos,Y+\pos
 .endr
 // summarize ACU = (B+C cache)+A
 	add	r0,r8
@@ -2190,11 +2662,11 @@ rsa_square_512_loop1:
 // subtract M, store result to memory - final B
 	ld	_ACC,X+
 	sub	r0,_ACC
-	std	Z+32,r0
+	std	Y+32,r0
 .irp	pos,1,2,3,4,5,6,7
 	ld	_ACC,X+
 	sbc	\pos,_ACC
-	std	Z+32+\pos,\pos
+	std	Y+32+\pos,\pos
 .endr
 ////////// RESULT bytes 63.. 32 ///////////////////////////////
 // 47..40
@@ -2202,11 +2674,11 @@ rsa_square_512_loop1:
 	ror	_CARRY	// save carry ABC, renew BC
 // load B into r23..r16
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos+16,Z+32+8+\pos
+	ldd	\pos+16,Y+32+8+\pos
 .endr
 // load 2nd 8 bytes from C
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Y+8+\pos
+	ldd	\pos,Z+8+\pos
 .endr
 //summarize 2nd part BC into r23..r16
 .irp	pos,0,1,2,3,4,5,6,7
@@ -2215,7 +2687,7 @@ rsa_square_512_loop1:
 	rol	_CARRY	//save carry from B+C
 // load 2nd part of A
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Z+\pos+8
+	ldd	\pos,Y+\pos+8
 .endr
 // summarize (B+C)+A
 .irp	pos,0,1,2,3,4,5,6,7
@@ -2226,7 +2698,7 @@ rsa_square_512_loop1:
 .irp	pos,0,1,2,3,4,5,6,7
 	ld	_ACC,X+
 	sbc	\pos,_ACC
-	std	Z+32+8+\pos,\pos
+	std	Y+32+8+\pos,\pos
 .endr
 ////////// RESULT bytes 63.. 32 ///////////////////////////////
 // 63..56, 55..48
@@ -2236,18 +2708,18 @@ rsa_square_512_loop1:
 	ror	_CARRY	// save carry ABC, renew BC
 //load B into r7..r0
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Z+32+\part+\pos
+	ldd	\pos,Y+32+\part+\pos
 .endr
 //add C
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	_ACC,Y+\pos+\part
+	ldd	_ACC,Z+\pos+\part
 	adc	\pos,_ACC
-	std	Y+\part+\pos,\pos	//no enough reg, store B+C into RAM
+	std	Z+\part+\pos,\pos	//no enough reg, store B+C into RAM
 .endr
 	rol	_CARRY  //save carry from B+C
 //add A
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	_ACC,Z+\pos+\part
+	ldd	_ACC,Y+\pos+\part
 	adc	\pos,_ACC
 .endr
 	rol	_CARRY  //save carry from B+C+A
@@ -2255,7 +2727,7 @@ rsa_square_512_loop1:
 .irp	pos,0,1,2,3,4,5,6,7
 	ld	_ACC,X+
 	sbc	\pos,_ACC
-	std	Z+32+\part+\pos,\pos
+	std	Y+32+\part+\pos,\pos
 .endr
 .endr	//parts..
 // save carry for propagation into D
@@ -2269,7 +2741,7 @@ rsa_square_512_loop1:
 // r23..r8 B+C cache ..
 // add D
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	_ACC,Y+32+\pos		//D - not cached
+	ldd	_ACC,Z+32+\pos		//D - not cached
 	adc	\pos+8,_ACC
 .endr
 	rol	_CARRY	//save carry BC, renew carry ABC
@@ -2284,7 +2756,7 @@ rsa_square_512_loop1:
 .irp	pos,0,1,2,3,4,5,6,7
 	ld	_ACC,X+
 	sbc	\pos+8,_ACC
-	std	Y+\pos,\pos+8
+	std	Z+\pos,\pos+8
 .endr
 
 // 79..71
@@ -2302,18 +2774,18 @@ rsa_square_512_loop1:
 	ror	_CARRY	//renew carry BC
 // preload into r8..r15 D, summarize
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos+8,Y+32+\pos+8
+	ldd	\pos+8,Z+32+\pos+8
 	adc	\pos+16,\pos+8
-	std	Y+\pos+8,\pos+16
+	std	Z+\pos+8,\pos+16
 .endr
 // 87..80
 // load B+C from mem into ACU
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Y+16+\pos
+	ldd	\pos,Z+16+\pos
 .endr
 // preload into r16..r23 D, summarize
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos+16,Y+32+16+\pos
+	ldd	\pos+16,Z+32+16+\pos
 	adc	\pos,\pos+16
 .endr
 	rol	_CARRY	//save carry BC, renew ABC
@@ -2327,19 +2799,22 @@ rsa_square_512_loop1:
 .irp	pos,0,1,2,3,4,5,6,7
 	ld	_ACC,X+
 	sbc	r\pos,_ACC
-	std	Y+16+\pos,r\pos
+	std	Z+16+\pos,r\pos
 .endr
 // 95..88
 // load B+C from mem into ACU
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Y+24+\pos
+	ldd	\pos,Z+24+\pos
 .endr
 // subtract rest of M
-.irp	pos,0,1,2,3,4,5,6,7
+.irp	pos,0,1,2,3,4,5,6
 	ld	_ACC,X+
 	sbc	r\pos,_ACC
 .endr
-	sbc	r26,r26	// for carry propagation into D
+	ld	_ACC,X
+	sbc	r7,_ACC
+
+	sbc	r28,r28	// for carry propagation into D
 
 	ror	_CARRY	//renew carry ABC
 	clr	_ACC
@@ -2348,13 +2823,13 @@ rsa_square_512_loop1:
 .endr
 	ror	_CARRY	//renew carry BC
 // preload D - _ACC,r0..r6, summarize
-	ldd	_ACC,Y+32+24+0
+	ldd	_ACC,Z+32+24+0
 	adc	r0,_ACC
-	std	Y+24,r0
+	std	Z+24,r0
 .irp	pos,1,2,3,4,5,6,7
-	ldd	\pos-1,Y+32+24+\pos
+	ldd	\pos-1,Z+32+24+\pos
 	adc	\pos,\pos-1
-	std	Y+24+\pos,\pos
+	std	Z+24+\pos,\pos
 .endr
 #undef _ACC
 #define _ACC r7
@@ -2362,47 +2837,44 @@ rsa_square_512_loop1:
 //summarize borow carry, propagate to D
 // create 0 or 0xffff from borrow
 	clr	_ACC
-	mov	r27,r26
+	mov	r29,r28
 
 	rol	_CARRY	 // A+B+C carry into C bit
 	andi	_CARRY,1 // B+C carry into bit 0
 
-	adc	r26,_CARRY	// sumarize
-	adc	r27,_ACC
+	adc	r28,_CARRY	// sumarize
+	adc	r29,_ACC
 
 	bld	_CARRY,0		// carry BC
-	add	r26,_CARRY
-	adc	r27,_ACC
+	add	r28,_CARRY
+	adc	r29,_ACC
 
-	ldd	_ACC,Y+32
-	add	_ACC,r26
-	std	Y+32,_ACC
+	ldd	_ACC,Z+32
+	add	_ACC,r28
+	std	Z+32,_ACC
 
 .irp	pos,1,2,3,4,5,6,7
-	ldd	_ACC,Y+32+\pos
-	adc	_ACC,r27
-	std	Y+32+\pos,_ACC
+	ldd	_ACC,Z+32+\pos
+	adc	_ACC,r29
+	std	Z+32+\pos,_ACC
 .endr
 .irp	pos,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
-	adc	\pos,r27
-	std	Y+32+\pos,\pos
+	adc	\pos,r29
+	std	Z+32+\pos,\pos
 .endr
-	adc	r24,r27
-	std	Y+32+24,r24
+	adc	r24,r29
+	std	Z+32+24,r24
 
 .irp	pos,25,26,27,28,29,30,31
-	adc	\pos-25,r27
-	std	Y+32+\pos,\pos-25
+	adc	\pos-25,r29
+	std	Z+32+\pos,\pos-25
 .endr
+
 #undef _ACC
 #undef _CARRY
 
 // return stack position
-	in	r28, 0x3d
-	in	r29, 0x3e
-	subi	r28, lo8(-(64+2+2))
-	sbci	r29, hi8(-(64+2+2))
-	LOAD_SP	r0, r28,r29
+	LOAD_SP	r0, r26,r27
 #undef L1
 #undef L2
 #undef L3
@@ -2859,12 +3331,14 @@ rsa_square_192_no_abi:
 	STORE48_TO_MEM 6  r19,r18,r17,r16,r15,r14
 	STORE48_TO_MEM 12 r25,r24,r23,r22,r21,r20
 	STORE48_TO_MEM 18 r5 r4 r3 r2 r1 r0
+
 /// restore operand pointer
-	pop	r29
-	pop	r28
+	in 	r28, 0x3d
+	in 	r29, 0x3e
+	ldd	r9,Y+1
+	ldd	r8,Y+2
+	movw	r28,r8
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-	push r28 
-	push r29
 
 	LOAD48_FROM_Y_MEM r13 r12 r11 r10 r9 r8     12
 //                                          result                          operand             temp registers
@@ -2946,7 +3420,7 @@ rsa_square_192_no_abi:
 
 // summarize carry for D, save to stack ..
 	clr	r12
-	ADC	r13,r12
+	adc	r13,r12
 	push	r13
 
 // calculate middle part

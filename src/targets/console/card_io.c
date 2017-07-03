@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
     
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -52,9 +52,6 @@ card_io_rx (uint8_t * data, uint8_t len)
   long val;
 
   uint8_t count = 0;
-
-  if (!xlen)
-    xlen = 256;
 
   fflush (stdin);
   for (;;)

@@ -1,3 +1,26 @@
+/*
+    ccid.c
+
+    This is part of OsEID (Open source Electronic ID)
+
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    ccid layer
+
+*/
 #include <stdint.h>
 #include <string.h>
 #include <stddef.h>
@@ -66,13 +89,18 @@ uint8_t
 card_io_rx (uint8_t * data, uint8_t len)
 {
   uint8_t l_len;
+
   // wait for data from CCID layer
   while (!card_rx_len);
-  // copy data to card ..
-  memcpy (data, card_rx_buffer, card_rx_len);
 
+  //read only requested chars, rest is discarded!
   l_len = card_rx_len;
+  if (len < l_len)
+    l_len = len;
   card_rx_len = 0;
+
+  // copy data to card ..
+  memcpy (data, card_rx_buffer, l_len);
   return l_len;
 }
 

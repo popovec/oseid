@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -131,7 +131,7 @@ card_io_send_atr:
         out     CARD_IO_PORT,r20
 // all pins input
         out     CARD_IO_DIR,r20
-	call	card_io_osccal_max
+	rcall	card_io_osccal_max
 // wait RESET
 1:
 	sbis	_SFR_IO_ADDR(PINE),0
@@ -154,7 +154,7 @@ card_io_send_atr:
 // timer source T3,
 // load timer register offset (ETIFR) into Z
         ldi     r21,0x0f
-	call	card_io_timer_mode
+	rcall	card_io_timer_mode
 // timer compare at 372 - normal ETU for ATR
         ldi     r20,lo8((C_ETU_ATR-1))
         ldi     r21,hi8((C_ETU_ATR-1))
@@ -172,7 +172,7 @@ card_io_send_atr:
 	sts	ETIFR,r20
 // in next code, one more ETU wait is programmed, ATR must be send
 // after 400 ticks after RESET, this guarante minimal 2x 372 ticks
-	call	card_io_tx
+	rcall	card_io_tx
         ldi     r20,lo8((C_ETU-1))
         ldi     r21,hi8((C_ETU-1))
         sts     OCR3AH,r21
@@ -283,8 +283,8 @@ card_io_tx_byte_repeat:
 	ret
 
 card_io_tx:
-	call	card_io_osccal_max
-	call	rnd_stop
+	rcall	card_io_osccal_max
+	rcall	rnd_stop
 	sei
 
 // wait timer overflow 
@@ -299,7 +299,7 @@ card_io_tx:
 card_io_tx0_buffer_loop:
 // load byte
 	ld	r20,X
-	call	card_io_tx_byte
+	rcall	card_io_tx_byte
 
 // 0    - all ok
 // 1    - do retransmit
@@ -343,8 +343,8 @@ card_io_tx0_fail:
 #define MAX_PARITY_ERR 1
 card_io_rx:
 	movw	r26, r24
-	call	card_io_osccal_max
-	call	rnd_stop
+	rcall	card_io_osccal_max
+	rcall	rnd_stop
 	sei
 
 // preload ETU
@@ -539,11 +539,11 @@ card_io_no_parity_error:
 // renew parity error counter (per character) 
         ldi	r31,MAX_PARITY_ERR
 card_io_save_char:
-// check if buffer space is available
-// save char 
+// check if buffer space is available (maximum received chars 255)
         tst	r22
         breq	card_io_wait_2nd_stop
 	st	X+,r25
+// save char
 	dec	r22
 	inc	r24
 
@@ -609,12 +609,92 @@ card_io_idle3:
 // decrement stop bit counter
         dec	r25
         brne	card_io_start2
+
+// test if this ist 1st received frame after ATR (0xff in null_send)
+	lds	r23,null_send
+	inc	r23
+	brne	card_io_idle4
+	sts	null_send,r23   // clear null_send
+
+// test if this is PTS frame
+// X is pointer to frame, r24 is counter of characters
+	sub	r26,r24
+	subi	r27,0
+	movw	r30,r26         // save buffer pointer
+	ld	r23,X+          // load CLA
+	cpi	r23,0xff
+	breq	card_io_pts     // PTS class
+card_io_idle4:
+
 	push	r24
-	call	rnd_init
+	rcall	rnd_init
 	pop	r24
 // uint8_t or uint16_ result ..
         clr	r25
         ret
+
+card_io_pts:
+// handle this as PTS, ignore any PTS that does not match correct
+// parameters for OsEID
+
+// correct PTS: 0xff 0x10 C_ATR_TA1 checksum
+//              0xff 0x30 C_ATR_TA1 0x02 checksum
+//              0xff 0x50 C_ATR_TA1 0xXX checksum
+//              0xff 0x70 C_ATR_TA1 0x02 0xXX checksum
+
+// minimal PTS is 0xff 0x1X 0xXX checksum (PS1 must be present, because
+// missing PS1 is interpreted as Fi=1, D=1 - not correct for OsEID
+
+	cp	r24,4                   // check size (minimal PTS size)
+	ldi	r25,4                   // initial minimum PTS size
+	brcs	card_io_ignore_pts      // not enoungh data for PTS
+                                 // size 0 => 256 bytes is not valid
+                                 // for PTS to ..
+
+	clr	r18                     // clear buffers for PS2, PS3
+	clr	r19
+
+	ld	r20,X                   // load INS/PS0
+	andi	r20,0x1f                // test protocol, and presence of PS1
+	cpi	r20,0x10                //
+	brne	card_io_ignore_pts      // protocol != 0, or PS1 not present -> this mean Fi=1, Di=1, reject this PTS
+
+	ld	r20,X+                  // reload INS/PS0, count PTS size
+	ld	r21,X+                  // load PS1
+	cpi	r21,C_ATR_TA1
+	brne	card_io_ignore_pts      // do not change TA1
+
+	sbrs	r20,5
+	rjmp	card_io_pts_no_PS2
+	inc	r25
+	ld	r18,X+                  // load PS2
+	cpi	r18,2
+	brne	card_io_ignore_pts      // do not change TC1
+
+card_io_pts_no_PS2:
+	sbrs	r20,6
+	rjmp	card_io_pts_no_PS3
+	inc	r25
+	ld	r19,X+
+card_io_pts_no_PS3:
+	cp	r24,r25
+	brne	card_io_ignore_pts      // PTS size does not match frame size
+
+// checksum test
+	ld	r25,X+                  // checksum
+	eor	r20,r21
+	eor	r20,r18
+	eor	r20,r19
+	eor	r20,r25
+	cpi	r20,0xff                // must match CLA byte
+	brne	card_io_ignore_pts
+// confirm PTS
+	mov	r22,r24 // size
+	movw	r24,r30 // PTS pointer (in buffer)
+	rcall	card_io_tx // confirm PTS
+card_io_ignore_pts:
+	clr	r24                     // no byte is received
+	ret
 
 
 
@@ -628,9 +708,20 @@ TIMER3_OVF_vect:
 	lds	r20,null_send
 	inc	r20
 	sts	null_send,r20
+// max time .. 960 * WI * FI/f (WI is coded in TC2, if not present WI = 10)
+// 372 or 512 from TA1 = Fi, 65536 divisor factor for timer3
 // max value for 372  960*10*372/65535 = 54
-// max value for 372  960*10*512/65535 = 75
-	cpi	r20,48
+// max value for 512  960*10*512/65535 = 75
+
+#if (C_ATR_TA1 & 0xF0)  == 0x90
+	cpi	r20,68
+#elif (C_ATR_TA1 & 0xF0) == 0
+	cpi     r20,48
+#elif (C_ATR_TA1 & 0xF0) == 0x10
+	cpi     r20,48
+#else
+#error Please check TA1 value, Fi is not 512 or 372
+#endif
 	brne	null_send_end
 
 // send null byte
@@ -641,28 +732,28 @@ TIMER3_OVF_vect:
 	push	r25
 	push	r30
 	push	r31
-	call	card_io_osccal_max
+	rcall	card_io_osccal_max
 
 // timer mode CTC  from 0 to ETU in OCR3A
 	ldi	r21,0x0f
-	call	card_io_timer_mode
+	rcall	card_io_timer_mode
 // clear OCR request
 	ldi	r20,0x10
 	std	Z+ETIFR_OFF,r20
 // maximal two repeats of null byte 
 	ldi	r20,0x60
-	call	card_io_tx_byte
+	rcall	card_io_tx_byte
 // clear OCR request
 	ldi	r20,0x10
 	std	Z+ETIFR_OFF,r20
 	ldi	r20,0x60
 	tst	r24
 	breq	vector_no_repeat
-	call	card_io_tx_byte
+	rcall	card_io_tx_byte
 vector_no_repeat:	
 // timer into normal mode
         ldi     r21,0x07
-	call	card_io_timer_mode
+	rcall	card_io_timer_mode
 	sts	null_send,r20
 	pop	r31
 	pop	r30
@@ -685,7 +776,7 @@ card_io_start_null:
 // timer source T3, 
 // load timer  register offset (ETIFR) into Z
         ldi     r21,0x07
-	call	card_io_timer_mode
+	rcall	card_io_timer_mode
 	sts	null_send,r20
 
 // clear old request if any, enable interrupt from overflow
@@ -704,7 +795,7 @@ card_io_stop_null:
 // timer source T3, 
 // load timer  register offset (ETIFR) into Z
         ldi     r21,0x0F
-	call	card_io_timer_mode
+	rcall	card_io_timer_mode
 //disable all interrupt from timer
 	std	Z+ETIMSK_OFF,r20
 // clear old request if any
@@ -723,81 +814,37 @@ USART0_RX_vect:
 	.global card_io_init
 	.type card_io_init, @function
 
-/*
-Aventra MyEID ATR (from opensc)
-"3B:F5:18:00:FF:81:31:FE:45:4D:79:45:49:44:65",
-"3B:F5:18:00:00:81:31:FE:45:4D:79:45:49:44:9A",
-"3B:85:80:01:4D:79:45:49:44:78",
-"3B:89:80:01:09:38:33:B1:4D:79:45:49:44:4C",
-
-Aventra Windows driver seems to check only this:
-"3B:xx:xx:xx:xx:xx:xx:xx:xx:4D:79:45:49:44:xx",
-
-define "OsMyEID_ATR" to use ATR that is recognized by 
-Aventra windows driver
-*/
-
-// number of bytes in ATR string, ATR string, (must be padded to even bytes)
-//atr_string:
-//	.byte 14,C_TS,0xf7,C_ATR_TA1,0,2,0x10,0x80,0x4f,0x73,0x4d,0x79,0x45,0x49,0x44,0
-// alt
-// 	.byte 7,C_TS,0xf0,C_ATR_TA1,0,2,0x10,0x80
-
-#define OsEID_ATR
-card_io_init:
-// put ATR into stack (in reverse order)
-#ifdef OsEID_ATR
+card_io_atr_string:
+//     - TS from #define ..
+//0xf5 = SEND Ta1..TD1 .. 5 hist. bytes
+//     - TA1 from #define .
+//0    = TB1 
+//2    = TC1 gurad time extended by two bits
+//0x10 = TD1 - send TA2
+//0x80 = TA2 - only T0 protocol
+//hist. bytes OsEID...
+// reversed order of bytes in ATR!
 #define ATR_LEN 12
-	ldi	r20,0x44	//D
-	push	r20
-	ldi	r20,0x49	//I
-	push	r20
-	ldi	r20,0x45	//E
-	push	r20
-	ldi	r20,0x73	//s
-	push	r20
-	ldi	r20,0x4f	//O
-	push	r20
-	ldi	r20,0x80	//TA2 - only T0 protocol
-	push    r20
-	ldi	r20,0x10	//TD1 - send TA2
-	push    r20
-	ldi	r20,2		//TC1 gurad time extended by two bits
-	push    r20
-	ldi	r20,0		//TB1
-	push    r20
-	ldi	r20,C_ATR_TA1	//TA1
-	push	r20
-	ldi	r20,0xf5	// SEND Ta1..TD1 .. 5 hist. bytes
-	push	r20
-	ldi	r20,C_TS
-	push	r20
-#else
-#define ATR_LEN 7
-//	ldi	r20,10		//TC2 WI = 10
-//	push	r20
-	ldi	r20,0x80	//TA2 - only T0 protocol
-	push    r20
-	ldi	r20,0x10	//TD1 - send TA2
-	push    r20
-	ldi	r20,2		//TC1 gurad time extended by two bits
-	push    r20	
-	ldi	r20,0		//TB1
-	push    r20
-	ldi	r20,C_ATR_TA1	//TA1
-	push	r20
-	ldi	r20,0xf0	// SEND Ta1..TD1 .. no historical bytes
-	push	r20
-	ldi	r20,C_TS
-	push	r20
-
-#endif
+	.byte 'D','I','E','s','O',0x80,0x10,2,0,C_ATR_TA1,0xf5,C_TS
+.balign 2
+card_io_init:
+	ldi	r30,lo8(card_io_atr_string)
+	ldi	r31,hi8(card_io_atr_string)
+	ldi	r23,ATR_LEN
+	mov	r22,r23
+card_io_init_atr_loop:
+// get stack address (as ATR string pointer for card_io_send_atr call)
+// (slower but here speed is no problem, save one adiw instruction)
 	in	r24,0x3d
 	in	r25,0x3e
-	adiw	r24,1
-	ldi	r22,ATR_LEN
-	clr	r23
-	call	card_io_send_atr
+	lpm	r20,Z+
+	push	r20
+	dec	r23
+	brne	card_io_init_atr_loop
+	rcall	card_io_send_atr
+	ldi	r24,0xff
+	sts	null_send,r24	// mark ATR sended
+
 // renew stack
 	in	r24,0x3d
 	in	r25,0x3e
@@ -807,8 +854,11 @@ card_io_init:
 	sei
 	out	0x3e,r25
 	ret
-	
 .section        .noinit,"aw",@nobits
 
+// multifunction variable
+// a) after ATR this is set to 0xff, 1st received frame clear this
+//    1st frame is checed for PTS - if yes, this is handled internaly
+// b) if null sending mode is requested, this is incremented from 0.. max 68
 null_send:
 	.skip	1

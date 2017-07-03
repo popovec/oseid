@@ -29,7 +29,9 @@ uint16_t fs_change_pin (uint8_t * message);
 uint16_t fs_verify_pin (uint8_t * message);
 uint16_t fs_reset_retry_count (uint8_t * message);
 uint16_t fs_initialize_pin (uint8_t * message);
+void fs_deauth (uint8_t pin);
 
+uint16_t fs_get_access_condition (void);
 void fs_reset_security (void);
 void fs_init (void);
 uint16_t fs_erase_card (uint8_t * acl);

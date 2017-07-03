@@ -17,6 +17,7 @@ all:	$(BUILD)console $(BUILD)libOsEIDsim.so
 #Tested without NIST_ONLY, but not set as default
 #CFLAGS += -DNIST_ONLY
 
+
 .PHONY:	builddir all
 
 builddir:

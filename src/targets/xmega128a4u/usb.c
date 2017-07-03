@@ -1,3 +1,26 @@
+/*
+    usb.c
+
+    This is part of OsEID (Open source Electronic ID)
+
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+    xmega USB subsystem for CCID layer
+
+*/
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -940,20 +963,11 @@ isr_CCID_message_to_host (void)
     ~(USB_EP_TRNCOMPL0_bm | USB_EP_BUSNACK0_bm | USB_EP_OVF_bm);
 }
 
-uint8_t ccid_timeout;
-
-void
-CCID_timeout (uint8_t t_out)
-{
-  ccid_timeout = t_out;
-}
-
 void
 CCID_start_null (uint8_t l_seq)
 {
   seq = l_seq;
   send_null = 1;
-  ccid_timeout = 255;
   TCC0.CNT = 0;
 }
 
@@ -961,16 +975,6 @@ CCID_start_null (uint8_t l_seq)
 ISR (TCC0_OVF_vect)
 {
   uint8_t msg[11];
-
-  if (ccid_timeout)
-    {
-      ccid_timeout--;
-      if (ccid_timeout == 0)
-	{
-	  send_null = 0;
-	  CPU_do_restart_main ();
-	}
-    }
 
   // is null sending mode active?
   if (!send_null)
@@ -1110,5 +1114,4 @@ USB_init_variables (void)
   CCID_message_to_host_position = 0;
   bulk_in_reserved = 0;
   send_null = 0;
-  ccid_timeout = 0;
 }

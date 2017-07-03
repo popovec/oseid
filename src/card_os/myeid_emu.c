@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,6 +27,10 @@
  (local copy internet_sources/MyEID PKI JavaCard Applet Reference Manual 1-7-7.pdf)
  
  Some functions are derived from opensc sources https://github.com/OpenSC/OpenSC - card-myeid.c
+
+ It is assumed, all functions can access 5 bytes of message in message buffer.
+ Caller is responsible to fill this data in message correctly.
+
  
 */
 
@@ -63,6 +67,13 @@ uint8_t sign_algo __attribute__ ((section (".noinit")));
 uint16_t key_file_id __attribute__ ((section (".noinit")));
 uint8_t sec_env_valid __attribute__ ((section (".noinit")));	//0xB6 - valid for  sign, 0XB8 valid for decrypt
 
+static uint16_t
+resp_ready (struct iso7816_response *r, uint8_t len)
+{
+  r->flag = R_RESP_READY;
+  r->len = len;
+  return 0x6100 | len;
+}
 
 static void
 reverse_string (uint8_t * p, uint16_t len)
@@ -227,6 +238,9 @@ rsa_raw (uint16_t len, uint8_t * message, uint8_t * result, uint8_t flag)
   return part_size;
 }
 
+// for NIST curves and for secp256k1 A is not needed
+// Special values of A (A=0, A=-3) are indicated in the c->curve_type
+
 // size 24/32/48 for ecc 192,256/384 bis, id 0 get key from selected file and use
 // key size to setup ec parameters
 static uint8_t
@@ -244,11 +258,12 @@ prepare_ec_param (struct ec_param *c, uint8_t size)
     ret = size;
   if (ret == 24)
     {
-      c->mp_size = 24;
       get_constant (&c->prime, N_P192V1_prime);
       get_constant (&c->order, N_P192V1_order);
       get_constant (&c->Gx, N_P192V1_Gx);
       get_constant (&c->Gy, N_P192V1_Gy);
+      get_constant (&c->a, N_P192V1_a);
+      get_constant (&c->b, N_P192V1_b);
       c->curve_type = C_PRIME192V1;
     }
   else if (ret == 32)
@@ -257,24 +272,23 @@ prepare_ec_param (struct ec_param *c, uint8_t size)
 // Experimental only!
       if (fs_get_file_type () != 0x22)
 	{
-	  c->mp_size = 32;
 	  get_constant (&c->prime, N_SECP256K1_prime);
 	  get_constant (&c->order, N_SECP256K1_order);
 	  get_constant (&c->Gx, N_SECP256K1_Gx);
 	  get_constant (&c->Gy, N_SECP256K1_Gy);
-	  // for NIST curves and for secp256k1 A is not needed
-	  // Special values of A are indicated in the c->curve_type
-	  // get_constant (&c->a, N_SECP256K1_a);
+	  get_constant (&c->a, N_SECP256K1_a);
+	  get_constant (&c->b, N_SECP256K1_b);
 	  c->curve_type = C_secp256k1;
 	}
       else
 	{
 #endif
-	  c->mp_size = 32;
 	  get_constant (&c->prime, N_P256V1_prime);
 	  get_constant (&c->order, N_P256V1_order);
 	  get_constant (&c->Gx, N_P256V1_Gx);
 	  get_constant (&c->Gy, N_P256V1_Gy);
+	  get_constant (&c->a, N_P256V1_a);
+	  get_constant (&c->b, N_P256V1_b);
 	  c->curve_type = C_PRIME256V1;
 #ifndef NIST_ONLY
 	}
@@ -282,11 +296,12 @@ prepare_ec_param (struct ec_param *c, uint8_t size)
     }
   else if (ret == 48)
     {
-      c->mp_size = 48;
       get_constant (&c->prime, N_P384V1_prime);
       get_constant (&c->order, N_P384V1_order);
       get_constant (&c->Gx, N_P384V1_Gx);
       get_constant (&c->Gy, N_P384V1_Gy);
+      get_constant (&c->a, N_P384V1_a);
+      get_constant (&c->b, N_P384V1_b);
       c->curve_type = C_secp384r1;
     }
 
@@ -294,6 +309,7 @@ prepare_ec_param (struct ec_param *c, uint8_t size)
     return 0;
 
   reverse_string ((uint8_t *) & c->private_key, ret);
+  c->mp_size = ret;
   return ret;
 }
 
@@ -408,8 +424,7 @@ sign_ec_raw (uint8_t * message, struct iso7816_response *r)
 
 
 uint16_t
-security_env_set_reset (uint8_t * message, uint8_t len,
-			struct iso7816_response * r)
+security_env_set_reset (uint8_t * message, struct iso7816_response * r)
 {
 
   uint16_t i;
@@ -450,11 +465,13 @@ key reference 0
   if (M_P1 == 0x41)
     {
       DPRINT ("set security env\n");
-      if (M_P2 != 0xb6 && M_P2 != 0xb8)
+/*
+      if (M_P2 != 0xb6 && M_P2 != 0xb8 && M_P2 != 0x41 )
 	{
 	  DPRINT ("Unknown byte P2 = %02x\n", M_P2);
 	  return 0x6A81;	//Function not supported
 	}
+*/
       if (M_LC)
 	{
 	  //read rest of apdu
@@ -465,10 +482,15 @@ key reference 0
 
       if (M_P2 == 0xb6)
 	DPRINT ("attributes of DST in data field = SIGN operation\n");
-      else
+      else if (M_P2 == 0xb8)
 	DPRINT ("attributes of CT in data field =  DECIPHER operation\n");
-
-
+      else if (M_P2 == 0xa4)
+	DPRINT ("authentication/key agreement\n");
+      else
+	{
+	  DPRINT ("Unknown byte P2 = %02x\n", M_P2);
+	  return 0x6A81;	//Function not supported
+	}
       //Empty or concatenation of Objects (CRDO)
       for (i = 0; i < M_LC; i += taglen)
 	{
@@ -527,8 +549,7 @@ key reference 0
 }
 
 static uint16_t
-security_operation_rsa_ec_sign (uint8_t * message, uint8_t len,
-				struct iso7816_response *r)
+security_operation_rsa_ec_sign (uint8_t * message, struct iso7816_response *r)
 {
   uint8_t flag = 0xff;
   if (M_LC == 0)
@@ -560,7 +581,7 @@ security_operation_rsa_ec_sign (uint8_t * message, uint8_t len,
       card_io_start_null ();
       // in buffer RAW data to be signed
       if (sign_ec_raw (message + 4, r))
-	return ((0x61 << 8) | r->len);
+	return resp_ready (r, r->len);
       return 0x6985;		//    Conditions not satisfied
     }
 
@@ -593,13 +614,9 @@ security_operation_rsa_ec_sign (uint8_t * message, uint8_t len,
 //  DPRINT ("RSA calculation %s, returning APDU\n", size ? "OK":"FAIL");
       if (size != 0)
 	{
-	  if (size == 256)
-	    r->len = 0;
-	  else
-	    r->len = size & 255;
-	  r->flag = R_RESP_READY;
 	  DPRINT ("RSA sign OK\n");
-	  return ((0x61 << 8) | r->len);
+	  // maximal size 256 bytes is send back as 0
+	  return resp_ready (r, size & 0xff);
 	}
       else
 	{
@@ -614,8 +631,7 @@ security_operation_rsa_ec_sign (uint8_t * message, uint8_t len,
 }
 
 static uint16_t
-security_operation_rsa_decrypt (uint8_t * message, uint8_t len,
-				struct iso7816_response *r)
+security_operation_rsa_decrypt (uint8_t * message, struct iso7816_response *r)
 {
   uint16_t size;
 
@@ -728,14 +744,6 @@ security_operation_rsa_decrypt (uint8_t * message, uint8_t len,
 	  else
 	    DPRINT ("Unknown padding, %02x %02x,\n", r->data[0], r->data[1]);
 	}
-
-      if (size == 256)
-	r->len = 0;
-      else
-	r->len = size & 255;
-
-      r->flag = R_RESP_READY;
-
 #ifdef DEBUG
       {
 	int i, j;
@@ -748,14 +756,144 @@ security_operation_rsa_decrypt (uint8_t * message, uint8_t len,
 	  }
       }
 #endif
-      return ((0x61 << 8) | r->len);
+      return resp_ready (r, size & 0xff);
     }
   return 0x6985;		//    Conditions not satisfied
 }
 
+
+//APDU: 00 86 00 00 35
+// (tag)7C (ASN1 coded len)33
+// (tag)85 (ASN1 coded len)31
+// (uncompress indicator)04
+//  public key
+//    47 57 75 41 68 74 24 FE B1 55 55 27 06 52 90 2D 62 84 B5 C2 FF 1B 12 9E
+//    CD EE D7 47 58 FB 45 F1 E8 8B 72 E3 C7 9E 80 F0 CC 3D 18 D7 4C 05 CD 31
+
+
+
 uint16_t
-security_operation (uint8_t * message, uint8_t len,
-		    struct iso7816_response * r)
+myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r)
+{
+  struct ec_param ec;
+  ec_point_t derived_key;
+  bignum_t key;
+  uint8_t ret;
+  uint8_t t_len, *t;
+  uint8_t tg, tl;
+
+  DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
+
+  if (M_P1 != 0 || M_P2 != 0)
+    return 0x6A86;		//Incorrect parameters P1-P2
+
+  if (M_LC > 1)
+    {
+      confirm_command (message);
+      if (read_command_data (message))
+	return 0x6984;		//invalid data
+    }
+  else
+    return 0x6700;		//Incorrect length
+
+// is security enviroment set to derive ?
+  if (sec_env_valid != 0xa4)
+    {
+      DPRINT ("invalid sec env\n");
+      return 0x6985;		//    Conditions not satisfied
+    }
+// compare if selected file is same as file id from sec env
+  if (fs_get_selected () != key_file_id)
+    {
+      DPRINT ("file selected not same as in sec env\n");
+      return 0x6985;		//    Conditions not satisfied
+    }
+
+// check rest of APDU
+  t = &message[5];
+  if (*t++ != 0x7c)		// Dynamic autentification template
+    return 0x6984;		// Invalid data
+
+// parse ASN1 LEN value (0-255)
+  t_len = *t++;
+  if (t_len == 0x80)
+    {
+      if (t_len != 0x81)
+	return 0x6984;		// Invalid data (ASN1 length > 255)
+      t_len = *t++;
+    }
+
+  if (t_len != M_LC - 2)	// check length of template
+    return 0x6984;		// Invalid data
+////
+  while (t_len > 1)
+    {
+      tg = *t++;
+      // parse ASN1 LEN value (0-255)
+      tl = *t++;
+      if (tl & 0x80)
+	{
+	  if (t_len != 0x81)
+	    return 0x6984;	// Invalid data (ASN1 length >255)
+	  tl = *t++;
+	}
+
+      t_len -= 2;
+      if (t_len < tl)
+	{
+	  DPRINT ("Wrong length of tag  %02x lenght %d (in buffer only %d)\n",
+		  tg, tl, t_len);
+	  return 0x6984;	// Invalid data
+	}
+      if (tg == 0x85)
+	{
+	  if (*t++ != 0x04)	// unexpanded point indicator
+	    return 0x6984;	// Invalid data
+	  if (tl != t_len)
+	    return 0x6984;	// Invalid data
+	  t_len--;
+	  break;
+	}
+      else if (tg == 0x80)
+	{
+	  t += tl;
+	  t_len -= tl;
+	}
+      else
+	{
+	  DPRINT ("Unknown tag %02x\n", tg);
+	  return 0x6984;	// Invalid data
+	}
+    }
+
+  // prepare Ec constant, use size based on key  (key from selected file)
+  ret = prepare_ec_param (&ec, 0);
+  if (ret == 0)
+    {
+      DPRINT ("Error, unable to get EC parameters/key\n");
+      return 0x6985;		//    Conditions not satisfied
+    }
+  if (ret * 2 != t_len)
+    {
+      DPRINT
+	("Incorrect length of point data %d, selected file need %d bytes\n",
+	 t_len, ret * 2);
+      return 0x6984;		// Invalid data
+    }
+  reverse_copy ((uint8_t *) & derived_key.X, t, ec.mp_size);
+  reverse_copy ((uint8_t *) & derived_key.Y, t + ret, ec.mp_size);
+  // this is  long operation, start sending NULL
+  card_io_start_null ();
+
+  if (ec_derive_key (&key, &derived_key, &ec))
+    return 0x6985;		//    Conditions not satisfied
+
+  reverse_copy (r->data, (uint8_t *) & derived_key, ret);
+  return resp_ready (r, ret);
+}
+
+uint16_t
+security_operation (uint8_t * message, struct iso7816_response * r)
 {
 
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
@@ -763,18 +901,18 @@ security_operation (uint8_t * message, uint8_t len,
   // 0x9E = return digital signature
   // 0x9A = data in APDU = source for digital signature
   if (M_P1 == 0x9E && M_P2 == 0x9A)
-    return security_operation_rsa_ec_sign (message, len, r);
+    return security_operation_rsa_ec_sign (message, r);
 
   // decipher operation 
   if (M_P1 == 0x80 && M_P2 == 0x86)
-    return security_operation_rsa_decrypt (message, len, r);
+    return security_operation_rsa_decrypt (message, r);
 
 //  return 0x6A81;      //Function not supported
   return 0x6A86;		//Incorrect parameters P1-P2
 }
 
 uint16_t
-myeid_generate_key (uint8_t * message, uint8_t len)
+myeid_generate_key (uint8_t * message)
 {
 
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
@@ -785,14 +923,13 @@ myeid_generate_key (uint8_t * message, uint8_t len)
   if (M_LC)
     {
       // private RSA exponent in APDU (MyEID allow only 3 or 65537)
-      // Sequence 0x30, size 0x05, 0x81 ..
-      // 0x30 0x05 0x81  then size and data: 0x01 0x03 = exponent 3
-      // 0x30 0x07 0x81  then size and data: 0x03 0x01 0x00 0x01 (65537)
-      // OsEID does not need this, RSA key generation is not supported
-      //
-      // opensc 0.16.0 seems to be have a error, exponent 65537 is send with wrong length:
-      // 0x30 0x05 0x81 0x03 0x01 0x00 0x01
+      // in data field sequence can be found:
 
+      // 0x30 0x03 0x02 0x01 0x03           - public exponent = 3
+      // 0x30 0x05 0x02 0x03 0x01 0x00 0x01 - public exponent = 65537
+      //           ^^^^ is public exponent tag
+
+      // OsEID does not need this, RSA key generation is not supported
       // read rest of apdu
       confirm_command (message);
       if (read_command_data (message))
@@ -817,9 +954,6 @@ myeid_generate_key (uint8_t * message, uint8_t len)
 	uint8_t ui;		// for 0x04 = indicate uncompressed key
 	uint8_t key_bytes[2 * sizeof (bignum_t)];
 	ec_point_t key;
-
-// next value is for avr-gcc, code is smaller with this aligment
-//      uint8_t align[181];
       }
       pub_key;
 
@@ -844,7 +978,7 @@ myeid_generate_key (uint8_t * message, uint8_t len)
 
       if (fs_get_file_type () != 0x22)
 	return 0x6985;		//    Conditions not satisfied
-// get key size (from file size), now only EC keys are supported (192 and 256 bits)
+// get key size (from file size), now only EC keys are supported (192,256,384 bits)
       if (k_size != 384 && k_size != 256 && k_size != 192)
 	return 0x6985;		//    Conditions not satisfied
 
@@ -863,13 +997,14 @@ myeid_generate_key (uint8_t * message, uint8_t len)
 	  DPRINT ("Key wrong\n");
 	  return 0x6985;	//    Conditions not satisfied
 	}
-
       // reverse key
       reverse_string ((uint8_t *) & private_key.key, c.mp_size);
+
       reverse_copy ((uint8_t *) & pub_key.key_bytes,
 		    (uint8_t *) & pub_key.key.X, c.mp_size);
       reverse_copy (c.mp_size + (uint8_t *) & pub_key.key_bytes,
 		    (uint8_t *) & pub_key.key.Y, c.mp_size);
+
       // function for write key inspect size of key and checks ACL ..
       // (based on actually selected file)
 
@@ -897,7 +1032,7 @@ get/put data emulation of MYEID card
 
 */
 uint16_t
-myeid_get_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
+myeid_get_data (uint8_t * message, struct iso7816_response * r)
 {
   uint16_t ret;
 
@@ -910,13 +1045,19 @@ myeid_get_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
     {
     case 0xa0:
       get_constant (r->data, N_CARD_ID);
-      r->len = 20;
-      r->flag = R_RESP_READY;
-      return (0x6114);
+      return resp_ready (r, 20);
     case 0xa1:
     case 0xa2:
     case 0xa3:
       return fs_list_files ((M_P2 - 0xa1), r);
+    case 0xaa:
+      get_constant (r->data, N_CARD_CAP_ID);
+      return resp_ready (r, 11);
+    case 0xac:
+      ret = fs_get_access_condition ();
+      r->data[0] = ret >> 8;
+      r->data[1] = ret & 0xff;
+      return resp_ready (r, 2);
     case 0:
       // info data for key
 // 6 bytes
@@ -939,9 +1080,7 @@ myeid_get_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
       ret = ret * 16;
       r->data[4] = ret >> 8;
       r->data[5] = ret & 0xff;
-      r->len = 6;
-      r->flag = R_RESP_READY;
-      return 0x6106;		// 6 bytes
+      return resp_ready (r, 6);
     case 1:
       // modulus
       ret = fs_key_read_part (r->data, KEY_RSA_MOD);
@@ -968,19 +1107,14 @@ myeid_get_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
 	  if (ret == 256)
 	    ret = 0;
 	}
-      r->len = ret;
-      r->flag = R_RESP_READY;
-      return 0x6100 | ret;
-
+      return resp_ready (r, ret);
     case 2:
       // public exponent
       ret = fs_key_read_part (r->data, KEY_RSA_EXP_PUB);
       DPRINT ("ret_p=%d\n", ret);
       if (!ret)
 	return 0x6a88;		//Referenced data (data objects) not found
-      r->len = ret;
-      r->flag = R_RESP_READY;
-      return 0x6100 | ret;
+      return resp_ready (r, ret);
 
 //read public key
     case 0x86:
@@ -997,17 +1131,14 @@ Use public key with "uncompressed" indicator (byte 04 at start)
 (size 49 for prime192v1 or size 65 for prime256v1)
 */
 	// read public key (insert offset for seq 0x30, len)
-	//
 	ret = fs_key_read_part (r->data + 2, KEY_EC_PUBLIC);
 	DPRINT ("Public key len %d\n", ret);
 	if (ret == 0)
 	  return 0x6985;	// conditions not satisfaied
 	//correct first two bytes in response
 	r->data[0] = 0x30;
-	r->data[1] = ret + 2;
-	r->flag = R_RESP_READY;
-	r->len = ret + 2;
-	return ((0x61 << 8) | (ret + 2));
+	r->data[1] = ret;
+	return resp_ready (r, ret + 2);
       }
     default:
       return 0x6a88;		//Referenced data (data objects) not found
@@ -1015,7 +1146,7 @@ Use public key with "uncompressed" indicator (byte 04 at start)
 }
 
 static uint16_t
-myeid_upload_ec_key (uint8_t * message, uint8_t len)
+myeid_upload_ec_key (uint8_t * message)
 {
   DPRINT ("%s %02x %02x %02x\n", __FUNCTION__, M_P1, M_P2, M_LC);
 
@@ -1034,7 +1165,7 @@ myeid_upload_ec_key (uint8_t * message, uint8_t len)
 
 
 static uint16_t
-myeid_upload_rsa_key (uint8_t * message, uint8_t len, uint16_t size)
+myeid_upload_rsa_key (uint8_t * message, uint16_t size)
 {
   uint16_t test_size;
   uint8_t m_size = M_LC;
@@ -1098,7 +1229,7 @@ myeid_upload_rsa_key (uint8_t * message, uint8_t len, uint16_t size)
 
 
 static uint16_t
-myeid_upload_keys (uint8_t * message, uint8_t len)
+myeid_upload_keys (uint8_t * message)
 {
   uint16_t k_size;
   uint8_t type;
@@ -1125,24 +1256,24 @@ myeid_upload_keys (uint8_t * message, uint8_t len)
 
 #ifndef NIST_ONLY
   if (type == 0x23 && k_size == 0x0100)
-    return myeid_upload_ec_key (message, len);
+    return myeid_upload_ec_key (message);
 #endif
   if (type == 0x22)
     {
       if (k_size == 0x00c0 || k_size == 0x0100 || k_size == 0x0180
 	  || k_size == 0x0209)
-	return myeid_upload_ec_key (message, len);
+	return myeid_upload_ec_key (message);
     }
   if (type == 0x11)
     {
       if (k_size >= 0x0200 && k_size <= 0x0800)
-	return myeid_upload_rsa_key (message, len, k_size);
+	return myeid_upload_rsa_key (message, k_size);
     }
   return 0x6981;		//icorrect file type
 }
 
 uint16_t
-myeid_put_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
+myeid_put_data (uint8_t * message, struct iso7816_response * r)
 {
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
 
@@ -1178,14 +1309,14 @@ myeid_put_data (uint8_t * message, uint8_t len, struct iso7816_response * r)
     }
   // Upload keys
   if (M_P2 >= 0x80 && M_P2 <= 0x8B)
-    return myeid_upload_keys (message, len);
+    return myeid_upload_keys (message);
 
   return 0x6A81;		//Function not supported
 }
 
 
 uint16_t
-myeid_activate_applet (uint8_t * message, uint8_t len)
+myeid_activate_applet (uint8_t * message)
 {
   if (M_LC)
     {

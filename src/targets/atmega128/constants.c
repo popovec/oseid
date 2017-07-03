@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,40 +23,44 @@
 
 */
 #ifdef HAVE_GET_CONSTANTS
+#ifndef __FLASH
+#error, Your compiler does not support Named Address Space
+#endif
 #include <stdint.h>
-#include <avr/pgmspace.h>
 #include "constants.h"
 
-/* *INDENT-OFF* */
-const uint8_t constants[] PROGMEM  = {
+const uint8_t __flash constants[] = {
   C_CONSTANTS
 //last position
   0xff
 };
-/* *INDENT-ON* */
 
+
+// C code with pgm_read_byte 64 bytes
+// C code with named space   56 bytes
+// ASM code                  40 bytes
+
+#if 0
 uint8_t
 get_constant (void *here, uint8_t id)
 {
   uint8_t *t;
-  uint8_t *s = (uint8_t *) constants;
+  const __flash uint8_t *s = constants;
   uint8_t size, val;
 
   t = (uint8_t *) here;
 
   for (;;)
     {
-      val = pgm_read_byte (s);
+      val = *s++;		//pgm_read_byte (s);
       if (val == 0xff)
 	return 0;
-      s++;
-      size = pgm_read_byte (s);
-      s++;
+      size = *s++;		//pgm_read_byte (s);
       if (val == id)
 	{
 	  while (size)
 	    {
-	      *t = pgm_read_byte (s);
+	      *t = *s;		//pgm_read_byte (s);
 	      t++;
 	      s++;
 	      size--;
@@ -66,4 +70,36 @@ get_constant (void *here, uint8_t id)
       s += size;
     }
 }
+#else
+uint8_t
+get_constant (void *here, uint8_t id)
+{
+  register uint8_t ret asm ("r24");
+  asm volatile (		//
+		 "1:\n"		//
+		 "lpm	r21,Z+\n"	// load constant ID
+		 "cpi	r21,0xff\n"	//
+// test last constant ?
+		 "brne	2f\n"	//
+		 "clr	r24\n"	//
+		 "ret	\n"	//
+		 "2:\n"		//
+		 "lpm	r20,Z+\n"	// load sonstant size
+		 "cp	r21,r22\n"	// compare ID (r22 = id)?
+		 "breq	3f\n"	//
+// jump to next constant
+		 "add	r30,r20\n"	//
+		 "adc	r31,r1\n"	//
+		 "rjmp	1b\n"	//
+// ok, this constant to RAM
+		 "3:\n"		//
+		 "lpm	r0,Z+\n"	//
+		 "st	X+,r0\n"	//
+		 "dec	r20\n"	//
+		 "brne	3b\n"	//
+		 "ldi	r24,1\n"	//
+		 :"=r" (ret):"z" (constants), "x" (here):);
+  return ret;
+}
+#endif
 #endif

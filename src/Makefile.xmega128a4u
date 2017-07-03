@@ -11,6 +11,8 @@ F_USB        = 48000000
 
 CFLAGS=  -Wall -Os -DF_USB=$(F_USB)UL -DF_CPU=$(F_CPU)UL
 #CFLAGS+= -Wl,--section-start=.flash_end=0x1ff00
+# Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
+CFLAGS+=-mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
 CFLAGS+= -fshort-enums -fjump-tables --param  case-values-threshold=10
 CFLAGS+= -DOsEID
 CFLAGS += -std=gnu99
@@ -34,8 +36,10 @@ builddir:
 #device dependent files
 
 HAVE =          -DRSA_BYTES=128
-#to test secp384r1 curve on opensc 0.16 uncomment next line (to enable Infineon ATR)
-#HAVE +=		-DInfineon
+
+#for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
+HAVE +=         -DRAM_LE32
+
 HAVE +=		-DE_BITS=5
 HAVE +=		-DHAVE_RSA_SHIFTL5
 HAVE +=		-DHAVE_RSA_MUL_192
@@ -48,7 +52,9 @@ TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 
 HAVE +=		-DHAVE_RSA_SHIFTL
 HAVE +=		-DHAVE_RSA_SHIFTR_LONG
-HAVE +=		-DHAVE_RSA_ADD_LONG 
+
+# not needed if monpro is in asm
+#HAVE +=		-DHAVE_RSA_ADD_LONG
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -95,7 +101,10 @@ HAVE +=         -DHAVE_MP_ADD
 HAVE +=         -DHAVE_MP_SUB 
 HAVE +=         -DHAVE_MP_CMP 
 HAVE += 	-DHAVE_MP_SHIFTR_C -DHAVE_MP_SHIFTR -DHAVE_MP_SHIFTR_2N
-HAVE +=         -DHAVE_MP_SUB_2N
+
+# not needed HAVE_RSA_MOD is set
+#HAVE +=         -DHAVE_MP_SUB_2N
+
 HAVE +=		-DHAVE_MP_SHIFTL
 
 #no bootloader, use own code to program flash
@@ -156,6 +165,7 @@ L_SCRIPT = $(TARGET)avrxmega7_OsEID.x
 	
 $(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
 			$(CC) $(CFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf -T $(L_SCRIPT)
+			avr-size --format=SysV $(BUILD)card.elf
 			avr-size $(BUILD)card.elf
 
 $(BUILD)card_orig.hex:	$(BUILD)card.elf

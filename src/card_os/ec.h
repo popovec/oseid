@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -63,9 +63,8 @@ struct ec_param
   bignum_t order;
   bignum_t Gx;
   bignum_t Gy;
-#ifndef NIST_ONLY
-  bignum_t a;			// not needed, NIST curves A=-3 ..
-#endif
+  bignum_t a;
+  bignum_t b;
   bignum_t private_key;
   bignum_t *r;
   bignum_t *s;
@@ -80,6 +79,10 @@ struct ec_param
 uint8_t ec_key_gener (bignum_t * k, ec_point_t * pub_key,
 		      struct ec_param *ec);
 uint8_t ecdsa_sign (ecdsa_sig_t * ecsig, struct ec_param *ec);
-uint8_t ec_check_key (bignum_t * k, ec_point_t * pub_key,
+// calculate public key from  private key (for ec parameters ec)
+uint8_t ec_calc_key (bignum_t * k, ec_point_t * pub_key,
 		      struct ec_param *ec);
+uint8_t ec_derive_key (bignum_t * k, ec_point_t * pub_key,
+		      struct ec_param *ec);
+
 #endif

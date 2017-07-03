@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,6 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include "card_io.h"
 #include "mem_device.h"
 #include "iso7816.h"
 #include "fs.h"
@@ -110,6 +111,29 @@ struct fs_response fci_sel __attribute__ ((section (".noinit")));
 static uint16_t security_enable __attribute__ ((section (".noinit")));	//bit mapped security enabled levels (by pin 1..14)
 
 
+uint16_t
+fs_get_access_condition (void)
+{
+  return security_enable;
+}
+
+void
+fs_deauth (uint8_t pin)
+{
+  uint16_t sec = 0xfffe;
+
+  if (pin > 14)
+    return;
+
+  if (pin == 0)
+    sec = 0;
+  else
+    {
+      while (--pin)
+	sec = sec * 2 | 1;
+    }
+  security_enable &= sec;
+}
 
 // mminimalize eeprom changes, normal lifecycle codes are 1 and 7,
 // 0xff is default value for blank eeprom, this can be default for
@@ -899,8 +923,8 @@ fs_mkfs (uint8_t * acl)
 uint16_t
 fs_erase_card (uint8_t * acl)
 {
-  uint16_t i = 0;
-
+  uint16_t i = 0, j;
+  int16_t ret;
   DPRINT ("%s\n", __FUNCTION__);
 
   // if MF exists, do ACL check
@@ -910,10 +934,19 @@ fs_erase_card (uint8_t * acl)
       if (check_DF_security (SEC_DELETE))
 	return 0x6982;		//security status not satisfied
     }
-  while (device_write_ff (i, 256) > 0)
-    i += 256;
-  fs_mkfs (acl);
+  for (;;)
+    {
+      ret = device_write_ff (i, 0);	// 0 = 256
+      if (ret < 0)
+	break;
+      // to prevent overlap on 64kiB device
+      j = ret + i;
+      if (j < i)
+	break;
+      i = j;
+    }
 
+  fs_mkfs (acl);
   return 0x9000;
 }
 
@@ -1257,7 +1290,8 @@ fs_key_write_part (uint8_t * key)
     }
 
   // if most important part of key is loaded into key file, mark valid key file
-  if (K_TYPE == KEY_EC_PRIVATE || K_TYPE == KEY_RSA_MOD || K_TYPE == KEY_RSA_MOD_p2)
+  if (K_TYPE == KEY_EC_PRIVATE || K_TYPE == KEY_RSA_MOD
+      || K_TYPE == KEY_RSA_MOD_p2)
     prop_flag |= 0x0100;	//mark as valid key file
 
   // write fci back if prop flag was changed
@@ -1353,11 +1387,28 @@ fs_update_binary (uint8_t * buffer, uint16_t offset)
   return 0x9000;
 }
 
+static uint16_t
+fs_ff (uint16_t offset, uint16_t size)
+{
+  int16_t ret;
+
+  card_io_start_null ();
+
+  while (size)
+    {
+      ret = device_write_ff (offset, (size >= 256 ? 0 : size));
+      if (ret <= 0)
+	return 0x6581;		//memory fail
+      size -= ret;
+      offset += ret;
+    }
+  return 0x9000;
+}
+
 uint16_t
 fs_erase_binary (uint16_t offset)
 {
   uint16_t size;
-  int16_t ret;
 
   DPRINT ("%s\n", __FUNCTION__);
 
@@ -1376,16 +1427,7 @@ fs_erase_binary (uint16_t offset)
   offset += fci_sel.mem_offset;
   offset += sizeof (struct fs_data);
   offset += fci_sel.fs.name_size;
-
-  while (size)
-    {
-      ret = device_write_ff (offset, size);
-      if (ret < 0)
-	return 0x6581;		//memory fail
-      size -= ret;
-      offset += ret;
-    }
-  return 0x9000;
+  return fs_ff (offset, size);
 }
 
 uint16_t
@@ -1394,7 +1436,6 @@ fs_delete_file ()
   struct fs_response fr1;
   uint16_t offset;
   uint16_t size;
-  int16_t ret;
 
   DPRINT ("%s\n", __FUNCTION__);
 
@@ -1437,16 +1478,7 @@ fs_delete_file ()
   // select parent
   if (fs_search_file (&fci_sel, 0, NULL, S_PARENT))
     return 0x6A82;
-
-  while (size)
-    {
-      ret = device_write_ff (offset, size);
-      if (ret < 0)
-	return 0x6581;		//memory fail
-      size -= ret;
-      offset += ret;
-    }
-  return 0x9000;
+  return fs_ff (offset, size);
 }
 
 int16_t

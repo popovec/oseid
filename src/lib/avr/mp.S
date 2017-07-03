@@ -42,8 +42,8 @@
         .type   mp_sub_2N, @function
 #endif
 #ifdef HAVE_MP_CMP
-        .global mp_cmp
-        .type   mp_cmp, @function
+        .global mp_cmpGE
+        .type   mp_cmpGE, @function
 #endif
 #ifdef HAVE_MP_SHIFTR
         .global mp_shiftr
@@ -77,15 +77,231 @@
         .global rsa_sub_long
         .type   rsa_sub_long, @function
 #endif
+#ifdef HAVE_MP_ADDSUB_MOD
+        .global sub_mod
+        .type   sub_mod, @function
+        .global add_mod
+        .type   add_mod, @function
+#endif
         .global rsa_shiftl
         .type   rsa_shiftl, @function
 
 
 /////////////////////////////////////////////////////////////
+#ifdef HAVE_MP_ADDSUB_MOD
+#if  1
+// big, fast, constant time
+// add_mod (Result, Operand, Modulus), Result = (Result + Operand) mod Modulus
+add_mod:
+.irp    Reg,2,3,4,5,6,7,28,29
+	push	r\Reg
+.endr
+	movw	r18,r24	// save result
+	call	rsa_get_len
+	lsr	r24
+	lsr	r24
+	mov	r25,r24
+	lsr	r24
+
+	movw	r30,r18	// result
+	movw	r28,r22	// operand
+	movw	r26,r20 // modulus
+
+	sub	r22,r22		// clear initial carry
+add_mod_loop1:
+	ror	r22		// renew carry from R22:0
+// do addition
+.irp	Reg,0,1,2,3,4,5,6,7
+	ld	r\Reg,Z	// result
+	ld	r23,Y+	//     + operand
+	adc	r\Reg,r23
+	st	Z+,r\Reg
+.endr
+	rol	r22	// save carry from ADD into R22:0
+// compare with modulus
+.irp	Reg,0,1,2,3,4,5,6,7
+	ld	r23,X+	// modulus
+	cpc	r\Reg,r23
+.endr
+	dec	r24
+	brne	add_mod_loop1
+
+	ldi	r24,1
+	sbci	r24,0	// invert carry from SUB
+
+	or	r24,r22	// combine with carry from ADD
+
+// renew result, modulus
+	movw	r30,r18	// result
+	movw	r26,r20	// modulus
+	neg	r24	// 0 or 0xff
+	subi	r25,2	// last 8 bytes already loaded in Reg0..7
+// carry is cleared ..
+// subtract modulus or 0
+add_mod_loop2:
+.rept	4
+	ld	r22,X+  // modulus
+	and	r22,r24 // 0 or modulus byte
+	ld	r23,Z
+	sbc	r23,r22
+	st	Z+,r23
+.endr
+	dec	r25
+	brne	add_mod_loop2
+// cached bytes
+.irp    Reg,0,1,2,3,4,5,6,7
+	ld	r22,X+
+	and	r22,r24 // 0 or modulus byte
+	sbc	r\Reg,r22
+	st	Z+,r\Reg
+.endr
+
+	clr	r1
+.irp	Reg,29,28,7,6,5,4,3,2
+	pop	r\Reg
+.endr
+	ret
+#else
+add_mod:
+	movw	r18,r24	// save result position
+	rcall	mp_add
+// r24 0/1
+	mov	r23,r24
+// subtract modulus (do not change result, only check carry)
+	call	rsa_get_len
+	lsr	r24
+	lsr	r24
+	mov	r25,r24
+	movw	r30,r18	// Z pointer to result
+	movw	r26,r20	// X pointer to modulus
+//	clc	// not needed ..
+add_mod_loop1:
+.rept 4
+	ld	r22,Z+  // result
+	ld	r0,X+	// modulus
+	sbc	r22,r0
+.endr
+	dec	r24
+	brne	add_mod_loop1
+// 0 if carry, 1 if not carry
+	ldi	r24,1
+	sbc	r24,r1
+// if add generates carry  or subtract generatres non carry, subtract
+// modulus
+	or	r24,r23
+	movw	r30,r18	// result
+	movw	r26,r20	// modulus
+#if 1
+	neg	r24	//0 or 0xff
+	clc
+add_mod_loop2:
+.rept	4
+	ld	r22,X+  // modulus
+	and	r22,r24 // 0 or modulus byte
+	ld	r23,Z
+	sbc	r23,r22
+	st	Z+,r23
+.endr
+	dec	r25
+	brne	add_mod_loop2
+	ret
+#else
+	push	r28
+	push	r29
+	mov	r28,r24 // 0 or 1
+	clr	r29
+	clr	r0
+// y is pointer to r0/r1
+	clc
+add_mod_loop2:
+.rept	4
+	ld	r1,X+	// read modulus byte
+	ld	r22,Y	// read modulus byte or 0
+	ld	r23,Z   // result
+	sbc	r23,r22
+	st	Z+,r23
+.endr
+	dec	r25
+	brne	add_mod_loop2
+	clr	r1
+	pop	r29
+	pop	r28
+	ret
+#endif
+#endif
+// sub mod(r,a,modulus); r = (r-a) mod modulus
+sub_mod:
+	movw	r30,r24
+	movw	r26,r22
+
+	call	rsa_get_len
+	lsr	r24
+	lsr	r24
+	mov	r25,r24
+	movw	r18,r30
+//	clc
+sub_mod_loop1:
+.rept	4
+	ld	r22,Z
+	ld	r23,X+
+	sbc	r22,r23
+	st	Z+,r22
+.endr
+	dec	r24
+	brne	sub_mod_loop1
+#if 1
+// if carry, add modulus
+// minimize the possibility of side channel attack: always add 0 or modulus
+// byte (this is done by "and r22,r24" r24 is set to 0/0xff - by carry form
+// previous subtraction
+	sbc	r24,r24 // 0 /ff
+	movw	r26,r20 // modulus
+	movw	r30,r18 // result
+	clc
+sub_mod_loop2:
+.rept	4
+	ld	r22,X+  //modulus
+	and	r22,r24 //0 or modulus byte
+	ld	r23,Z   // result
+	adc	r23,r22
+	st	Z+,r23
+.endr
+	dec	r25
+	brne	sub_mod_loop2
+	ret
+#else
+	push	r28
+	push	r29
+// if carry, add modulus
+// minimize the possibility of side channel attack: Y is pointer
+// to r0/r1 registers, r0 is set 0, r1 is filled by modulus bytes
+	clr	r0
+	movw	r28,r0
+	adc	r28,r28	//0/1 by carry
+
+	movw	r26,r20	// modulus
+	movw	r30,r18	// result
+	clc
+sub_mod_loop2:
+.rept	4
+	ld	r1,X+	// read modulus byte
+	ld	r22,Y	// read modulus byte or 0
+	ld	r23,Z	// result
+	adc	r23,r22	// add 0 or modulus byte
+	st	Z+,r23
+.endr
+	dec	r25
+	brne	sub_mod_loop2
+	clr	r1
+	pop	r29
+	pop	r28
+	ret
+#endif
+#endif
 // unroll only 8 bytes,  rest in loop
 .macro MP_ADD_BYTE
 	ld r23,X+
-	ld r25,Y+
+	ld r25,Z
 	adc r23,r25
 	st Z+,r23
 .endm
@@ -94,7 +310,7 @@ mp_add:
 #endif
 #if defined (HAVE_RSA_ADD) || defined(HAVE_MP_ADD)
 rsa_add:
-	movw XL,r20
+	movw XL,r22
 	movw ZL,r24
 	call	rsa_get_len
 	lsr	r24
@@ -104,7 +320,7 @@ rsa_add:
 #endif
 #ifdef HAVE_RSA_ADD_LONG
 rsa_add_long:
-	movw XL,r20
+	movw XL,r22
 	movw ZL,r24
 	call	rsa_get_len
 	lsr	r24
@@ -114,10 +330,7 @@ rsa_add_long:
 
 #if defined(HAVE_RSA_ADD) || defined(HAVE_RSA_ADD_LONG) || defined(HAVE_MP_ADD)
 mp_add0:
-        push YL  
-        push YH   
-        movw YL,r22 
-        clc
+//      clc			// CY is always cleared (rsa_get_len return always even number)
 mp_add1:
 	MP_ADD_BYTE
 	MP_ADD_BYTE
@@ -130,40 +343,57 @@ mp_add1:
         dec r24
         brne mp_add1
         rol r24  
-        pop YH     
-        pop YL  
         ret
 #endif
 /////////////////////////////////////////////////////////////
 #ifdef HAVE_MP_CMP
-mp_cmp:
+#ifdef EC_CONSTANT_TIME
+mp_cmpGE:
 	movw	ZL,r24
 	movw	XL,r22
 	call	rsa_get_len
-	mov	r25,r24
-	ldi	r24,0
-	add	r30,r25
-	adc	r31,r24
-	add	r26,r25
-	adc	r27,r24
+	lsr	r24
+	lsr	r24
+//      clc			// CY is always cleared (rsa_get_len return always even number)
+mp_cmpGE_loop:
+.rept	4
+	ld	r22,Z+
+	ld	r23,X+
+	sbc	r22,r23
+.endr
+	dec	r24
+	brne	mp_cmpGE_loop
+	ldi	r24,1
+	sbc	r24,r1
+	ret
+#else
+mp_cmpGE:
+	movw	ZL,r24
+	movw	XL,r22
+	call	rsa_get_len
+// move pointers to end of variables
+	add	r30,r24
+	adc	r31,r1
+	add	r26,r24
+	adc	r27,r1
+
+	mov	r25,r24	// loop counter
+	ldi	r24,1	// default return value Z GE X
 	rjmp	mp_cmp_loop0
 
 mp_cmp_loop:
 	dec	r25
 	breq	mp_cmp_end
-
 mp_cmp_loop0:
 	ld	r22,-Z
 	ld	r23,-X
-
 	cp	r22,r23
 	breq	mp_cmp_loop
-
-	ldi	r24,0xff
-	brcs	.+2
-	ldi	r24,1
+	brcc	mp_cmp_end
+	clr	r24
 mp_cmp_end:
 	ret
+#endif
 #endif
 /////////////////////////////////////////////////////////////
 #ifdef HAVE_MP_SUB_2N
@@ -179,7 +409,7 @@ rsa_sub_long:
 	call	rsa_get_len
 	lsr	r24
 	lsr	r24
-	clc
+//      clc			// CY is always cleared (rsa_get_len return always even number)
 	rjmp mp_sub1
 #endif
 #ifdef HAVE_MP_SUB
@@ -196,7 +426,7 @@ rsa_sub:
 	lsr	r24
 	lsr	r24
 	lsr	r24
-	clc
+//      clc			// CY is always cleared (rsa_get_len return always even number)
 #endif
 #if defined(HAVE_RSA_SUB) || defined(HAVE_MP_SUB) || defined (HAVE_MP_SUB_2N) || defined (HAVE_RSA_SUB_LONG)
 mp_sub1:
@@ -225,7 +455,7 @@ rsa_shiftl:
 	lsr	r24
 	lsr	r24
 mp_shiftl0:
-	clc
+//      clc			// CY is always cleared (rsa_get_len return always even number)
 mp_shiftl1:
 .rept	8
 	ld	r25,Z
@@ -313,7 +543,7 @@ rsa_shiftr_long:
 	adc	ZH,r1
 	lsr	r24
 	lsr	r24
-	clc	
+//      clc			// CY is always cleared (rsa_get_len return always even number)
 rsa_shiftr_long_loop:
 .rept 8
         ld r25,-Z

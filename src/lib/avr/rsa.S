@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -984,6 +984,8 @@ rsa_mod_init_loop2:
 	ld	\pos,Y+
 .endr
 
+// recalculate BYTES - in next code loop unrolled 4x
+	lsr	BYTES
 rsa_mod_calculate:
 // set pointers
 	movw	r26,RESULT_PTR
@@ -995,7 +997,6 @@ rsa_mod_calculate:
 	movw	r30,HELPER_PTR
 
 	mov	LOOP,BYTES
-	lsr	LOOP
 	subi	LOOP,3	// 12 bytes in cache
 
 // next loop is unrolled 4x,  to get 2x RSA_BYTES
@@ -1033,11 +1034,9 @@ rsa_mod_subtract:
 // based on carry use new result .. (if not carry, HELPER is new RESULT)
 	sbci	INDEX,1
 
-// rotate TMP right (unrolled 4x)
 	mov	LOOP,BYTES
-	lsr	LOOP
 	subi	LOOP,3
-	clc
+//	clc			//CARRY = 0 (LOOP is always > 3)
 rsa_mod_rotate_r:
 	ld	r0,-Y
 	ror	r0
@@ -1069,6 +1068,8 @@ rsa_mod_calculate_end:
 	movw	r26,RESULT_PTR
 	mov	LOOP,BYTES
 rsa_mod_final_copy:
+	ld	r0,Z+
+	st	X+,r0
 	ld	r0,Z+
 	st	X+,r0
 	dec	LOOP
@@ -1332,7 +1333,7 @@ rsa_mod_r_end_loop:
 
 
 //
-// calculate modular inversion
+// calculate modular inversion, no abi!
 //
 // calculate mod inverse for k^-1  mod n,  k is in form 2^w
 // input "n" addressed by r22,r23
@@ -1395,7 +1396,7 @@ rsa_inv_mod_c1:
 	adc	r27,r31
 	movw	r28,r26
 
-// cache 1st 8 bytes in reg
+// cache 1st  bytes in reg
 .irp	pos,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
 	ld	\pos,Z+
 .endr
@@ -1521,7 +1522,7 @@ rsa_inv_mod_full:
 // result is addessed by r30,31
 	push	r24
 	push	r25
-	call	rsa_inv_mod
+	rcall	rsa_inv_mod
 	pop	r25
 	pop	r24
 
@@ -1549,13 +1550,13 @@ rsa_inv_mod_full:
 	movw	ACTIVE0,r26
 
 // here subtract 1
-	ld	r25,X
-	subi	r25,1
-	st	X+,r25
-
 // get number of bites
 	call	rsa_get_len
 	dec	r24
+
+	ld	r25,X
+	subi	r25,1
+	st	X+,r25
 inv_sub_loop:
 	ld	r25,X
 	sbci	r25,0
@@ -1652,7 +1653,7 @@ inv_sub:
 // test loop end
 	sub	r30,RESULT_END
 	sbc	r31,RESULT_END_
-	or	r30,r31
+//	or	r30,r31		// my habit from Z80 :-) not needed for AVR
 	breq	inv_ok
 inv_mask_ok:
 	rjmp	inv_loop
@@ -1709,40 +1710,36 @@ inv_ok:
 #ifdef HAVE_MON_PRO0
 #if USE_N0 == 0 
 
-#define PTR_A	r2
-#define PTR_t	r4
-#define PTR_n	r6
-#define PTR_n0	r8
-// reuse r8,r9
-#define CARRY   r8
-#define BYTES   r9
+#define PTR_t	r12
+#define PTR_n	r14
+#define PTR_n0	r16
 
 //monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp,rsa_num * n, n0_t n0)
 monPro0:
-	push	r2
-	push	r3
-	push	r4
-	push	r5
-	push	r6
-	push	r7
-	push	r8
-	push	r9
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	push 	r16
+	push	r17
 
 	push	r28
 	push	r29
 
-	movw	PTR_A,r24	//a
 	movw	PTR_t,r22	//t
-	movw	r28,r20		//tmp
 	movw	PTR_n,r18	//n
-	movw	PTR_n0,r16	//n0
+	movw	r28,r20		//tmp
 
 // a = t_low * n0
-//      movw    r24,PTR_A
-//      movw    r22,PTR_t
+// PTR_A = PTR_t * PTR_n0
+// r24   =  r22  * r16
 	movw	r20,PTR_n0
+#undef PTR_n0
+#define PTR_A	r16
+// reuse r16,17 - call saved reg - as PTR_A
+	movw	PTR_A,r24
 	call	rsa_mul_mod
-// help = a * n
+// tmp = a * n
 	movw	r24,r28
 	movw	r22,PTR_A
 	movw	r20,PTR_n
@@ -1750,7 +1747,6 @@ monPro0:
 
 // do adding .. help = help + t (do not store low part back)
 	call	rsa_get_len
-	mov	BYTES,r24
 	lsr	r24
 	lsr	r24
 	lsr	r24
@@ -1758,8 +1754,9 @@ monPro0:
 
 	movw	r30,PTR_t	//t
 	movw	r26,PTR_n	//n
+//18,19,20,21,22,23
 
-	clc
+//      clc                     // CY is always cleared (rsa_get_len return  always even number)
 monPro0_add_loop_a:
 .rept 8
 	ld	r0,Y+
@@ -1771,52 +1768,44 @@ monPro0_add_loop_a:
 // from low part only carry is relevant for us
 
 //upper part 
-	clr	CARRY	//carry switcher (do not clear carry!)
 	mov	r1,r24
+	clr	r24	//carry switcher (do not clear carry flag!)
 monPro0_add_loop_b:
 
-.irp pos,18,19,20,21,22,23,24,25
+.irp pos 12,13,14,15,16,17,18,19
 	ld	r\pos,Y
-	ldd	r0,Z+(\pos-18)
+	ldd	r0,Z+(\pos-12)
 	adc	r\pos,r0
 	st	Y+,r\pos	//sum back into help
 .endr
-	ror	CARRY	//save "add" carry, renew "sub" carry
+	ror	r24	//save "add" carry, renew "sub" carry
 
-.irp pos,18,19,20,21,22,23,24,25
+.irp pos,12,13,14,15,16,17,18,19
 	ld	r0,X+		//
 	sbc	r\pos,r0
 	st	Z+,r\pos
 .endr
-	rol	CARRY	//renew "add" carry, save "sub" carry
+	rol	r24	//renew "add" carry, save "sub" carry
 	dec	r1
 	brne	monPro0_add_loop_b
-	rol	CARRY	//add and sub caryy in bits 1,0
-	inc	CARRY	// xor into bit 1
 
-	mov	r24,CARRY
-	ror	r24
+// add and sub carry in bit 0 and CY, do XOR
+	adc	r24,r1	// 00 ->0 10 -> 1 01 ->1 11 ->0
 	andi	r24,1
 
 	pop	r29
 	pop	r28
-
-	pop	r9
-	pop	r8
-	pop	r7
-	pop	r6
-	pop	r5
-	pop	r4
-	pop	r3
-	pop	r2
+	pop	r17
+	pop	r16
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
 	ret
 
 #undef PTR_A
 #undef PTR_t
 #undef PTR_n
-#undef PTR_n0
-#undef CARRY
-#undef BYTES
 
 
 #endif //USE_N0 == 0

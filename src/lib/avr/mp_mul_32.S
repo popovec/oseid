@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -297,12 +297,12 @@ rsa_mul_512_loop1b:
 #define _ACC   r23
 #define _EOR   r25
 
-	in	r28, 0x3d
-	in	r29, 0x3e
-	ldd	r30,Y+3	// Result
-	ldd	r31,Y+4
-	ldd	_CARRY,Y+7	// sign
-	movw	r26,r28
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+3	// Result
+	ldd	r29,Z+4
+	ldd	_CARRY,Z+7	// sign
+	movw	r26,r30
 	adiw	r26,8		// skip variables on stack to point 64 byt TMP
 
 // summarize L,H,M, sub/add M (based on sign ..)
@@ -317,21 +317,21 @@ rsa_mul_512_loop1b:
 	neg	_EOR
 // r24 is used as initial carry, r25 as eor value
 
-	movw	r28,r30
-	subi	r28,lo8(-64)
-	sbci	r29,hi8(-64)
+	movw	r30,r28
+	subi	r30,lo8(-64)
+	sbci	r31,hi8(-64)
 //       D          C           B          A          
 //  127      96 95      64 63       32 31      0
-//                      Y                      Z
+//                      Z                      Y
 //-------------------------------------------------
 // summarize B,C into cache (r8..r15)
 // bytes 39..32
-	ldd	r0,Z+0+32+0
-	ldd	r8,Y+0
+	ldd	r0,Y+0+32+0
+	ldd	r8,Z+0
 	add	r8,r0
 .irp	pos,1,2,3,4,5,6,7
-	ldd	\pos,Z+\pos+32+0
-	ldd	\pos+8,Y+\pos
+	ldd	\pos,Y+\pos+32+0
+	ldd	\pos+8,Z+\pos
 	adc	\pos+8,\pos
 .endr
 	ror	_CARRY	//save carry BC load carry M
@@ -344,9 +344,9 @@ rsa_mul_512_loop1b:
 	ror	_CARRY	//save carry M, load ABC
 // to B+C -M  add part A, save tesult in RAM
 .irp    pos,0,1,2,3,4,5,6,7
-	ldd     _ACC,Z+\pos
+	ldd     _ACC,Y+\pos
 	adc	r\pos,_ACC
-	std	Z+32+\pos,r\pos
+	std	Y+32+\pos,r\pos
 .endr
 	rol	_CARRY	//save carry ABC,load M
 	rol	_CARRY	//save carry M, load BC
@@ -354,15 +354,15 @@ rsa_mul_512_loop1b:
 // bytes 47..40
 // no enough register for cache ..(r23 is reserved)
 .irp	pos,0,1,2,3,4,5,6
-	ldd	\pos,Z+\pos+32+8
-	ldd	\pos+16,Y+\pos+8
+	ldd	\pos,Y+\pos+32+8
+	ldd	\pos+16,Z+\pos+8
 	adc	\pos+16,\pos
 .endr
 // no enough registers - store to ram
-	ldd	r7,Z+32+7+8
-	ldd	_ACC,Y+7+8
+	ldd	r7,Y+32+7+8
+	ldd	_ACC,Z+7+8
 	adc	r7,_ACC
-	std	Y+7+8,r7
+	std	Z+7+8,r7
 
 	ror	_CARRY	//save carry BC load carry M
 // from B+C subtract/add M
@@ -378,19 +378,19 @@ rsa_mul_512_loop1b:
 	ror	_CARRY	//save carry M, load ABC
 // to B+C -M  add part A, save tesult in RAM
 .irp    pos,0,1,2,3,4,5,6,7
-	ldd     _ACC,Z+\pos+8
+	ldd     _ACC,Y+\pos+8
 	adc	\pos,_ACC
-	std	Z+32+\pos+8,\pos
+	std	Y+32+\pos+8,\pos
 .endr
 // bytes 55..48
 	rol	_CARRY	//save carry ABC,load M
 	rol	_CARRY	//save carry M, load BC
 
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	r\pos,Z+\pos+32+16
-	ldd	_ACC,Y+\pos+16
+	ldd	r\pos,Y+\pos+32+16
+	ldd	_ACC,Z+\pos+16
 	adc	r\pos,_ACC
-	std	Y+\pos+16,r\pos
+	std	Z+\pos+16,r\pos
 .endr
 	ror	_CARRY	//save carry BC load carry M
 // from B+C subtract/add M
@@ -402,18 +402,18 @@ rsa_mul_512_loop1b:
 	ror	_CARRY	//save carry M, load ABC
 // to B+C -M  add part A, save tesult in RAM
 .irp    pos,0,1,2,3,4,5,6,7
-	ldd     _ACC,Z+\pos+16
+	ldd     _ACC,Y+\pos+16
 	adc	r\pos,_ACC
-	std	Z+32+\pos+16,r\pos
+	std	Y+32+\pos+16,r\pos
 .endr
 	rol	_CARRY	//save carry ABC,load M
 	rol	_CARRY	//save carry M, load BC
 // bytes 63..56
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	r\pos,Z+\pos+32+24
-	ldd	_ACC,Y+\pos+24
+	ldd	r\pos,Y+\pos+32+24
+	ldd	_ACC,Z+\pos+24
 	adc	r\pos,_ACC
-	std	Y+\pos+24,r\pos
+	std	Z+\pos+24,r\pos
 .endr
 	ror	_CARRY	//save carry BC load carry M
 // from B+C subtract/add M
@@ -425,9 +425,9 @@ rsa_mul_512_loop1b:
 	ror	_CARRY	//save carry M, load ABC
 // to B+C -M  add part A, save tesult in RAM
 .irp    pos,0,1,2,3,4,5,6,7
-	ldd     _ACC,Z+\pos+24
+	ldd     _ACC,Y+\pos+24
 	adc	r\pos,_ACC
-	std	Z+32+\pos+24,r\pos
+	std	Y+32+\pos+24,r\pos
 .endr
 	rol	_CARRY	//save carry ABC,load M
 	bst	_CARRY,7
@@ -441,7 +441,7 @@ rsa_mul_512_loop1b:
 // bytes 79..64
 // add D, reuse cached bytes from B+C in registers
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	_ACC,Y+32+\pos	//D0..D7
+	ldd	_ACC,Z+32+\pos	//D0..D7
 	adc	\pos+8,_ACC
 .endr
 	ror	_CARRY	//save carry BC, load M
@@ -455,11 +455,11 @@ rsa_mul_512_loop1b:
 	clr	_ACC
 .irp	pos,0,1,2,3,4,5,6,7
 	adc	\pos+8,_ACC
-	std	Y+\pos,\pos+8
+	std	Z+\pos,\pos+8
 .endr
 /////////////////////
 // B+C in r16..r22, load last byte B+C into r0
-	ldd	r0,Y+15
+	ldd	r0,Z+15
 //continue - acc carry
 .irp	pos,0,1,2,3,4,5,6
 	adc	\pos+16,_ACC
@@ -478,24 +478,24 @@ rsa_mul_512_loop1b:
 	rol	_CARRY
 // add D
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos+8,Y+32+8+\pos      //D8..D15
+	ldd	\pos+8,Z+32+8+\pos      //D8..D15
 .endr
 .irp	pos,0,1,2,3,4,5,6
 	adc	\pos+16,\pos+8
-	std	Y+\pos+8,\pos+16
+	std	Z+\pos+8,\pos+16
 .endr
 	adc	r0,r15
-	std	Y+15,r0
+	std	Z+15,r0
 /////////////////////////
 // bytes 95..80
 .irp	pos,0,1,2,3,4,5,6
-	ldd	\pos+16,Y+32+16+\pos	// preload D22..D16
-	ldd	\pos,Y+16+\pos	// preload B+C from RAM
+	ldd	\pos+16,Z+32+16+\pos	// preload D22..D16
+	ldd	\pos,Z+16+\pos	// preload B+C from RAM
 	adc	\pos,\pos+16	// add D
 .endr
 // add not cached D (D23)
-	ldd	_ACC,Y+32+16+7	//D23
-	ldd	r7,Y+16+7	//B+C from RAM
+	ldd	_ACC,Z+32+16+7	//D23
+	ldd	r7,Z+16+7	//B+C from RAM
 	adc	r7,_ACC
 	ror	_CARRY	//save carry BC, load M
 
@@ -509,12 +509,12 @@ rsa_mul_512_loop1b:
 	clr	_ACC
 .irp	pos,0,1,2,3,4,5,6,7
 	adc	\pos,_ACC
-	std	Y+16+\pos,\pos
+	std	Z+16+\pos,\pos
 .endr
 /////////////////////////
 // bytes 127..96
 .irp	pos,0,1,2,3,4,5,6,7
-	ldd	\pos,Y+16+8+\pos	// preload B+C from RAM
+	ldd	\pos,Z+16+8+\pos	// preload B+C from RAM
 .endr
 // add carry
 	clr	_ACC
@@ -523,21 +523,26 @@ rsa_mul_512_loop1b:
 .endr
 	rol	_CARRY	// save ABC, load M
 // B+C -M
-.irp	pos,0,1,2,3,4,5,6,7
+.irp	pos,0,1,2,3,4,5,6
 	ld	_ACC,X+
 	eor	_ACC,_EOR
 	adc	r\pos,_ACC
 .endr
+//	movw	r28,r26
+	ld	_ACC,X
+	eor	_ACC,_EOR
+	adc	r7,_ACC
+
 	rol	_CARRY	// save M load BC
-// res of D is preloaded into r27,r0..r6
-	ldd	r27,Y+32+16+8+0	//D24
-	adc	r0,r27
-	std	Y+16+8+0,r0
+// res of D is preloaded into r29,r0..r6
+	ldd	r29,Z+32+16+8+0	//D24
+	adc	r0,r29
+	std	Z+16+8+0,r0
 
 .irp	pos,1,2,3,4,5,6,7
-	ldd	\pos-1,Y+32+16+8+\pos	//D31..D25
+	ldd	\pos-1,Z+32+16+8+\pos	//D31..D25
 	adc	\pos,\pos-1
-	std	Y+16+8+\pos,\pos
+	std	Z+16+8+\pos,\pos
 .endr
 
 // _CARRY = x x x x   x x ABC M
@@ -558,47 +563,43 @@ rsa_mul_512_loop1b:
 	clr	_ACC
 	adc	_CARRY16H,_ACC
 
-// rotate bit 1,0 to CY and bit 0
+// rotate bit 1,0 to C and bit 0
 	ror	_CARRY
 	andi	_CARRY,1
 	adc	_CARRY16L,_CARRY
 	adc	_CARRY16H,_ACC
 
 // propagate carry to D (1st part of D in RAM)
-	ldd	_ACC,Y+32
+	ldd	_ACC,Z+32
 	add	_ACC,_CARRY16L
-	std	Y+32,_ACC
+	std	Z+32,_ACC
 // not cached
 .irp	pos,1,2,3,4,5,6,7
-	ldd	_ACC,Y+32+\pos
+	ldd	_ACC,Z+32+\pos
 	adc	_ACC,_CARRY16H
-	std	Y+32+\pos,_ACC
+	std	Z+32+\pos,_ACC
 .endr
 // cached
 .irp	pos,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
 	adc	\pos,_CARRY16H
-	std	Y+32+\pos,\pos
+	std	Z+32+\pos,\pos
 .endr
 
 // not cached
-	ldd	_ACC,Y+32+23
+	ldd	_ACC,Z+32+23
 	adc	_ACC,_CARRY16H
-	std	Y+32+23,_ACC
+	std	Z+32+23,_ACC
 
 // cached
 	adc	r7,_CARRY16H
-	std	Y+32+24,r27
+	std	Z+32+24,r29
 // cached
 .irp	pos,25,26,27,28,29,30,31
 	adc	\pos-25,_CARRY16H
-	std	Y+32+\pos,\pos-25
+	std	Z+32+\pos,\pos-25
 .endr
 // return stack position
-	in	r28, 0x3d
-	in	r29, 0x3e
-	subi	r28, lo8(-(64+2+2+2+1))
-	sbci	r29, hi8(-(64+2+2+2+1))
-	LOAD_SP r0, r28,r29
+	LOAD_SP r0, r26,r27
 	ret
 #undef _ACC
 #undef _CARRY
@@ -1875,8 +1876,12 @@ rsa_mul_256_mod_no_abi:
 
 	sbiw	r28,16 // lower part, X is incremented in rsa_mul_128_mod_no_abi
 
-// do not replace this by jmp/rjmp, SP is used to point result 
+// do not replace this by jmp/rjmp, SP is used as pointer to result ( but this
+// fail if -mrelax and -Wl,--relax is used for compiler/linker, there is )
+// -Wl,--no-call-ret-replacement  needed too, or uncomment "nop" instruction in
+// next code
 	rcall    rsa_mul_128_mod_no_abi
+//	nop
 	ret
 
 #undef RS0

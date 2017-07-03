@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -40,7 +40,9 @@
        maximal number of received bytes in "len". If reader transmit
        more data as expected in "len", rest of data are discarded.
        (transmit end is detected by timeout after latest received char)
-     - return numbers of received chars (0=256).
+     - if len == 0, no character are stored into buffer (T0 protocol allow
+       only 255 character to be transmitted, here 0 is not interpreted as 256)
+     - return numbers of received chars (0..255).
 
      void card_io_start_null (void);
      - setup I/O subsystem to transmit NULL bytes

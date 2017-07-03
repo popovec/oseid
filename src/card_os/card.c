@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -44,7 +44,7 @@ main ()
   //initialize random number generator
   rnd_init ();
   //initialize myeid emulation (not valid security env)
-  security_env_set_reset (0, 0, 0);
+  security_env_set_reset (0, 0);
   // initialize iso part of card
   response_clear ();
   // initialize card IO and send ATR
