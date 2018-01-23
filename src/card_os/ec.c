@@ -1363,7 +1363,7 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
   DPRINT ("multiplication\n");
 
   ec_projectify (point);
-  ec_mul (point, (uint8_t *) k);
+  ec_mul (point, blind_key);
 
   if (ec_affinify (point, ec))
     return 1;
