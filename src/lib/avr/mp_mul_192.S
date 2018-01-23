@@ -32,14 +32,13 @@
   --  removed unneded CLR R6 (3x)
   --  improved registers reuse/clear
   --  macros
-  --  code speed up (orig:2923 this: 2889 ticks)
-  --  -7 ticks if RAM_LE32 is defined (2882 ticks)
+  --  code speed up (orig:2923 this: 2888 ticks)
+  --  -7 ticks if RAM_LE32 is defined (2881 ticks)
 
 */
 //#undef RAM_LE32
 #include "load_sp.h"
 
-#if defined(HAVE_RSA_MUL_192_NO_ABI)
 #include <avr/io.h>
 
 .macro ABS48  RS5,RS4,RS3,RS2,RS1,RS0 SIGN ZERO
@@ -117,6 +116,7 @@
 
   .global rsa_mul_192_no_abi
   .type rsa_mul_192_no_abi, @function
+  .section .text.rsa_mul_192_no_abi,"ax",@progbits
 
 rsa_mul_192_no_abi:
 
@@ -2144,12 +2144,10 @@ final_M:
   ; M is stored in: 8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,0,1,2,3,4,5
 
   ;--- process sign bit ---  
-	ldd	R7,Z+9		// search SIGN HL1
-  TST R7
-  BREQ final_subtract
-  RJMP final_addition
+	ldd	R7,Z+9		// search backwards for SIGN HL1
+	sbrc	r7,0
+	rjmp	final_addition
 
-final_subtract:  
 // result(MEM) -= registers
 .set Off, 12
 	ldd	r6, Y+Off
@@ -2210,4 +2208,3 @@ final:
 .endr
 	ret
 
-#endif

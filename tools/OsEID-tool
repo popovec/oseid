@@ -22,6 +22,8 @@
 #    Card initialization and test suite
 #
 
+#export OPENSC_DEBUG=255
+
 failecho (){
 	tput setaf 1;echo $@;tput sgr0
 }
@@ -31,7 +33,6 @@ trueecho (){
 warnecho (){
 	tput setaf 3;echo $@;tput sgr0
 }
-#export OPENSC_DEBUG=255
 which gawk pkcs15-init pkcs15-tool sha1sum pkcs15-crypt openssl opensc-tool scriptor 2>/dev/null 1>/dev/null
 if [ $? -ne 0 ]; then
 	echo "unable to found all tools on this system"
@@ -42,16 +43,19 @@ if [ $# -ge  1 ]; then
 	mode=$1
 else
 	echo "please select mode"
+	echo "INFO - print info about card"
 	echo "INIT - do initialization of token by pkcs15-init"
 	echo "EC-CREATE-KEYS - use openssl to generate EC keys"
 	echo "EC-UPLOAD-KEYS - upload EC keys into initialized token"
 	echo "EC-GENERATE-KEYS  - generate keys on card" 
-	echo "EC-SIGN-TEST - sign sample text with openssl and pkcs11, verify (with all keys on card..)"
-	echo "EC-ECDH-TEST - generate shared secrets"
+	echo "EC-SIGN-TEST - sign sample text by ECDSA operation and test this signature"
+	echo "EC-ECDH-TEST - generate shared secrets and test shared secrets "
 	echo "RSA-CREATE-KEYS -  use openssl to generate RSA keys"
 	echo "RSA-UPLOAD-KEYS - upload RSA keys into initialized token"
-	echo "RSA-SIGN-TEST - sign sample text with token RSA operation and test signature with openssl"
+	echo "RSA-GENERATE-KEYS - generate RSA key on card"
+	echo "RSA-SIGN-TEST - sign sample text with token RSA operation and test this signature"
 	echo "RSA-DECRYPT-TEST - decrypt test data"
+	echo "PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys"
 	echo "RSA-CSR [key] [subject] - generate certificate signing request from key"
 	echo "RND-TEST - test random generator entropy"
 	exit 0
@@ -153,20 +157,77 @@ if [ $? -ne 0 ]; then
 	warnecho "No card found"
 	exit 0
 fi
-echo $CARD_ATR|grep -q "4f:73:45:49:44"
+echo $CARD_ATR|grep -q "4f:73:45:49:44$"
 if [ $? -eq 0 ]; then
-	trueecho "Found OsEID card"
+	trueecho "Found OsEID card/token, protocol T=0"
+	PROTO="T=0"
 	CARD_TYPE="OsEID"
-	echo "00 a4 08 0c 02 2f 00"|scriptor  2>/dev/null|grep -q "Normal processing." && CARD_INIT=1
+fi
+echo $CARD_ATR|grep -q "4f:73:45:49:44:"
+if [ $? -eq 0 ]; then
+	trueecho "Found OsEID card/token, protocol T=1"
+	PROTO="T=1"
+	CARD_TYPE="OsEID"
 fi
 echo $CARD_ATR|grep -q "4d:79:45:49:44"
 if [ $? -eq 0 ]; then
 	warnecho "Found MyEID card"
+	PROTO="T=1"
 	CARD_TYPE="MyEID"
 fi
+
+echo "00 a4 08 0c 02 2f 00"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing." && CARD_INIT=1
 if [ -z ${CARD_TYPE} ]; then
 	warnecho "No OsEID/MyEID card found"
 	exit 0
+fi
+
+#***************************************************************************************************************************
+if [ $mode == "INFO" ]; then
+	if [ ${PROTO} == "T=0" ]; then
+		echo "00 CA 01 AA 00"|scriptor -p T=0  2>/dev/null 1>/dev/null
+		RESP=`echo "00 C0 00 00 0B"| scriptor -p T=0  2>/dev/null`
+	else
+		RESP=`echo "00 CA 01 AA 00"| scriptor -p T=1  2>/dev/null`
+	fi
+	echo "${RESP}"|gawk '/^</ {
+		if (NF != 17){
+			print "unusual response length, old card?"
+			exit 0
+		}
+		if ($2 != 1)
+			print "Unknown version of card cap"
+		if ($13 != 90 || $14 != 00)
+			print "Unusual status bytes "$13 $14
+		cap=strtonum("0x"$3)*256+strtonum("0x"$4)
+		if(and(cap,1))
+			printf("RSA algo support\n");
+		if(and(cap,2))
+			printf("DES algo support\n");
+		if(and(cap,4))
+			printf("AES algo support\n");
+		if(and(cap,8))
+			printf("ECDSA and ECDH algo support\n");
+		if(and(cap,16))
+			printf("GridPIN support\n");
+		if(and(cap,32))
+			printf("PIV emulation\n");
+		printf "Maximum RSA key size %d\n",strtonum("0x"$5)*256+strtonum("0x"$6)
+		printf "Maximum DES/3DES key size %d\n",strtonum("0x"$7)*256+strtonum("0x"$8)
+		printf "Maximum AES key size %d\n",strtonum("0x"$9)*256+strtonum("0x"$10)
+		printf "Maximum ECC key size %d\n",strtonum("0x"$11)*256+strtonum("0x"$12)
+	}'
+	if [ ${PROTO} == "T=0" ]; then
+		echo "00 CA 01 A0 00"|scriptor -p T=0  2>/dev/null 1>/dev/null
+		RESP=`echo "00 C0 00 00 14"| scriptor -p T=0  2>/dev/null`
+	else
+		RESP=`echo "00 CA 01 A0 00"| scriptor -p T=1  2>/dev/null`
+	fi
+	echo -n "Card serial number: "
+	echo $RESP|awk '{for(i=19;i<29;i++) printf $i" ";print""}'
+	echo -n "Card version number: "
+	echo $RESP|awk '{for(i=16;i<19;i++) printf $i" ";print""}'
+exit 0
 fi
 
 #***************************************************************************************************************************
@@ -185,10 +246,15 @@ if [ $mode == "RND-TEST" ]; then
 echo "Please wait .. about 10000 bytes is to be read"
 export LC_ALL="C"
 TMP=`mktemp`
-for i in `seq 0 1300`; do
-
-(echo "00 84 00 00 08"; echo "00 c0 00 00 08")|scriptor 2>/dev/null
-done |gawk '{
+TMP="rnd.data"
+for i in `seq 1 1300`; do
+if [ $PROTO == "T=1" ]; then
+	rndCMD='echo "00 84 00 00 08"'
+else
+	rndCMD='(echo "00 84 00 00 08"; echo "00 c0 00 00 08")'
+fi
+eval $rndCMD|scriptor -p ${PROTO} 2>/dev/null
+done|gawk '{
 if($0 ~ "Normal" )
  {
    printf(".") > "/dev/stderr" 
@@ -205,7 +271,7 @@ echo ""
 echo "File parsed as the byte stream:"
 echo "==============================="
 ent $TMP
-rm $TMP
+#rm $TMP
 exit 0
 fi
 #***************************************************************************************************************************
@@ -222,6 +288,11 @@ else
 	warnecho "Your card is already initialized!"
 	exit 0
   fi
+  echo "00 a4 08 0c 04 3f 00 50 15"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing."
+#  if [ $? -ne 0 ];then
+#	echo "OsEID without DF 5015, creating DF 5015"
+#	echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 33 FF FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor
+#  fi
   echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
   if [ ! -f /usr/share/opensc/oseid_$OPENSC_VER.profile ]; then
 	warnecho "Using myeid profile into OsEID card, please install /usr/share/opensc/oseid_$OPENSC_VER.profile "
@@ -274,7 +345,7 @@ fi
 if [ $mode == "EC-UPLOAD-KEYS" ]; then
 echo storing EC key
 (
-# not enabled in myeid driver (0.15, 0.16)
+# not enabled in myeid driver (0.15, 0.16, 0.17)
 #secp224r1  1.3.132.0.33
 # not supported by OsEID
 #secp521r1  1.3.132.0.35
@@ -287,8 +358,13 @@ EOP
 pkcs11-tool -M 2>/dev/null|grep -q -F  -e 'ECDSA-SHA1, keySize={192,521}' -e 'ECDSA-SHA1, keySize={192,384}' && echo "secp384r1  1.3.132.0.34"
 )|
 while read curve oid ;do
+	if [ $curve == "secp256k1" ]; then
+		if [ ! $CARD_TYPE == "OsEID" ]; then
+			continue
+		fi
+	fi
 	echo "uploading key ${curve}"
-	pkcs15-init  --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --label "${curve}" --key-usage sign
+	pkcs15-init  --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --so-pin 00000000 --label "${curve}" --key-usage sign
 	if [ $? -ne 0 ]; then
 	        failecho "fail"
 	        exit 1
@@ -301,10 +377,10 @@ while read curve oid ;do
 		echo "00 a4 08 00 04 $P"
 		echo "00 20 00 01 08 31 31 31 31 31 31 31 31"
 		echo "80 da 00 00 00"
-		)|scriptor
+		)|scriptor -p ${PROTO}
 	fi
 	echo "uploading self signed cert for key/curve ${curve}"
-	pkcs15-init -X keys/${curve}-cert.pem --pin 11111111 --auth-id=1 --label "${curve}"
+	pkcs15-init -X keys/${curve}-cert.pem --pin 11111111 --auth-id=1 --so-pin 00000000 --label "${curve}"
 	if [ $? -ne 0 ]; then
 	        failecho "fail"
 	        exit 2
@@ -372,7 +448,7 @@ mkdir -p tmp
         #Alice: key on card
         rm -f tmp/ecdh-${curve}-alice-pub.pem
         rm -f tmp/ecdh-${curve}-alice-pub.der
-        pkcs11-tool  --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
+        pkcs11-tool  --so-pin 00000000 --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
         #extract pub key
         pkcs15-tool --read-public-key  ${id} > tmp/ecdh-${curve}-alice-pub.pem
         openssl ec -in tmp/ecdh-${curve}-alice-pub.pem -out tmp/ecdh-${curve}-alice-pub.der -pubin -pubout -outform der 2>/dev/null
@@ -449,12 +525,40 @@ echo "storing RSA keys"
 for key in `ls keys/rsa*-key.pem`; do
 	echo "${key}"
 	L=`echo "${key}"|gawk -F'-' '{print "key_"strtonum(substr($1,9))}'`
-	pkcs15-init  --store-private-key "${key}" --auth-id=1 --pin 11111111 --key-usage sign,decrypt --label "${L}"
+	pkcs15-init  --store-private-key "${key}" --auth-id=1 --pin 11111111 --so-pin 00000000 --key-usage sign,decrypt --label "${L}"
 	if [ $? -ne 0 ]; then
 	        err=$[$err + 1 ]
 		failecho "RSA-UPLOAD-KEYS: ${err} errors!"
 	fi
 done
+fi
+#***************************************************************************************************************************
+if [ $mode == "RSA-GENERATE-KEYS" ]; then
+if [ $# -le  1 ]; then
+ echo "generating 1024 RSA key (this may take a long long time - maybe over 30 minutes)"
+ echo "You can break this command by CTRL-C or continue by ENTER"
+ read
+ KSIZE=1024
+else
+ KSIZE=$[$2 + 0 ]
+ fail=1
+ for i in 512 768 1024 1536 2048 ; do
+  if [ $i == ${KSIZE} ]; then
+	fail=0;
+  fi
+ done
+ if [ $fail == 1 ]; then
+	echo "Wrong RSA key size"
+	exit 0
+ fi
+fi
+pkcs15-init --generate-key "rsa/${KSIZE}"  --auth-id 1 --pin 11111111 --label "gen_rsa_${KSIZE}"  --key-usage sign,decrypt
+if [ $? -ne 0 ]; then
+	failecho "fail"
+	exit 1
+fi
+echo "Listing keys:"
+pkcs15-tool -k
 fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-SIGN-TEST" ]; then
@@ -483,8 +587,9 @@ dd if=tmp/rsa_sign_testfile.txt bs=$LEN count=1 of=tmp/rsa_sign_testfile_${LEN}.
 # MyEID support key len in step 64 bits, maximal raw sign is then 248 bytes
 # OsEID is without this limit .. but MyEID interface does allow transfer
 # maximum 250 bytes of data (APDU max 255, 5 bytes for CLA, CMD, P1, P1 LEN)
-# Using MyEID limit . 
-if [ $LEN -lt 249 ]; then
+# raw 2048 bit signature is supported in OpenSC git version
+# (https://github.com/OpenSC/OpenSC/commit/deab9cce73377f973d2020ab5ab7adc302018bf6)
+if [ $LEN -lt 249 ] || [ $OPENSC_VER == "0.18" ] ; then
 	echo "using pkcs15-crypt to sign RAW message, message length $LEN"
 	pkcs15-crypt --pin 11111111 -k $keyID  -s \
 	   -i tmp/rsa_sign_testfile_${LEN}.txt \
@@ -573,7 +678,19 @@ fi
 done
 fi
 #***************************************************************************************************************************
+if [ $mode == "PKCS11-RSA-TEST" ]; then
+	pkcs11-tool --login --test --pin=11111111
+	exit 0
+fi
+#***************************************************************************************************************************
 if [ $mode == "RSA-CSR" ]; then
+V=0
+openssl version -v | fgrep -q 'OpenSSL 1.1' && V=11
+openssl version -v | fgrep -q 'OpenSSL 1.0' && V=10
+if [ $V -eq 0 ]; then
+	echo "Unable to determine openssl version"
+	exit 1
+fi
 if [ $# -lt  2 ]; then
 	echo "Please specify key ID (use pkcs15-tool -k to read keys)"
 	exit 1
@@ -583,7 +700,7 @@ if [ $# -gt  2 ]; then
 else
 	echo "Using CN=$2"
 	echo "You can specify subj into csr for example:"
-	echo "   $0 $1 $2 \"/CN=Joe Random/\""
+	echo "   $0 $1 $2 \"/O=EX/ST=Example/L=Example/O=example/CN=Joe Random\/emailAddress=joe.random@example.example/\""
 	SUBJ="/CN=$2"
 fi
 echo "searching key $2"
@@ -598,14 +715,6 @@ while read keyID; do
  if [ "$2" == "$keyID" ];then
 	echo "Key found"
 	echo "creating openssl config"
-	if [ -f /usr/lib/i386-linux-gnu/opensc-pkcs11.so ]; then
-		MP=/usr/lib/i386-linux-gnu/opensc-pkcs11.so
-	elif [ -f /usr/lib/x86_64-linux-gnu/opensc-pkcs11.so ]; then
-		MP=/usr/lib/x86_64-linux-gnu/opensc-pkcs11.so
-	else
-		echo "unable to get path for opensc-pkcs11.so"
-		exit 1
-	fi
 
 cat <<EOP >tmp/openssl.conf
 openssl_conf            = openssl_def
@@ -618,10 +727,16 @@ pkcs11 = pkcs11_section
 
 [pkcs11_section]
 engine_id = pkcs11
-dynamic_path = /usr/lib/engines/engine_pkcs11.so
-MODULE_PATH = /usr/lib/opensc-pkcs11.so
 EOP
-echo "MODULE_PATH = ${MP}" >> tmp/openssl.conf
+echo "MODULE_PATH = /usr/lib/`uname -m`-linux-gnu/opensc-pkcs11.so" >> tmp/openssl.conf
+DP="/usr/lib/`uname -m`-linux-gnu/openssl-1.0.1/engines/libpkcs11.so"
+if [ $V -eq 10 ]; then
+	if [ ! -f $DP ]; then
+		echo "Please install libengine-pkcs11-openssl package"
+		exit 1
+	fi
+	echo "dynamic_path = $DP" >> tmp/openssl.conf
+fi
 cat <<EOP >>tmp/openssl.conf
 init = 0
 
@@ -637,6 +752,10 @@ openssl req -config tmp/openssl.conf -engine pkcs11 -new \
 -keyform engine -out ${keyID}.csr -text \
 -multivalue-rdn \
 -subj "${SUBJ}"
+if [ $? -ne 0 ];then
+	failecho "CSR generation fail"
+	exit 1
+fi
 echo ".........................................................." 
 openssl req -in ${keyID}.csr -text  -noout
 echo " "

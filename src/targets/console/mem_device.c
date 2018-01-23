@@ -29,9 +29,14 @@
 //#define DPRINT(msg...)
 
 #include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
-
-#define MEMSIZE 32767+16384
+// to match simulavr for atmega128 use 64kiB - 256bytes
+#define MEMSIZE 65536-256
 #if MEMSIZE > 65536
 #error filesyste is designed to use max 65536 bytes!
 #endif
@@ -39,41 +44,50 @@
 static int initialized;
 static uint8_t mem[MEMSIZE];
 
-#define SECSIZE 256
+#define SECSIZE 1024
 static uint8_t sd[SECSIZE];
 
 
 static uint8_t
 device_writeback ()
 {
-  FILE *f;
+  int f;
+  int size, xsize;
 
-  f = fopen ("card_mem", "w");
-  if (!f)
+  f = open ("card_mem", O_WRONLY | O_CREAT, S_IWUSR | S_IRUSR);
+  if (f < 0)
     return 1;
-  if (MEMSIZE != fwrite (mem, sizeof (uint8_t), MEMSIZE, f))
+
+  size = MEMSIZE;
+  while (size)
     {
-      fclose (f);
+      xsize = write (f, mem, size);
+      if (xsize < 0)
+	{
+	  close (f);
+	  return 1;
+	}
+      size -= xsize;
+    }
+  if (SECSIZE != write (f, sd, SECSIZE))
+    {
+      close (f);
       return 1;
     }
-  if (SECSIZE != fwrite (sd, sizeof (uint8_t), SECSIZE, f))
-    {
-      fclose (f);
-      return 1;
-    }
-  fclose (f);
+  close (f);
   return 0;
 }
 
 static uint8_t
 device_init ()
 {
-  FILE *f;
+  int f;
+  int size, xsize;
 
   if (initialized)
     return 0;
-  f = fopen ("card_mem", "r");
-  if (!f)
+  f = open ("card_mem", O_RDONLY);
+  if (f < 0)
     {
       memset (mem, 0xff, MEMSIZE);
       memset (sd, 0xff, SECSIZE);
@@ -82,14 +96,20 @@ device_init ()
       initialized = 1;
       return 0;
     }
-  if (MEMSIZE != fread (mem, sizeof (uint8_t), MEMSIZE, f))
+  size = MEMSIZE;
+  while (size)
     {
-      fclose (f);
-      return 1;
+      xsize = read (f, mem, size);
+      if (xsize < 0)
+	{
+	  close (f);
+	  return 1;
+	}
+      size -= xsize;
     }
-  if (SECSIZE != fread (sd, sizeof (uint8_t), SECSIZE, f))
+  if (SECSIZE != read (f, sd, SECSIZE))
     {
-      fclose (f);
+      close (f);
       return 1;
     }
   initialized = 1;
@@ -98,7 +118,7 @@ device_init ()
 
 // size 0 is interpreted as 256!
 uint8_t
-sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
+sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
 {
   uint16_t overflow, s;
 
@@ -117,7 +137,7 @@ sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
 
 // size 0 is interpreted as 256!
 uint8_t
-sec_device_write_block (void *buffer, uint8_t offset, uint8_t size)
+sec_device_write_block (void *buffer, uint16_t offset, uint8_t size)
 {
   uint16_t overflow, s;
 

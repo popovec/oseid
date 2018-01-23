@@ -1,0 +1,49 @@
+You need patched version of simulavr (from debian simulavr package)
+(simulavr_0.1.2.2-7 from stretch/sid)
+
+You can found shell script that can compile patched version of simulavr in
+targets/simulavr/compile_simulavr.sh
+
+you can install compiled package system wide or use only binary
+(targets/simulavr/tmp/simulavr-0.1.2.2/src/simulavr)
+
+
+Simulation can be attached directly to pcscd as simulated reader.
+
+Compile simulated reader:
+
+$ make -f Makefile.console
+
+and compile binary for simulavr:
+
+$ make -f Makefile.simulavr
+
+
+Then run as root:
+
+# build/simulavr/run_pcscd.sh
+
+on another console then run:
+
+# avr-gdb -ex "target remote localhost:1212" build/simulavr/card.elf
+
+In avr-gdb next commands to start simulation:
+
+(gdb) load
+(gdb) cont
+
+
+
+Simulated card is now available (after ~ 10 sec).. you can check this by running:
+
+$ pcsc_scan
+
+
+
+In avr-gdb use CTRL-C to break execution, then you can insert break points
+or examine registers etc.  CTRL-C does not break avr-gdb immediately, APDU
+must be readed to return control into avr-gdb. Use for example:
+
+echo "00 a4 00 00 00" |scriptor
+
+to interrupt avr-gdb and get command line in avr-gdb.

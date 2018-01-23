@@ -1,5 +1,5 @@
 /*
-    ec.c
+    ec.h
 
     This is part of OsEID (Open source Electronic ID)
 
@@ -18,6 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+    ECC header file
 
 */
 #ifndef CS_EC_H
@@ -40,10 +41,14 @@ typedef struct
 
 typedef struct
 {
-  bignum_t R;
-  bignum_t S;
-
-  bignum_t *message;		//message to sign (padded to 32 bytes)
+  union {
+  ec_point_t signature;
+  struct{
+    bignum_t R;
+    bignum_t S;
+    };
+  };
+  bignum_t  priv_key;
 
 } ecdsa_sig_t;
 
@@ -61,28 +66,22 @@ struct ec_param
 {
   bignum_t prime;
   bignum_t order;
-  bignum_t Gx;
-  bignum_t Gy;
   bignum_t a;
   bignum_t b;
-  bignum_t private_key;
-  bignum_t *r;
-  bignum_t *s;
-
+// do not change rest .. key generation depent on it
   uint8_t curve_type;		// curve type (to select beeter algo and fast reduction algo)
   uint8_t mp_size;		// arithmetics size (max 48 bytes)
+  bignum_t working_key;
 };
 
 
 #endif
 
-uint8_t ec_key_gener (bignum_t * k, ec_point_t * pub_key,
-		      struct ec_param *ec);
-uint8_t ecdsa_sign (ecdsa_sig_t * ecsig, struct ec_param *ec);
-// calculate public key from  private key (for ec parameters ec)
-uint8_t ec_calc_key (bignum_t * k, ec_point_t * pub_key,
-		      struct ec_param *ec);
-uint8_t ec_derive_key (bignum_t * k, ec_point_t * pub_key,
-		      struct ec_param *ec);
+// return generated private key in ec->working_key, public key in pub_key
+uint8_t ec_key_gener (ec_point_t * pub_key,  struct ec_param *ec);
 
+// sign HASH in message, return R,S in ecdsa_sig_t, use parameters from ec_param
+uint8_t ecdsa_sign (uint8_t *message, ecdsa_sig_t * ecsig, struct ec_param *ec);
+
+uint8_t ec_derive_key (ec_point_t * pub_key, struct ec_param *ec);
 #endif

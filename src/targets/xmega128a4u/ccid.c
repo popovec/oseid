@@ -18,7 +18,10 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    ccid layer
+    CCID layer (T0, T1 protocol - inclusive T1 state machine) this layer
+    adapt T1 protocol to OsEID card - send 1st 5 bytes of APDU to card, then
+    if card request rest of APDU sent rest data.  If card return data, this
+    layer request data from card by injecting GET DATA command to card.
 
 */
 #include <stdint.h>
@@ -28,12 +31,12 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
-
 #include "card_io.h"
 #include "ccid.h"
 #include "usb.h"
 #include "LED.h"
 #include "avr_os.h"
+#include "serial_debug.h"
 
 #define C_RDR_to_PC_DataBlock  0x80
 #define C_RDR_to_PC_SlotStatus 0x81
@@ -41,12 +44,9 @@
 #define C_RDR_to_PC_Escape     0x83
 #define C_RDR_to_PC_DataRateAndClockFrequency 0x84
 
-/////////////////////////////////////////////////////////////////
-// TPDU T0  handling code
-//
-/////////////////////////////////////////////////////////////////
 
 uint8_t SlotError __attribute__ ((section (".noinit")));
+uint8_t reader_protocol __attribute__ ((section (".noinit")));
 
 //slot status:
 union Slot_Status_Register
@@ -61,7 +61,6 @@ union Slot_Status_Register
 } Status __attribute__ ((section (".noinit")));
 
 uint8_t ATR[33] __attribute__ ((section (".noinit")));
-uint8_t ATRlen __attribute__ ((section (".noinit")));;
 
 enum TPDU_states
 {
@@ -84,6 +83,374 @@ uint8_t *card_rx_buffer __attribute__ ((section (".noinit")));
 uint8_t card_response[271] __attribute__ ((section (".noinit")));
 uint16_t card_response_len __attribute__ ((section (".noinit")));
 
+
+
+/////////////////////////////////////////////////////////////////
+// TPDU T0  handling code
+//
+/////////////////////////////////////////////////////////////////
+#define t1_STATE_SENDING	0
+#define t1_STATE_RECEIVING      1
+
+/* I block */
+#define T1_I_SEQ_SHIFT          6
+
+/* R block */
+#define T1_IS_ERROR(pcb)        ((pcb) & 0x0F)
+#define T1_EDC_ERROR            0x01
+#define T1_OTHER_ERROR          0x02
+#define T1_R_SEQ_SHIFT          4
+
+/* S block stuff */
+#define T1_S_IS_RESPONSE(pcb)   ((pcb) & T1_S_RESPONSE)
+#define T1_S_TYPE(pcb)          ((pcb) & 0x0F)
+#define T1_S_RESPONSE           0x20
+#define T1_S_RESYNC             0x00
+#define T1_S_IFS                0x01
+#define T1_S_ABORT              0x02
+#define T1_S_WTX                0x03
+
+#define swap_nibbles(x) ( (x >> 4) | ((x & 0xF) << 4) )
+
+#define F_IFS_REQUEST 0xc1
+#define F_IFS_RESPONSE 0xe1
+#define F_ABORT_REQUEST 0xc2
+#define F_ABORT_RESPONSE 0xe2
+#define F_RESYNC_REQUEST 0xc0
+#define F_RESYNC_RESPONSE 0xe0
+#define F_WTX_REQUEST 0xc3
+#define F_WTX_RESPONSE 0xe3
+#define T1_NAD 0
+#define T1_PCB 1
+#define T1_LEN 2
+#define T1_DATA 3
+// xmega uses 64 bytes USB packet
+// limit max size: (T1 protocol 48 bytes) + (10 bytes CCID header) < 64
+#define F_IFS_SIZE 48
+
+uint8_t T1_APDU_buffer_recv[261] __attribute__ ((section (".noinit")));
+uint16_t T1_APDU_len_recv __attribute__ ((section (".noinit")));
+uint8_t T1_APDU_response[271] __attribute__ ((section (".noinit")));
+uint16_t T1_APDU_response_len __attribute__ ((section (".noinit")));
+
+struct t1
+{
+  uint8_t ifd_send_chain;	// 0/0x20 if IFD send a chained I blocks
+  uint8_t icc_send_chain;
+  uint8_t receive_only;
+  uint8_t need_ack;		// icc sended I frame, and need acknowledge
+  uint8_t ifs_icc;		// Information size for ICC sending
+  uint8_t ifs_ifd;		// size for CCID proto receiving
+  uint8_t n_icc;		// sequence number - for ICC
+  uint8_t n_ifd;		// sequence number - for IFD
+  uint8_t wtx;			// waiting time
+  uint8_t prev_S[4];		// copy of last sended S request
+  uint8_t prev[4];		// copy of last sended frame
+  uint8_t last_len;
+} t1 __attribute__ ((section (".noinit")));
+
+static void
+t1_init ()
+{
+  t1.ifd_send_chain = 0;
+  t1.icc_send_chain = 0;
+  t1.receive_only = 0;		// only receive, do not send any I frame
+  t1.need_ack = 0;
+  t1.n_icc = 0;
+  t1.n_ifd = 0;
+  t1.ifs_icc = 32;
+  t1.ifs_ifd = 32;
+  t1.wtx = 0;
+  t1.prev_S[T1_PCB] = 0;	// no sended S frame
+  t1.prev[T1_PCB] = 1;		//no previous block
+}
+
+// calculate lrc of frame
+static uint8_t
+t1_lrc (uint8_t * f1_rblock, uint8_t rlen)
+{
+  uint8_t ret = 0;
+
+  while (rlen--)
+    ret ^= *f1_rblock++;
+  return ret;
+}
+
+// parse T1 frame at t1_data
+// construct response T1 frame or APDU in t1_data
+// return back response frame in t1_data
+// return value 1 - T1 response
+// return value 2 = APDU ready
+// return value 0 - no T1 response to host
+
+
+
+static uint8_t
+t1_send_data (uint8_t * buffer)
+{
+  uint8_t len = len;
+
+// do not use reader IFS, xmega USB transport uses max 63 bytes
+  if (t1.ifs_ifd > F_IFS_SIZE)
+    len = F_IFS_SIZE;
+
+  if (T1_APDU_response_len < len)
+    len = T1_APDU_response_len;
+
+  buffer[T1_PCB] = (t1.n_icc << 1);	// seq. bit
+  buffer[T1_LEN] = len;
+
+  if (T1_APDU_response_len - len > 0)
+    buffer[T1_PCB] |= 0x20;	// chain bit set
+
+  memcpy (buffer + 3, T1_APDU_response, len);
+  t1.last_len = len;
+  return len;
+}
+
+static void
+t1_next_data ()
+{
+  uint8_t len = t1.last_len;
+
+  T1_APDU_response_len -= len;
+  memcpy (T1_APDU_response, T1_APDU_response + len, T1_APDU_response_len);
+}
+
+#if 0
+// DEBUG function
+void
+blink_led ()
+{
+  uint8_t i;
+  volatile uint32_t p;
+  for (i = 0; i < 4; i++)
+    {
+      PORTA.OUTTGL = PIN6_bm;
+      PORTA.OUTTGL = PIN5_bm;
+      for (p = 30000; p > 0; p--);
+    }
+}
+#endif
+// Please read iso7816-3 for Rules/Scenarios io some comment is non self explained
+
+static uint8_t
+T1_wrapper (uint8_t * t1_data, uint16_t t1_len)
+{
+  uint8_t seq;
+
+// ERROR frame checking
+// timeout -  ICC (this code) ignore any timeouts, IFD generate T1_wrapper_frame_error
+// BWT, CWT is ignored in this code too, this is not real ISO7816-1/2 transmision,
+// all data comes from USB CCID layer.
+
+// 1st check if frame is ok, assume received frame length is correct
+  if (t1_lrc (t1_data, t1_len))
+    {
+      t1_data[T1_PCB] = 0x81;
+      goto T1_wrapper_frame_error;
+    }
+
+// check frame parameters ..
+  if ((t1_len < 4) || t1_data[T1_LEN] == 0xff ||
+      t1_data[T1_NAD] != 0 || t1_len - 4 != t1_data[T1_LEN])
+    {
+      t1_data[T1_PCB] = 0x82;;
+      goto T1_wrapper_frame_error;
+    }
+
+// ICC is waiting S response frame ? Rule 8, Scenario 14.2, 15.3,  16.2, 17.3
+  if ((t1.prev_S[T1_PCB] & 0xec) == 0xc0)
+    {
+      t1.prev_S[T1_PCB] = 0;	// clear request, only one retransmision is allowed
+// response to different S frame ?
+      if ((t1_data[T1_PCB] | 0x20) != t1.prev_S[T1_PCB])
+	goto T1_wrapper_frame_error;
+// non matching len/data ?
+      if (t1_data[T1_LEN])
+	if (t1.prev_S[T1_DATA] != t1_data[T1_DATA])
+	  goto T1_wrapper_frame_error;
+// correct response received
+      return 0;			// do not send any frame OsEID request only ABORT, and then goes into receiving mode
+    }
+
+// S request handling
+  if ((t1_data[T1_PCB] & 0xec) == 0xc0)
+    {
+      //check length of request (1 byte for IFS and WTX request)
+      if ((t1_data[T1_PCB] & 1) != t1_data[T1_LEN])
+	goto T1_wrapper_other_error;
+      t1.receive_only = 0;	// clear error
+      // turn request to response, handle request functions
+      t1_data[T1_PCB] |= 0x20;
+      if ((t1_data[T1_PCB] & 3) == 0)	// resync
+	t1_init ();
+      else if ((t1_data[T1_PCB] & 3) == 1)	//
+	t1.ifs_ifd = t1_data[3];	// here check for range 32..254 ?
+      else if ((t1_data[T1_PCB] & 3) == 3)	//
+	t1.wtx = t1_data[T1_DATA];
+      goto T1_wrapper_response;
+    }
+
+// R frame handling
+  if ((t1_data[T1_PCB] & 0xec) == 0x80 && (t1_data[T1_PCB] & 3) < 3)
+    {
+      if (t1_data[T1_LEN] != 0)	// LEN !=0
+	goto T1_wrapper_other_error;
+
+// R frame as response to S request is already handled above
+      if (!(t1.need_ack))
+	goto T1_wrapper_other_error;
+
+// This R frame request retransmit of previous I frame or
+// transmit new I frame, test seq. number
+      seq = (t1_data[T1_PCB] & 0x10) << 1;
+
+// if this R frame is type "No error" sequence number must signalize next frame
+// or same sequence number can be arrived only if this R frame signalize error
+      if ((seq != t1.n_icc) ^ ((t1_data[T1_PCB] & 3) == 0))
+	goto T1_wrapper_other_error;
+
+// ok, data can be sended (retransmit or next data)
+      if (seq != t1.n_icc)
+	{
+	  t1_next_data ();
+	  t1.n_icc = seq;
+	  t1.need_ack = 0;
+	}
+      if (t1_send_data (t1_data))
+	{
+	  t1.need_ack = 1;
+	  goto T1_wrapper_return_frame;
+	}
+      return 0;
+    }
+
+// I frame test
+  if ((t1_data[T1_PCB] & 0x9f) == 0)
+    {
+      // I frame is not alowed if ICC transmit a chain
+      if (t1.icc_send_chain)
+	goto T1_wrapper_other_error;
+      // test expected seq. number ..
+      seq = (t1_data[T1_PCB] & 0x40) >> 1;
+      if (seq != t1.n_ifd)
+	goto T1_wrapper_other_error;
+
+      // save chain bit .. (if IFD send chain, do not send I frames back)
+      t1.ifd_send_chain = t1_data[T1_PCB] & 0x20;
+      // next sequence number
+      seq ^= 0x20;		// warning seq is used below too!
+      t1.n_ifd = seq;
+      // this frame is acknowledge for previous sended "I" frame ..
+      t1.receive_only = 0;	// clear error
+      if (t1.need_ack)
+	{
+	  t1.n_icc ^= 0x20;
+	  t1_next_data ();
+	  t1.need_ack = 0;
+	}
+      // is space in buffer ?
+      if (T1_APDU_len_recv + t1_data[T1_LEN] > 261)
+	{
+	  t1_data[T1_PCB] = F_ABORT_REQUEST;
+	  t1_data[T1_LEN] = 0;
+	  goto T1_wrapper_response;
+	}
+      // save data in buffer
+      memcpy (T1_APDU_buffer_recv + T1_APDU_len_recv, t1_data + 3,
+	      t1_data[T1_LEN]);
+      T1_APDU_len_recv += t1_data[T1_LEN];
+      // this is last frame ? (run ADPU in card)
+      if ((t1_data[T1_PCB] & 0x20) == 0)
+	return 2;
+      // send back R frame = confirm receiving of I frame
+      t1_data[T1_PCB] = 0x80 | (seq >> 1);
+      t1_data[T1_LEN] = 0;
+      goto T1_wrapper_response;
+    }
+
+// unknown frame error
+T1_wrapper_other_error:
+// send R frame with expected seq. number
+  t1_data[T1_PCB] = 0x82 | (t1.n_ifd >> 1);
+
+//T1_wrapper_R:
+  t1_data[T1_LEN] = 0;
+/*
+Do not enable this, always send new R frame, TODO .. check ISO ..
+// check if previous block is R
+  if ((t1.prev[1] & 0xec) == 0x80 && (t1.prev[1] & 3) < 3)
+    {
+      // Rule 7.4.3
+      if (t1.receive_only)
+	return 0;
+      // previous block is R block, repeat this block
+      t1_data[T1_PCB] = t1.prev[1];
+      t1.receive_only = 1;
+    }
+*/
+T1_wrapper_response:
+// copy last frame
+  memcpy (t1.prev, t1_data, 4);
+// copy last S request frame sended
+  if ((t1_data[T1_PCB] & 0xec) == 0xc0)
+    memcpy (t1.prev_S, t1_data, 4);
+
+T1_wrapper_return_frame:
+  t1_data[T1_NAD] = 0;
+  t1_data[t1_data[T1_LEN] + 3] = t1_lrc (t1_data, t1_data[T1_LEN] + 3);
+  return 1;
+
+
+////////////////////////////////////////////////////////////////
+// arrived frame with error
+//
+T1_wrapper_frame_error:
+// Rule 7.4.3 - do not repeat S frame or R frame after second attempt
+  if (t1.receive_only)
+    return 0;			// nothing to do
+  t1.receive_only = 1;
+// is this frame failed response to S request ?
+// Scenario 14.2, 15.3,  16.2, 17.3,
+  if ((t1.prev_S[T1_PCB] & 0xec) == 0xc0)
+    memcpy (t1_data, t1.prev_S, 4);
+  else
+    {
+// send R frame with expected sequence number
+      t1_data[T1_PCB] |= (t1.n_ifd >> 1);
+      t1_data[T1_LEN] = 0;
+    }
+  memcpy (t1.prev, t1_data, 4);
+  goto T1_wrapper_return_frame;
+}
+
+// not ISR routine, send card response as T1 I frame
+static void
+T1_return_data (uint8_t * card_response, uint16_t card_response_len)
+{
+  uint8_t buffer[63];
+  uint8_t size = card_response_len - 10;
+  uint8_t *t1_data = buffer + 10;
+
+// save data for retransmit (but not CCID part!)
+  memcpy (T1_APDU_response, card_response + 10, card_response_len - 10);
+  T1_APDU_response_len = card_response_len - 10;
+
+  memcpy (buffer, card_response, 10);	// CCID part
+
+  t1_data[T1_NAD] = 0;
+  size = t1_send_data (t1_data);
+
+  // CCID header ..
+  buffer[1] = size + 4;
+  buffer[2] = 0;
+
+  t1_data[t1_data[T1_LEN] + 3] = t1_lrc (t1_data, t1_data[T1_LEN] + 3);
+  t1.need_ack = 1;
+  CCID_response_to_host (buffer, size + 14);
+}
+
 // NOT called from ISR
 uint8_t
 card_io_rx (uint8_t * data, uint8_t len)
@@ -91,7 +458,8 @@ card_io_rx (uint8_t * data, uint8_t len)
   uint8_t l_len;
 
   // wait for data from CCID layer
-  while (!card_rx_len);
+  while (!card_rx_len)
+    CPU_idle ();
 
   //read only requested chars, rest is discarded!
   l_len = card_rx_len;
@@ -116,16 +484,21 @@ card_io_tx (uint8_t * data, uint8_t len)
   switch (TPDU_state)
     {
     case T_IDLE:
-      // no data is expected from card .. drop data    
+      // no data is expected from card .. drop data
       return 0;
     case T_WAIT_RESPONSE:
       {
-	// only copy data from card, then wait for status, 
+	uint16_t llen = len;
+	if (len == 0)
+	  llen = 256;
+	// only copy data from card, then wait for status,
 	// send this to host in one message
 	// send response to host
-	memcpy (card_response + card_response_len, data, len);
-	card_response_len += len;
-
+	// check size, truncate oversized response
+	if (card_response_len + llen > 256)
+	  llen = 256 - card_response_len;
+	memcpy (card_response + card_response_len, data, llen);
+	card_response_len += llen;
 	TPDU_state = T_WAIT_STATUS;
 	return 0;
       }
@@ -146,35 +519,66 @@ card_io_tx (uint8_t * data, uint8_t len)
 	      TPDU_state = T_WAIT_STATUS;
 	      return 0;
 	    }
-	  // protocol error ? or return 1 byte status ?   
-	  // No data for this APDU, return one byte response 
+	  // protocol error ? or return 1 byte status ?
+	  // No data for this APDU, return one byte response
 	  // back to host (fall through to T_WAIT_STATUS:)
 	  card_response[card_response_len] = card_ins;
-	  card_response_len++;
+	  // truncate oversized output from card
+	  if (card_response_len < 256)
+	    card_response_len++;
 	}
       p_byte &= 0xf0;
-      // len 1 for 0x90  is ok ? 
-      if (p_byte != 0x60 && p_byte != 0x90 && len > 2)
+      // len 1 for 0x90  is ok ?
+      if ((p_byte != 0x60 && p_byte != 0x90) || len > 2)
 	{
 	  // protocol error
 	  card_response[1] = 0;
 	  card_response[2] = 0;
-	  card_response[7] = Status.SlotStatus = 1;
+	  Status.bmCommandStatus = 1;
+	  card_response[7] = Status.SlotStatus;
 	  card_response[8] = SlotError = 0xf4;
+// here card_response_len can be set to fixed 10 bytes ?
 	  CCID_response_to_host (card_response, card_response_len);
 	  TPDU_state = T_IDLE;
 	  return 0;
 	}
       // fall through, send
     case T_WAIT_STATUS:
+/*
+//truncate ovesized status (0=256!)
+// TODO this code is wrong
+      if (len > 2)
+	len = 2;
+      if (len == 0)
+	len = 2;
+*/
+
+      if (reader_protocol == 1 && data[0] == 0x61)
+	{
+	  // fake response length for wrong response..
+	  if (len == 1)
+	    data[1] = 1;
+	  CCID_card_buffer[0] = 0;
+	  CCID_card_buffer[1] = 0xc0;
+	  CCID_card_buffer[2] = 0;
+	  CCID_card_buffer[3] = 0;
+	  CCID_card_buffer[4] = data[1] > 128 ? 128 : data[1];
+	  card_rx_buffer = CCID_card_buffer;
+	  card_rx_len = 5;
+	  TPDU_state = T_WAIT_PROCEDURE_BYTE;
+	  return 0;
+	}
+
       // send response to host
-      // TODO check length .. 
       memcpy (card_response + card_response_len, data, len);
       card_response_len += len;
       card_response[1] = (card_response_len - 10) & 0xff;
       card_response[2] = (card_response_len - 10) >> 8;
-      CCID_response_to_host (card_response, card_response_len);
       TPDU_state = T_IDLE;
+      if (reader_protocol == 1)
+	T1_return_data (card_response, card_response_len);
+      else
+	CCID_response_to_host (card_response, card_response_len);
       return 0;
     }
   return 0;
@@ -200,44 +604,93 @@ card_io_stop_null ()
 // 0 - all ok, data deliviering to card
 // 1 - error
 static int8_t
-run_card (uint8_t * ccid_command)
+run_card (uint8_t * ccid_command, uint8_t * response)
 {
-  // create copy
-  memcpy (CCID_card_buffer, ccid_command, 271);
-  if (ccid_command[2] == 0)
+  uint8_t ret;
+  if (reader_protocol == 1)
+    {
+      // T1 protocol
+      uint16_t t1_len;
+      uint8_t *t1_data;
+      t1_data = ccid_command + 10;
+      t1_len = ccid_command[1] | ccid_command[2] << 8;
+      // return T1 frame (max 53 bytes + 10 for CCID header)
+      ret = T1_wrapper (t1_data, t1_len);
+      if (ret == 1)
+	{
+	  // safety check (USB packet allow us only 63 bytes)
+	  if (t1_data[T1_LEN] > 53)
+	    t1_data[T1_LEN] = 53;
+	  memcpy (response + 10, t1_data, 4 + t1_data[T1_LEN]);
+	  response[1] = 4 + t1_data[T1_LEN];
+	  response[2] = 0;
+	  Status.bmCommandStatus = 0;
+	  response[7] = Status.SlotStatus;
+	  response[8] = SlotError;
+	  return response[1] + 10;
+	}
+      // nothing to do
+      if (ret == 0)
+	return 0;
+
+      if (TPDU_state == T_IDLE)
+	{
+	  //APDU in buffer, handle similar to T0 protocol
+	  memcpy (CCID_card_buffer, ccid_command, 10);
+	  CCID_card_buffer[1] = T1_APDU_len_recv & 0xff;
+	  CCID_card_buffer[2] = T1_APDU_len_recv >> 8;
+	  memcpy (CCID_card_buffer + 10, T1_APDU_buffer_recv, 261);
+	  T1_APDU_len_recv = 0;
+	}
+    }
+  else
+    {
+      if (TPDU_state == T_IDLE)
+	// just copy ccid data into CCID_card_buffer
+	memcpy (CCID_card_buffer, ccid_command, 271);
+    }
+  if (TPDU_state != T_IDLE)
+    {
+      Status.bmCommandStatus = 1;
+      response[7] = Status.SlotStatus;
+      response[8] = 0xe0;	// slot busy;
+      return 10;		// CCID header length
+    }
+  // prepare response
+  memcpy (card_response, response, 10);
+  if (CCID_card_buffer[2] == 0)
     {
       // if command is below 4 bytes return error
-      if (ccid_command[1] < 4)
+      if (CCID_card_buffer[1] < 4)
 	{
 	  Status.bmCommandStatus = 1;	// error
 	  SlotError = 1;	// wrong len
 	  return 1;
 	}
       // normal command, no data
-      if (ccid_command[1] < 5)
+      if (CCID_card_buffer[1] < 5)
 	{
 	  // append LC
-	  ccid_command[1] = 5;
-	  ccid_command[14] = 0;
+	  CCID_card_buffer[1] = 5;
+	  CCID_card_buffer[14] = 0;
 	}
     }
-  card_ins = ccid_command[11];
+  card_ins = CCID_card_buffer[11];
 // check if command is correct
-  Status.bmCommandStatus = 1;
-  SlotError = 11;		// wrong command
-/*
-Allow reader to send odd command as defined in ISO
-card is responsible to handle errors or disable odd commands (T0 proto)
-*/
 #if 0
-  if (card_ins & 1)
-    return 1;
+  if (card_ins & 1 || (card_ins & 0xf0) == 0x60 || (card_ins & 0xf0) == 0x90)
+#else
+// Allow reader to send odd command as defined in ISO
+// card is responsible to handle errors or disable odd commands (T0 proto)
+  if ((card_ins & 0xf0) == 0x60 || (card_ins & 0xf0) == 0x90)
 #endif
-  if ((card_ins & 0xf0) == 0x60)
-    return 1;
-  if ((card_ins & 0xf0) == 0x90)
-    return 1;
-
+    {
+      Status.bmCommandStatus = 1;
+      SlotError = 11;		// wrong command
+      response[7] = Status.SlotStatus;
+      response[8] = SlotError;
+      return 10;
+    }
 // send command to card (card software wait for card_rx_len in busy loop)
 
   card_rx_buffer = CCID_card_buffer + 10;
@@ -245,10 +698,8 @@ card is responsible to handle errors or disable odd commands (T0 proto)
   TPDU_state = T_WAIT_PROCEDURE_BYTE;
 // CCID header is already prepared, set only status/error
   Status.bmCommandStatus = 0;	// command ok
-  Status.bmICCStatus = 0;	//ICC present, active
-  Status.SlotStatus = 0;	// no error
 
-  card_response[7] = 0;		//Status.SlotStatus
+  card_response[7] = Status.SlotStatus;
   card_response[8] = SlotError;
 
   // offset for response
@@ -308,57 +759,77 @@ func_PC_to_RDR_IccPowerOn (uint8_t * command, uint8_t * response)
   if (command[5] != 0)		// wrong slot
     return RDR_to_PC_DataBlock_wrong_slot (response);
 
+// initialize reader buffers, protocol
+  T1_APDU_len_recv = 0;
+  reader_protocol = 0;
   CPU_do_restart_main ();
 // ATR is always available
-#ifdef Infineon
-#warning TODO emulation of Infineon fail, Infineon need T1 protocol
-#define C_ATR_LEN 15
+// new OsEID ATR (T0 and T1 protocol)
+#if 1
+// 3b:f5:18:00:02:80:01:4f:73:45:49:44:1a
+
+#define C_ATR_LEN  13
+#define C_ATR_HIST 5
+
+  ATR[0] = 0x3b;
+  ATR[1] = 0xf0 | C_ATR_HIST;
+  ATR[2] = 0x18;		// Fi=372, Di=12, 31 cycles/ETU
+  ATR[3] = 0x00;		// Vpp not  elec. connected
+  ATR[4] = 0x02;		// extra guardtime
+  ATR[5] = 0x80;		// protocol 0
+  ATR[6] = 0x01;		// protocol 1
+  ATR[7] = 0x4f;		//O
+  ATR[8] = 0x73;		//s
+  ATR[9] = 0x45;		//E
+  ATR[10] = 0x49;		//I
+  ATR[11] = 0x44;		//D
+  ATR[12] = 0x1a;		// checksum (LRC)
+/*
+// myeid 3B F5 18 00 00 81 31 FE 45 4D 79 45 49 44 9A
+#define C_ATR_LEN  15
   ATR[0] = 0x3b;
   ATR[1] = 0xf5;
-  ATR[2] = 0x96;
-  ATR[3] = 0x00;
-  ATR[4] = 0x00;
-  ATR[5] = 0x80;
-  ATR[6] = 0x31;
-  ATR[7] = 0xfe;
-  ATR[8] = 0x45;
+  ATR[2] = 0x18;		// Fi=372, Di=12, 31 cycles/ETU
+  ATR[3] = 0x00;		// Vpp not  elec. connected
+  ATR[4] = 0x00;		// extra guardtime
+  ATR[5] = 0x81;		// protocol 1
+  ATR[6] = 0x31;		// protocol 1
+  ATR[7] = 0xfe;		// IFSC: 254
+  ATR[8] = 0x45;		// Block Waiting Integer: 4 - Character Waiting Integer: 5
   ATR[9] = 0x4d;		//M
   ATR[10] = 0x79;		//y
   ATR[11] = 0x45;		//E
   ATR[12] = 0x49;		//I
   ATR[13] = 0x44;		//D
-  ATR[14] = 0x15;
+  ATR[14] = 0x9a;		// checksum (LRC)
+*/
 #else
-// normal OsEID ATR
+// normal OsEID ATR (only T0 protocol)
 // 3b:f7:18:00:02:10:80:4f:73:45:49:44
 #define C_ATR_LEN  12
 #define C_ATR_HIST 5
   ATR[0] = 0x3b;
   ATR[1] = 0xf0 | C_ATR_HIST;
-  ATR[2] = 0x18;
-  ATR[3] = 0x00;
-  ATR[4] = 0x02;
-  ATR[5] = 0x10;
-  ATR[6] = 0x80;
-
+  ATR[2] = 0x18;		// Fi=372, Di=12, 31 cycles/ETU
+  ATR[3] = 0x00;		// Vpp not  elec. connected
+  ATR[4] = 0x02;		// extra guardtime
+  ATR[5] = 0x10;		// protocol 0
+  ATR[6] = 0x80;		// Protocol to be used in spec mode: T=0
   ATR[7] = 0x4f;		//O
   ATR[8] = 0x73;		//s
   ATR[9] = 0x45;		//E
   ATR[10] = 0x49;		//I
   ATR[11] = 0x44;		//D
 #endif
-  ATRlen = C_ATR_LEN;
-  //copy ATR to respone  
-  memcpy (response + 10, ATR, ATRlen);
+  //copy ATR to respone
+  memcpy (response + 10, ATR, C_ATR_LEN);
 
   Status.bmCommandStatus = 0;	// command ok
   Status.bmICCStatus = 0;	//ICC present, active
-
-  response[1] = ATRlen;		// set response length  
   response[7] = Status.SlotStatus;
   response[8] = SlotError;
-  CPU_do_restart_main ();
-  return ATRlen + 10;
+  response[1] = C_ATR_LEN;		// set response length
+  return C_ATR_LEN + 10;
 }
 
 static int8_t
@@ -373,7 +844,6 @@ func_PC_to_RDR_GetSlotStatus (uint8_t * command, uint8_t * response)
       return RDR_to_PC_SlotStatus_busy_slot (response);
     }
   Status.bmCommandStatus = 0;	// command ok
-  Status.bmICCStatus = 0;	//ICC present, active
   response[7] = Status.SlotStatus;
   response[8] = SlotError;
   return 10;
@@ -397,6 +867,9 @@ func_PC_to_RDR_ResetParameters (uint8_t * command, uint8_t * response)
       response[8] = 1;		// slot error = wrong length
       return 10;
     }
+// initialize reader buffers, protocol
+  T1_APDU_len_recv = 0;
+  reader_protocol = 0;
   Status.bmCommandStatus = 0;	// command OK
   response[7] = Status.SlotStatus;
   response[1] = 5;		// response data len
@@ -405,7 +878,7 @@ func_PC_to_RDR_ResetParameters (uint8_t * command, uint8_t * response)
   if (ATR[0] == 0x3b)
     response[11] = 0;		// direct
   else
-    response[11] = 2;		// inverrse conversion
+    response[11] = 2;		// inverse conversion
   response[12] = 2;		// guard time
   response[13] = 10;		// WI
   response[14] = 0;		// Stopping the Clock is not allowed
@@ -432,17 +905,17 @@ func_PC_to_RDR_SetDataRateAndClockFrequency (uint8_t * command,
     }
   if (command[7] != 0)
     {
-      response[8] = 7;		// slot error = srong parameter
+      response[8] = 7;		// slot error = wrong parameter
       return 10;
     }
   if (command[8] != 0)
     {
-      response[8] = 8;		// slot error = srong parameter
+      response[8] = 8;		// slot error = wrong parameter
       return 10;
     }
   if (command[9] != 0)
     {
-      response[8] = 9;		// slot error = srong parameter
+      response[8] = 9;		// slot error = wrong parameter
       return 10;
     }
 // ignore forced parameters, return "real" values
@@ -456,10 +929,10 @@ func_PC_to_RDR_SetDataRateAndClockFrequency (uint8_t * command,
   response[11] = (4000L >> 8) & 255;
   response[12] = (4000L >> 16) & 255;
   response[13] = (4000L >> 24) & 255;
-  response[14] = (129032 >> 8) & 255;
-  response[15] = (129032 >> 8) & 255;
-  response[16] = (129032 >> 8) & 255;
-  response[17] = (129032 >> 8) & 255;
+  response[14] = 129032L & 255;
+  response[15] = (129032L >> 8) & 255;
+  response[16] = (129032L >> 16) & 255;
+  response[17] = (129032L >> 24) & 255;
 
   return 18;
 }
@@ -482,44 +955,81 @@ func_PC_to_RDR_SetParameters (uint8_t * command, uint8_t * response)
       response[8] = 1;		// slot error = wrong length
       return 10;
     }
-  if (command[7] != 0)		// only T0 protocol
+  if (command[7] > 1)		// only T0/T1 protocol
     {
       response[8] = 7;		// wrong protocol
       return 10;
     }
-  if (command[1] != 5)
+  reader_protocol = command[7];
+  if (reader_protocol == 1)
     {
-      response[8] = 1;		// wrong len
-      return 10;
+      t1_init ();
+      T1_APDU_len_recv = 0;
+      T1_APDU_response_len = 0;
+    }
+  if (command[7] == 0)
+    {
+      if (command[1] != 5)
+	{
+	  response[8] = 1;	// wrong len
+	  return 10;
+	}
+    }
+  else
+    {
+      if (command[1] != 7)
+	{
+	  response[8] = 1;	// wrong len
+	  return 10;
+	}
     }
   // command is OK, parse parameters, signalize wrong
   // values, but do not return error
 
   Status.bmCommandStatus = 0;	// command OK
   response[7] = Status.SlotStatus;
-  response[1] = 5;		// response data len
-
+// T0/T1 protocol
   response[10] = ATR[1];
   if (ATR[0] == 0x3b)
     response[11] = 0;		// direct
   else
-    response[11] = 2;		// inverrse conversion
-  response[12] = 2;		// guard time
-  response[13] = 10;		// WI
+    response[11] = 2;		// inverse conversion
+// CCID ignores this parameter
+//if (response[11] != command[11])        // direct/inverse conv
+//response[8] = 11;
   response[14] = 0;		// Stopping the Clock is not allowed
-
-  if (response[10] != command[10])
-    response[8] = 10;
-  if (response[11] != command[11])
-    response[8] = 11;
-  if (response[10] != command[12])
-    response[8] = 12;
-  if (response[10] != command[13])
-    response[8] = 13;
-  if (response[14] != command[14])
+  if (response[14] != command[14])	// clock stop (not allowed)
     response[8] = 14;
-
-  return 15;
+  if (reader_protocol == 0)
+    {
+      response[1] = 5;		// response data len
+      response[9] = 0;		// T0
+      response[12] = 2;		// guard time
+      response[13] = 10;	// WI
+      if (response[10] != command[10])	//Fi,Di
+	response[8] = 10;
+      if (response[12] != command[12])	// guard time
+	response[8] = 12;
+      if (response[13] != command[13])	// work waiting time
+	response[8] = 13;
+      return 15;
+    }
+  else
+    {				// protocol 1
+      response[1] = 7;		// response data len
+      response[9] = 1;		// T1
+      response[11] |= 4;	// T1 protocol
+//    response[11] |= 1;        // CRC=1, LRC=0
+      response[12] = command[12];	// extra guard time
+      response[13] = command[13];	// 7..4 = BWI, 3..0 CWI
+      if (response[13] > 0x9f)
+	response[8] = 13;
+      response[15] = command[15];	// IFSC
+      if (response[15] == 0xff)
+	response[8] = 15;
+      response[16] = command[16];	// node address
+      return 17;
+    }
 }
 
 static int8_t
@@ -551,7 +1061,6 @@ func_Unsupported (uint8_t * command, uint8_t * response)
       return RDR_to_PC_SlotStatus_busy_slot (response);
     }
   Status.bmCommandStatus = 1;
-  Status.bmICCStatus = 0;
   SlotError = 0;		//not supported command
   response[7] = Status.SlotStatus;
   response[8] = SlotError;
@@ -564,75 +1073,25 @@ func_PC_to_RDR_XfrBlock (uint8_t * command, uint8_t * response)
 {
   if (command[5] != 0)		// wrong slot
     return RDR_to_PC_DataBlock_wrong_slot (response);
-  if (TPDU_state != T_IDLE)
+  // handle PTS/PPS here, TODO  PTS/PPS is accepted only after ATR !!!
+  if (command[10] == 0xff)
     {
-      Status.bmCommandStatus = 1;
-      return RDR_to_PC_DataBlock_busy_slot (response);
+      if ((command[11] & 0xf) == 1)
+	{
+	  t1_init ();
+	  T1_APDU_len_recv = 0;
+	  T1_APDU_response_len = 0;
+	}
+      memcpy (response + 10, command + 10, command[1]);
+      Status.bmCommandStatus = 0;	// command ok
+      response[1] = command[1];	// set response length
+      response[7] = Status.SlotStatus;
+      response[8] = SlotError;
+      return command[1] + 10;
     }
-  // slot idle, prepare response
-  memcpy (card_response, response, 10);
-  // handle PTS
-  // TODO, PTS is allowed only after ATR..
-  if (command[2] == 0 && command[1] > 2)	//minimal 0xff,xxx,checksum
-    if (command[10] == 0xff)
-      {
-	uint8_t bytes = 3;
-
-	if (command[11] & 0x40)
-	  bytes++;
-	if (command[11] & 0x20)
-	  bytes++;
-	if (command[11] & 0x10)
-	  bytes++;
-	if (bytes == command[1])
-	  {
-	    // seems to be PTS ..
-	    uint8_t sum = 0, i, len = bytes + 10;
-	    for (i = 10; i < len; i++)
-	      sum ^= command[i];
-	    if (sum == 0)
-	      {
-		// send back nothing ..
-		Status.bmCommandStatus = 0;	// command ok
-		Status.bmICCStatus = 0;	//ICC present, active
-		Status.SlotStatus = 0;	// no error
-		response[1] = 0;
-		response[7] = 0;	//Status.SlotStatus
-		response[8] = SlotError;
-		return 10;
-	      }
-	    else
-	      {
-		// wrong checksum
-		Status.bmCommandStatus = 1;
-		SlotError = 10;	// wrong PTS
-		response[7] = Status.SlotStatus;
-		response[8] = SlotError;
-		return 10;
-	      }
-	  }
-	else
-	  {
-	    // wrong len of PTS
-	    Status.bmCommandStatus = 1;	// error
-	    SlotError = 1;	// wrong len
-	    response[7] = Status.SlotStatus;
-	    response[8] = SlotError;
-	    return 10;
-	  }
-      }
-
-
-
-  if (0 == run_card (command))
-    return 0;
-  // wrong CARD command
-  Status.bmCommandStatus = 1;
-  Status.bmICCStatus = 0;	//ICC present, active
-  SlotError = 11;		// wrong command
-  response[7] = Status.SlotStatus;
-  response[8] = SlotError;
-  return 10;
+// return CCID message (if returned size >0)
+// or return 0 if card is running a command
+  return run_card (command, response);
 }
 
 
@@ -680,7 +1139,7 @@ CCID_check_command (uint8_t command)
 // CCID parser, maximal length of data 271 bytes
 
 // return 0 or number of bytes to send back to host over BULK IN endpoint
-// return can specify 1-63 bytes message only! 
+// return can specify 1-63 bytes message only!
 // -1 is used to signalize more data needed (incomplette message)
 // return codes 64..127 and -128..-2 reserved
 int8_t
@@ -732,14 +1191,14 @@ parse_command (uint8_t * command, uint16_t count, uint8_t * ccid_response)
 	  return -1;
 	// this is definitively short BULK OUT message (size in header
 	// not correspond to real received data size)
-	// TODO how handle this ? 
-	// now reporting wrong size 
+	// TODO how handle this ?
+	// now reporting wrong size
 	ccid_response[8] = 1;	// slot error = wrong length
 	return 10;
       }
-    // TODO   
+    // TODO
     // zeroize oversized data or report error?
-    //  
+    //
     if (len < count)
       {
 	memset (command + len, 0, 271 - len);
@@ -784,14 +1243,18 @@ void
 card_io_init (void)
 {
 // ccid layer init
-  ATRlen = 0;
   TPDU_state = T_IDLE;
-  SlotError = 5;		// slot does not exist;
-  Status.SlotStatus = 0x42;	// No ICC present, command failed error in error reg
-
 // Reader LEDs
   LED1_INIT ();
   LED1_IDLE ();
   LED2_INIT ();
   LED2_RUN ();
+}
+
+void
+CCID_Init ()
+{
+  SlotError = 0;
+  Status.SlotStatus = 0;
+  Status.bmICCStatus = 1;	//ICC present, inactive
 }

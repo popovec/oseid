@@ -38,8 +38,8 @@
 
 #include "serial.h"
 
-// communication timeout in seconds */
-#define COMM_TIMEOUT 60
+// communication timeout in seconds
+#define COMM_TIMEOUT 120
 
 #define RET_OK 0
 #define RET_FAIL 1
@@ -147,6 +147,7 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 	}
       if (rv == 0)
 	continue;
+      fprintf(stderr,"%c",byte);
 
       if (byte == '<')
 	flag = 1;
@@ -160,7 +161,7 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 	    break;
 	  if (byte == 0x0a)
 	    break;
-	  // no more space in buffer .. 
+	  // no more space in buffer ..
 	  if (len == 0)
 	    break;
 	}

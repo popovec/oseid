@@ -2,7 +2,7 @@ This target is for testing OsEID code on PC (as simulator)
 ==========================================================
 
 
-top level makefile canhandle automatic pcscd run with this simulator,
+top level makefile can handle automatic pcscd run with this simulator,
 please use: build/console/run_pcscd.sh 
 
 Read next, if you plan to use this system standalone.

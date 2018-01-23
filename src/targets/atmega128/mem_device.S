@@ -50,86 +50,60 @@ osccal_min_end:	ret
 
 
 // return 0 if all ok
-// uint8_t sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
-
-		.global	sec_device_read_block
-		.type	sec_device_read_block, @function
-
-sec_device_read_block:
-	movw	r30,r24		// RAM pointer
-// prepare return value
-	clr	r24
-	clr	r25
-
-	mov	r18,r20		//size
-// maximal address is offset + size - 1
-	dec	r18
-	add	r18,r22
-	brcc	1f
-// raise error
-	adiw	r24,1
-	ret
-
-// counter and address as uint8_t
-// address in range  0-255
-// counter interpreted as 1..256 (0=256)
-1:
-// load address
-	out	0x1f,r1
-	out	0x1e,r22
-	sbi	0x1c,0
-// increment address
-	inc	r22
-// load data from eeprom and store to ram
-	in	r0,0x1d
-	st	Z+,r0
-	subi	r20,1
-	brne	1b
-	ret
-
-// return 0 if all ok
+// uint8_t sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
 // uint8_t sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
 
 		.global	sec_device_write_block
 		.type	sec_device_write_block, @function
 
-sec_device_write_block:
-	movw	r30,r24		// RAM pointer
-// prepare return value
-	clr	r24
-	clr	r25
+		.global	sec_device_read_block
+		.type	sec_device_read_block, @function
 
-	mov	r18,r20		//size
+sec_device_read_block:
+	clt
+	rjmp	sec_device_block
+
+sec_device_write_block:
+	set
+sec_device_block:
+	movw	r30,r24		// RAM pointer
+	movw	r26,r22		// EEPROM pointer
+
+	mov	r24,r20         //size
+	dec	r20
 // maximal address is offset + size - 1
-	dec	r18
-	add	r18,r22
-	brcc	1f
-// raise error
-	adiw	r24,1
-	ret
+	add	r22,r20
+	adc	r23,r1
+	brcs	4f
+	andi	r23,0xfc	// check address below 1023
+	brne	4f
 
 // counter and address as uint8_t
-// address in range  0-255
+// address in range  0-1023
 // counter interpreted as 1..256 (0=256)
 1:
-// load address
-	out	0x1f,r1
-	out	0x1e,r22
+// set EEPROM address
+	out	0x1f,r27
+	out	0x1e,r26
+// trigger read operation
 	sbi	0x1c,0
-// increment address
-	inc	r22
-// load data from ram
-	ld	r0,Z+
-// load data from eeprom
+// increment EEPROM address
+	adiw	r26,1
+// load data from EEPROM
 	in	r19,0x1d
+	brts	sec_device_write
+// store to RAM
+	st	Z+,r19
+	rjmp	3f
+sec_device_write:
+//	load data from RAM
+	ld	r0,Z+
 // compare, if same do nothing
 	cp	r0,r19
 	breq	3f
 // rewrite eeprom ..
 	rcall	osccal_min
-// TODO oscall_min  uses r24,
-	clr	r24
-	out	0x1d,r0	// EEPROM data register
+	out	0x1d,r0		// EEPROM data register
 	sbi	0x1c,2		// master writer
 	sbi	0x1c,1		// write
 // wait for write end
@@ -138,8 +112,12 @@ sec_device_write_block:
 	rjmp	2b
 	sei
 3:
-	subi	r20,1
+	subi	r24,1
 	brne	1b
+	ret
+// raise error
+4:
+	ldi	r24,1
 	ret
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////

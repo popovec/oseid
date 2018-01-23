@@ -34,8 +34,8 @@
 
   orig code                                            4797 clock cycles
 
-  this code (MEM pointers 15 bit)                      4654 clock cycles
-  this code (MEM pointers 16 bit)                      4667 clock cycles
+  this code (MEM pointers 15 bit)                      4653 clock cycles
+  this code (MEM pointers 16 bit)                      4666 clock cycles
 
   For environment with enabled interrupts:
   this code - I flag restored after stack pointer change +3 clock cycles
@@ -690,14 +690,11 @@
 	sbc	\RZ7,\A7
 .endm
 
-#if defined(HAVE_RSA_MUL_256_NO_ABI) && defined(OsEID)
   .global rsa_mul_256_no_abi
   .type rsa_mul_256_no_abi,@function
+  .section .text.rsa_mul_256_no_abi,"ax",@progbits
 
 rsa_mul_256_no_abi:
-#endif
-
-#if (defined(HAVE_RSA_MUL_256_NO_ABI) && defined (OsEID))
 // store X,Y pointers on stack
 	push	r28
 	push	r29
@@ -1043,7 +1040,7 @@ final_H_L:
 	ABS64   r25,r24,r23,r22,r9,r8,r7,r6 r1 r26
 	eor	r27,r1
 #ifdef RAM_LE32
-	ror	r27
+	lsr	r27	//R27 = 0/1 -> R27=0, C=0/1
 	rol	r31
 #else
 	push	r27
@@ -1695,8 +1692,8 @@ final_H_H:
 	ABS64   r25,r24,r23,r22,r9,r8,r7,r6 r1 r26
 	eor	r27,r1
 #ifdef RAM_LE32
-	LSR	r27
-        ROL	r31
+	lsr	r27
+        rol	r31
 #else
 	push	r27
 	clr	r27
@@ -1895,7 +1892,7 @@ final_M_H:
 	adc	r18,r29
 	adc	r25,r29
 #ifdef RAM_LE32
-	bst	r31,0
+	bst	r31,0	// Z pointer need to be restored, move sign into T
 	lsr	r31
 #endif
 ;------ level 2: combine L,H,and M ------
@@ -2149,7 +2146,7 @@ final_H:
 .endr
 	eor	r0,r1
 //	sign to stack
-	push	r0
+	push	r0	// SIGN HL1
 
 ;--------- level 1: compute M ---------
 
@@ -2637,12 +2634,10 @@ final_M:
 	ldd	r15,Y+6+Joff
 	ldd	r14,Y+7+Joff
 	clr	r26
-	ldd	r0,Y+8+Joff
-	tst	r0
-	breq	final_subtract
+	ldd	r0,Y+8+Joff	// search backwards for SIGN HL1
+	sbrc	r0,0
 	rjmp	final_addition
 
-final_subtract:
 ; subtract M
 	ldd	r0,Z+0
 	sub	r0,r14
@@ -3040,4 +3035,3 @@ final:
 .set Off, Off+1
 .endr
 	ret
-#endif //(defined(HAVE_RSA_MUL_256_NO_ABI) && defined (OsEID))

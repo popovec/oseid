@@ -37,7 +37,6 @@
 #include "mem_device.h"
 
 
-#if SELF_SPM
 //forward definitions:
 
 void
@@ -71,7 +70,7 @@ device_write_page (uint16_t flash, uint8_t * ram, uint8_t * check,
 //
 		 "2:\n"		//
 		 "movw	r30,r24\n"	// flash address to Z
-		 "ld	r0,X+\n"	// load ram 
+		 "ld	r0,X+\n"	// load ram
 		 "ld	r1,X+\n"	//
 		 "spm\n"	//
 //
@@ -91,7 +90,7 @@ device_write_page (uint16_t flash, uint8_t * ram, uint8_t * check,
 //
 // ERASE_WRITE_APP_PAGE  or only WRITE_APP_PAGE
 		 "ldi	r21,0x25\n"	// command ERASE_WRITE_APP_PAGE
-		 "cpse	r18,r24\n"	// test - 0 in r18 ? 
+		 "cpse	r18,r24\n"	// test - 0 in r18 ?
 		 "ldi	r21,0x24\n"	// command WRITE_APP_PAGE
 		 "sts	0x01CA, r21\n"	// write command
 		 "ldi	r20, 0x9D\n"	// unprotect SPM (0xd8 unprotect IO reg)
@@ -114,100 +113,6 @@ device_write_page (uint16_t flash, uint8_t * ram, uint8_t * check,
 		 "r22", "r23", "r24", "r25", "r26", "r27", "r30", "r31");
 
 }
-#else
-#warning This code deppend on internal DFU bootloader!!!
-/*
-This is dissassembled part of DFU loader:
-load flash buffer
- call 0x20038
-; R18 = RAMPZ
-; r16,r17 = address
-; r20,21 = data
-
-
-; R18 = RAMPZ
-; r16,r17 = address
-; r20,21 = data
-
- 
-    20038:       30 91 cf 01     lds     r19, 0x01CF     ;NVM_STATUS
-    2003c:       37 fd           sbrc    r19, 7          ;NVM is busy ?
-    2003e:       fc cf           rjmp    .-8             ; loop back
-; NVR is not busy .. 
-    20040:       3b b7           in      r19, 0x3b       ; // save RAMPZ
-    20042:       2b bf           out     0x3b, r18       ; // R18 to RAMPZ
-    20044:       f8 01           movw    r30, r16
-    20046:       20 91 ca 01     lds     r18, 0x01CA     ;NVM_CMD 
-    2004a:       13 e2           ldi     r17, 0x23       ;command LOAD FLASH BUFFER
-    2004c:       10 93 ca 01     sts     0x01CA, r17     ;NVM_CMD
-    20050:       0a 01           movw    r0, r20
-    20052:       e8 95           spm
-    20054:       20 93 ca 01     sts     0x01CA, r18     ; restore NVM_CMD
-    20058:       3b bf           out     0x3b, r19       ; restore RAMPZ
-    2005a:       08 95           ret
-
-// write                                                      
-
-call 0x2005c
-; R18 = RAMPZ
-; r16,r17 = address
-; r20 NVM_CMD
-
-    2005c:       3b b7           in      r19, 0x3b       ; save RAMPZ
-    2005e:       2b bf           out     0x3b, r18       ; R18 to RAMPZ
-    20060:       f8 01           movw    r30, r16
-    20062:       20 91 ca 01     lds     r18, 0x01CA     ;NVM_CMD
-    20066:       40 93 ca 01     sts     0x01CA, r20
-    2006a:       3d e9           ldi     r19, 0x9D       ; unprotect SPM (0xd8 unprotect IO reg)
-    2006c:       30 93 34 00     sts     0x0034, r19     ; CCP
-    20070:       e8 95           spm
-    20072:       20 93 ca 01     sts     0x01CA, r18
-    20076:       3b bf           out     0x3b, r19       ; 59
-    20078:       08 95           ret
-
-*/
-
-void device_write_page static void
-fill_page_buffer (uint16_t address, uint16_t data)
-{
-  asm volatile ("ldi r18,0x01\n"	// RAMPZ
-		"movw r26,r22\n"	// ram pointer to X
-		"clr r24\n"	// safety clear (clamp to page start)
-		"push r25\n"	//
-		"1:\n"		//
-		"movw r16,r24\n"	// flash address to r16
-		"ld   r20,X+\n"	// load ram 
-		"ld   r21,X+\n"	//
-		"call 0x20038\n"	// store to page buffer
-		"adiw r24,2\n"	// increment flash address
-		"tst r24\n"	// 256 bytes ?
-		"brne 1b\n"	//
-		"pop r25\n"	//
-		"clr r24\n"	//
-		"ldi r18,0x01\n"	// RAMPZ
-		"movw r16,r24\n"	//
-		"ldi r20,0x25\n"	//ERASE_WRITE_APP_PAGE
-		"call 0x2005c\n"	//
-		"clr r1\n"	// ABI need r1=0
-		:::"r0", "r1", "r16", "r17", "18", "r19", "r20", "r21", "r22",
-		"r23", "r24", "r25", "r26", "r27", "r30", "r31");
-}
-
-
-void
-device_write_page (uint16_t flash, uint8_t * ram, uint8_t * check,
-		   uint8_t no_erase)
-{
-  if (check != ram)
-    return;
-
-  ATOMIC_BLOCK (ATOMIC_RESTORESTATE)
-  {
-    NVM_CMD = 0;
-    fill_page_buffer (flash, (uint16_t) ram);
-  }
-}
-#endif
 
 uint8_t
 device_write_block (void *buffer, uint16_t offset, uint8_t size)
@@ -327,14 +232,14 @@ device_read_block (void *buffer, uint16_t offset, uint8_t size)
 }
 
 
-// 256 byte for security informations 
+// 1023 byte for security informations
 uint8_t
-sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
+sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
 {
   uint16_t eeprom = offset, s;
 
   s = size ? size : 256;
-  if (eeprom + s > 256)
+  if (eeprom + s -1 > 1023)
     return 1;
 
   eeprom_read_block (buffer, (uint8_t *) (eeprom), s);
@@ -343,12 +248,12 @@ sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
 
 
 uint8_t
-sec_device_write_block (void *buffer, uint8_t offset, uint8_t size)
+sec_device_write_block (void *buffer, uint16_t offset, uint8_t size)
 {
   uint16_t eeprom = offset, s;
 
   s = size ? size : 256;
-  if (eeprom + s > 256)
+  if (eeprom + s -1 > 1023)
     return 1;
 
   cli ();

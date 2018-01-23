@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -62,9 +62,9 @@ uint8_t
 rnd_get (uint8_t * r, uint8_t size)
 {
   uint8_t v;
-  uint8_t pos, b;
+  uint8_t pos = 0, b;
 
-  for (pos = 0; pos < size; pos++)
+  do
     {
       v = r[pos];
       for (b = 0; b < 8; b++)
@@ -79,11 +79,8 @@ rnd_get (uint8_t * r, uint8_t size)
 	  v |= (ADCA.CH0.RESL & 1);
 	}
       r[pos] ^= v;
+      pos++;
     }
+  while (--size);
   return 0;
-}
-
-void
-rnd_stop ()
-{
 }

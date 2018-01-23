@@ -29,66 +29,31 @@
 
 #include <avr/io.h>
 
-#ifdef HAVE_MP_ADD
-        .global mp_add
-        .type   mp_add, @function
-#endif
-#ifdef HAVE_MP_SUB
-        .global mp_sub
-        .type   mp_sub, @function
-#endif
-#ifdef HAVE_MP_SUB_2N
-	.global mp_sub_2N
-        .type   mp_sub_2N, @function
-#endif
-#ifdef HAVE_MP_CMP
-        .global mp_cmpGE
-        .type   mp_cmpGE, @function
-#endif
-#ifdef HAVE_MP_SHIFTR
-        .global mp_shiftr
-        .type   mp_shiftr, @function
-#endif
-#ifdef HAVE_MP_SHIFTR_C
-        .global mp_shiftr_c
-        .type   mp_shiftr_c, @function
-#endif
-#ifdef HAVE_MP_SHIFTL
-        .global mp_shiftl
-        .type   mp_shiftl, @function
-#endif
-#ifdef HAVE_MP_SHIFTR_2N
-        .global mp_shiftr_2N
-        .type   mp_shiftr_2N, @function
-#endif
-#ifdef HAVE_RSA_ADD
-        .global rsa_add
-        .type   rsa_add, @function
-#endif
-#ifdef HAVE_RSA_ADD_LONG
-        .global rsa_add_long
-        .type   rsa_add_long, @function
-#endif
-#ifdef HAVE_RSA_SUB
-        .global rsa_sub
-        .type   rsa_sub, @function
-#endif
-#ifdef HAVE_RSA_SUB_LONG
-        .global rsa_sub_long
-        .type   rsa_sub_long, @function
-#endif
-#ifdef HAVE_MP_ADDSUB_MOD
-        .global sub_mod
-        .type   sub_mod, @function
-        .global add_mod
-        .type   add_mod, @function
-#endif
-        .global rsa_shiftl
-        .type   rsa_shiftl, @function
-
 
 /////////////////////////////////////////////////////////////
-#ifdef HAVE_MP_ADDSUB_MOD
+        .global mp_is_zero
+        .type   mp_is_zero, @function
+	.section .text.mp_is_zero,"ax",@progbits
+
+mp_is_zero:
+	movw	r30,r24
+	lds	r24,mod_len
+	clr	r25
+mp_is_zero_loop:
+	ld	r0,Z+
+	or	r25,r0
+	dec	r24
+	brne	mp_is_zero_loop
+// carry on non zero, non carry on zero
+	cp	r24,r25
+	sbc	r24,r24
+	com	r24
+	clr	r25
+	ret
+/////////////////////////////////////////////////////////////
+        .global add_mod
+        .type   add_mod, @function
+	.section .text.add_mod,"ax",@progbits
 #if  1
 // big, fast, constant time
 // add_mod (Result, Operand, Modulus), Result = (Result + Operand) mod Modulus
@@ -97,7 +62,7 @@ add_mod:
 	push	r\Reg
 .endr
 	movw	r18,r24	// save result
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
 	mov	r25,r24
@@ -168,7 +133,7 @@ add_mod:
 // r24 0/1
 	mov	r23,r24
 // subtract modulus (do not change result, only check carry)
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
 	mov	r25,r24
@@ -229,12 +194,16 @@ add_mod_loop2:
 	ret
 #endif
 #endif
+        .global sub_mod
+        .type   sub_mod, @function
+	.section .text.sub_mod,"ax",@progbits
+
 // sub mod(r,a,modulus); r = (r-a) mod modulus
 sub_mod:
 	movw	r30,r24
 	movw	r26,r22
 
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
 	mov	r25,r24
@@ -297,7 +266,8 @@ sub_mod_loop2:
 	pop	r28
 	ret
 #endif
-#endif
+
+
 // unroll only 8 bytes,  rest in loop
 .macro MP_ADD_BYTE
 	ld r23,X+
@@ -305,32 +275,47 @@ sub_mod_loop2:
 	adc r23,r25
 	st Z+,r23
 .endm
-#if defined(HAVE_MP_ADD)
-mp_add:
-#endif
-#if defined (HAVE_RSA_ADD) || defined(HAVE_MP_ADD)
-rsa_add:
-	movw XL,r22
-	movw ZL,r24
-	call	rsa_get_len
-	lsr	r24
-	lsr	r24
-	lsr	r24
-	rjmp	mp_add0
-#endif
-#ifdef HAVE_RSA_ADD_LONG
-rsa_add_long:
-	movw XL,r22
-	movw ZL,r24
-	call	rsa_get_len
-	lsr	r24
-	lsr	r24
-	rjmp	mp_add0
-#endif
 
-#if defined(HAVE_RSA_ADD) || defined(HAVE_RSA_ADD_LONG) || defined(HAVE_MP_ADD)
+        .global mp_add_v
+        .type   mp_add_v, @function
+	.section .text.mp_add_v,"ax",@progbits
+
+mp_add_v:
+	movw	XL,r22
+	movw	ZL,r24
+	mov	r24,r20
+	lsr	r24
+	lsr	r24
+	lsr	r24
+	cp	r1,r18	// set carry if needed
+//	clr	r1
+	rjmp	mp_add1
+
+        .global bn_add
+        .type   bn_add, @function
+	.section .text.mp_add,"ax",@progbits
+
+        .global mp_add
+        .type   mp_add, @function
+	.section .text.mp_add,"ax",@progbits
+
+        .global rsa_add
+        .type   rsa_add, @function
+	.section .text.rsa_add,"ax",@progbits
+mp_add:
+rsa_add:
+bn_add:
+	movw XL,r22
+	movw ZL,r24
+	lds	r24,mod_len
+	lsr	r24
+	lsr	r24
+	lsr	r24
+	rjmp	mp_add0
+
+
 mp_add0:
-//      clc			// CY is always cleared (rsa_get_len return always even number)
+//      clc			// CY is always cleared (mod_len is always even number)
 mp_add1:
 	MP_ADD_BYTE
 	MP_ADD_BYTE
@@ -344,17 +329,37 @@ mp_add1:
         brne mp_add1
         rol r24  
         ret
-#endif
+
+        .global rsa_add_long
+        .type   rsa_add_long, @function
+	.section .text.rsa_add_long,"ax",@progbits
+
+rsa_add_long:
+	movw XL,r22
+	movw ZL,r24
+	lds	r24,mod_len
+	lsr	r24
+	lsr	r24
+	rjmp	mp_add0
+
 /////////////////////////////////////////////////////////////
-#ifdef HAVE_MP_CMP
+        .global mp_cmpGE
+        .type   mp_cmpGE, @function
+        .global rsa_cmpGE
+        .type   rsa_cmpGE, @function
+        .global bn_cmpGE
+        .type   bn_cmpGE, @function
+	 .section .text.mp_cmpGE,"ax",@progbits
 #ifdef EC_CONSTANT_TIME
 mp_cmpGE:
+rsa_cmpGE:
+bn_cmpGE:
 	movw	ZL,r24
 	movw	XL,r22
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
-//      clc			// CY is always cleared (rsa_get_len return always even number)
+//      clc			// CY is always cleared (mod_len is always even number)
 mp_cmpGE_loop:
 .rept	4
 	ld	r22,Z+
@@ -367,10 +372,12 @@ mp_cmpGE_loop:
 	sbc	r24,r1
 	ret
 #else
+rsa_cmpGE:
 mp_cmpGE:
+bn_cmpGE:
 	movw	ZL,r24
 	movw	XL,r22
-	call	rsa_get_len
+	lds	r24,mod_len
 // move pointers to end of variables
 	add	r30,r24
 	adc	r31,r1
@@ -394,41 +401,55 @@ mp_cmp_loop0:
 mp_cmp_end:
 	ret
 #endif
-#endif
 /////////////////////////////////////////////////////////////
-#ifdef HAVE_MP_SUB_2N
-mp_sub_2N:
-#endif
-#if defined (HAVE_RSA_SUB_LONG) || defined (HAVE_MP_SUB_2N)
+
+        .global mp_sub
+        .type   mp_sub, @function
+
+        .global bn_sub
+        .type   bn_sub, @function
+
+        .global bn_sub_long
+        .type   bn_sub_long, @function
+
+        .global rsa_sub
+        .type   rsa_sub, @function
+	.section .text.rsa_sub,"ax",@progbits
+
+        .global rsa_sub_long
+        .type   rsa_sub_long, @function
+
+	.global mp_sub_2N
+        .type   mp_sub_2N, @function
+
+// warning, do not change r18,19  or fix bn_abs_sub()
 rsa_sub_long:
+mp_sub_2N:
+bn_sub_long:
 	push	YL
 	push	YH
 	movw	ZL,r24
 	movw	XL,r22
 	movw	YL,r20
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
-//      clc			// CY is always cleared (rsa_get_len return always even number)
+//      clc			// CY is always cleared (mod_len in always even number)
 	rjmp mp_sub1
-#endif
-#ifdef HAVE_MP_SUB
 mp_sub:
-#endif
-#if defined (HAVE_RSA_SUB) || defined (HAVE_MP_SUB)
 rsa_sub:
+bn_sub:
 	push	YL
 	push	YH
 	movw	ZL,r24
 	movw	XL,r22
 	movw	YL,r20
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
 	lsr	r24
-//      clc			// CY is always cleared (rsa_get_len return always even number)
-#endif
-#if defined(HAVE_RSA_SUB) || defined(HAVE_MP_SUB) || defined (HAVE_MP_SUB_2N) || defined (HAVE_RSA_SUB_LONG)
+//      clc			// CY is always cleared (mod_len is always even number)
+
 mp_sub1:
 .rept	8
 	ld	r22,X+
@@ -442,20 +463,27 @@ mp_sub1:
 	pop	YH
 	pop	YL
 	ret
-#endif
+
 /////////////////////////////////////////////////////////////
-#ifdef HAVE_MP_SHIFTL
+
+        .global mp_shiftl
+        .type   mp_shiftl, @function
+        .global bn_shiftl
+        .type   bn_shiftl, @function
+        .global rsa_shiftl
+        .type   rsa_shiftl, @function
+	.section .text.rsa_shiftl,"ax",@progbits
+
 mp_shiftl:
-#endif
-#if defined(HAVE_RSA_SHIFTL) || defined(HAVE_MP_SHIFTL)
 rsa_shiftl:
+bn_shiftl:
 	movw	ZL,r24
-	call	rsa_get_len
+	lds	r24,mod_len
 	lsr	r24
 	lsr	r24
 	lsr	r24
 mp_shiftl0:
-//      clc			// CY is always cleared (rsa_get_len return always even number)
+//      clc			// CY is always cleared (mod_len is always even number)
 mp_shiftl1:
 .rept	8
 	ld	r25,Z
@@ -466,92 +494,107 @@ mp_shiftl1:
 	brne	mp_shiftl1
 	rol	r24
 	ret
-#endif
-#if defined(HAVE_RSA_SHIFTL5)
-        .global rsa_shiftl5
-        .type   rsa_shiftl5, @function
-
-rsa_shiftl5:
-	movw	ZL,r24
-	call	rsa_get_len
-	lsr	r24
-	lsr	r24
-
-	clr	r25
-
-rsa_shiftl5_loop:
-.rep	4
-	ld	r22,Z
-	mov	r23,r22
-
-	swap	r23
-	lsl	r23
-	andi	r23,0xe0
-
-	lsr	r22
-	lsr	r22
-	lsr	r22
-
-	or	r23,r25
-	st	Z+,r23
-	mov	r25,r22
-.endr
-	dec	r24
-	brne	rsa_shiftl5_loop
-	ret
-#endif
 /////////////////////////////////////////////////////////////
-// normal shift right, insert 0 to upper bit
-#ifdef HAVE_MP_SHIFTR
-mp_shiftr:
-	ldi  r22,0
-#endif
-#if defined( HAVE_MP_SHIFTR_C) || defined(HAVE_MP_SHIFTR)
-// shift right, insert 0/1 to upper bit based on r22 (arg 3)
-// if r22 == 0 insert 0 otherwise 1
-mp_shiftr_c:
-        movw	ZL,r24
-	call	rsa_get_len
-	clr	r25
-	add	r30,r24
-	adc	r31,r25
-// set carry flag if r22 != 0
-	sub	r25,r22
+        .global bn_shift_R_v_signed
+        .type   bn_shift_R_v_signed, @function
+	.section .text.bn_shift_R_v_signed,"ax",@progbits
 
-mp_shiftr1:
-        ld	r25,-Z
-        ror	r25
-        st	Z,r25 
-        dec	r24   
-        brne	mp_shiftr1
-        rol	r24
-        ret
-#endif
-#ifdef HAVE_MP_SHIFTR_C
-mp_shiftr_2N:
-#endif
-#if defined (HAVE_RSA_SHIFTR_LONG) || defined (mp_shiftr_2N)
+// signed shift
+bn_shift_R_v_signed:
+	movw	r30,r24
+	add	r30,r22
+	adc	r31,r1
+	ld	r20,-Z
+	adiw	r30,1
+	andi	r20,0x80
+	rjmp	bn_shift_R_0
+
+        .global mp_shiftr_long
+        .type   mp_shiftr_long, @function
+
 	.global	rsa_shiftr_long
 	.type	rsa_shiftr_long,@function
 
+	.global	bn_shiftr_long
+	.type	bn_shiftr_long,@function
+	.section .text.bn_shiftr_long,"ax",@progbits
+
+mp_shiftr_long:
 rsa_shiftr_long:
+bn_shiftr_long:
 	movw	ZL,r24
-	call	rsa_get_len
-	add	ZL,r24
+	lds	r22,mod_len
+	add	ZL,r22
 	adc	ZH,r1
-	add	ZL,r24
+	add	ZL,r22
 	adc	ZH,r1
-	lsr	r24
-	lsr	r24
-//      clc			// CY is always cleared (rsa_get_len return always even number)
-rsa_shiftr_long_loop:
+	lsr	r22
+	lsr	r22
+//      clc			// CY is always cleared (mod_len is always even number)
+	rjmp	bn_shift_R_generic
+
+
+        .global mp_shiftr
+        .type   mp_shiftr, @function
+
+        .global rsa_shiftr
+        .type	rsa_shiftr, @function
+
+        .global bn_shiftr
+        .type   bn_shiftr, @function
+	.section .text.bn_shiftr,"ax",@progbits
+
+
+mp_shiftr:
+rsa_shiftr:
+bn_shiftr:
+	clr	r20
+	rjmp	mp_shiftr_c
+
+        .global 	mp_shiftr_c
+        .type		mp_shiftr_c, @function
+
+        .global 	rsa_shiftr_c
+        .type		rsa_shiftr_c, @function
+
+        .global 	bn_shiftr_c
+        .type		bn_shiftr_c, @function
+	.section	.text.bn_shiftr_c,"ax",@progbits
+
+mp_shiftr_c:
+rsa_shiftr_c:
+bn_shiftr_c:
+	lds	r22,mod_len
+	rjmp	bn_shift_R_v_c
+
+// generic fcion - pointer, size, carry
+        .global		bn_shift_R_v_c
+        .type		bn_shift_R_v_c, @function
+	.section	.text.bn_shift_R_v_c,"ax",@progbits
+
+bn_shift_R_v_c:
+	movw	r30,r24
+	rjmp	bn_shift_R_
+
+
+	.section	.text.bn_shift_R_,"ax",@progbits
+bn_shift_R_:
+	add	r30,r22
+	adc	r31,r1
+bn_shift_R_0:
+	lsr	r22
+	lsr	r22
+	lsr	r22
+// set carry flag if r22 != 0
+	cp	r1,r20
+
+bn_shift_R_generic:
 .rept 8
-        ld r25,-Z
-        ror r25
-        st Z,r25 
+        ld	r23,-Z
+        ror	r23
+        st	Z,r23
 .endr
-        dec r24  
-        brne rsa_shiftr_long_loop
-        rol r24
+        dec	r22
+        brne	bn_shift_R_generic
+        rol	r22
         ret
-#endif

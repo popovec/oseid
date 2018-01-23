@@ -58,14 +58,14 @@ init_cpu (void)
   OSC.CTRL |= OSC_PLLEN_bm;
   // wait to PLL ready
   while (!(OSC.STATUS & OSC_PLLRDY_bm));
-// switch CPU core clock to run from PLL 
+// switch CPU core clock to run from PLL
   {
     asm volatile (		//
 		   "ldi	r25,4\n"	//      value (clock source for CPU core..)
 		   "ldi	r24,0xd8\n"	//      key
 		   "ldi r30,0x40\n"	//      0x0040 = CTRL reg address
 		   "ldi	r31,0\n"	//
-		   "out 0x3b,r1\n"	//      clear RAMPZ 
+		   "out 0x3b,r1\n"	//      clear RAMPZ
 		   "out 0x34,r24\n"	//      write key to CCP
 		   "st  Z,r25\n"	//      write value
 		   "ldi r24,0x40\n"	//      delay aproximatly 1ms
@@ -126,7 +126,6 @@ restart_main (void)
 		 "cli\n"	//
 		 "ldi	r30,lo8(%[sleep_reg])\n"	//
 		 "ldi	r31,hi8(%[sleep_reg])\n"	//
-
 		 "ldi	r24,5\n"	// sleep mode PDOWN, enable sleep
 		 "st	Z,r24\n"	//
 		 "ldi	r24,0\n"	// disable sleep
@@ -139,7 +138,7 @@ restart_main (void)
 		 :);
 // reintialize USB clock/calibration
   USB_Reinit ();
-// restore SP for main .. 
+// restore SP for main ..
   asm volatile (		//
 		 "ldi	r30,lo8(%[r_state])\n"	//
 		 "ldi	r31,hi8(%[r_state])\n"	//
@@ -243,7 +242,23 @@ ISR (PORTA_INT1_vect, ISR_NAKED)
 		 ::);
 }
 
-
+void
+CPU_idle (void)
+{
+  asm volatile (		//
+		 "cli\n"	//
+		 "ldi	r30,lo8(%[sleep_reg])\n"	//
+		 "ldi	r31,hi8(%[sleep_reg])\n"	//
+		 "ldi	r24,1\n"	// sleep mode IDLE, enable sleep
+		 "st	Z,r24\n"	//
+		 "ldi	r24,0\n"	// disable sleep
+		 "sei\n"	//
+		 "sleep\n"	//
+		 "st	Z,r24\n"	//
+		 //                   ::[sleep_reg] "m" (SLEEP));        // SLEEP = SLEEP_CTRL
+		 ::[sleep_reg] "m" (SLEEP_CTRL)	//
+		 :);
+}
 
 FUSES =
 {

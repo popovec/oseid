@@ -1,0 +1,36 @@
+OsEID  20171231 (released)
+Author: Peter Popovec <peter.popovec@gmail.com>
+Date:   Sun Dec 31 10:42:01 CET 2017
+
+	AES (128/192/256) support
+	DES and 3DES  support
+	Gemalto USB reader for USB token (tested in W10)
+	T1 protocol support (only in USB token)
+	Security improvements:
+		- RSA exponent blinding
+		- ECC point multiplication blinding
+		- random number generator improved
+	RSA key generation
+	More MyEID compatibility fixes:
+		- Admin state
+		- Global unblocker
+
+OsEID  20170630 (released)
+Author: Peter Popovec <peter.popovec@gmail.com>
+Date:   Fri Jun 30 08:00:00 CEST 2017
+
+	OsEID-tool
+	ECDH support
+
+
+OsEID  20161231	(released)
+Author: Peter Popovec <peter.popovec@gmail.com>
+Date:   Sat Dec 31 08:00:00 CET 2016
+
+	Initial public release.
+	RSA sign/decrypt 512-2048 bits
+	ECC only ECDSA
+		- prime192v1
+		- prime256v1
+		- secp384r1
+		- secp256k1

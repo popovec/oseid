@@ -27,17 +27,17 @@
 //#include <avr/interrupt.h>
 
 
-  .global card_io_tx
-  .type card_io_tx, @function
+	.global	card_io_tx
+	.type	card_io_tx, @function
 //uint8_t card_io_tx0(uint8_t * data, uint8_t len)
 
 // this enables debugging, errors on receive can be emulated
 // in first 8 character received by this code error is generated
-// by setting  bit in "err" argument
+// by setting bit in "err" argument
 
 //#define EMULATE_ERRORS
-  .global card_io_rx
-  .type card_io_rx, @function
+	.global	card_io_rx
+	.type	card_io_rx, @function
 
 #ifdef EMULATE_ERRORS
 //uint8_t card_io_rx (uint8_t * data, uint8_t len, uint8_t err)
@@ -59,7 +59,7 @@
 #define C_ETU_ATR 372
 
 
-#if (C_TS != 0x3b)  &&  (C_TS != 0x3f)
+#if (C_TS != 0x3b) && (C_TS != 0x3f)
 #error Wrong TS value
 #endif
 
@@ -127,10 +127,10 @@ card_io_send_atr:
 // init
 	cli
 // disable pull ups
-        ldi     r20,0
-        out     CARD_IO_PORT,r20
+	ldi	r20,0
+	out	CARD_IO_PORT,r20
 // all pins input
-        out     CARD_IO_DIR,r20
+	out	CARD_IO_DIR,r20
 	rcall	card_io_osccal_max
 // wait RESET
 1:
@@ -153,17 +153,17 @@ card_io_send_atr:
 // Timer 3 mode CTC TOP by OCRA (mode 4)
 // timer source T3,
 // load timer register offset (ETIFR) into Z
-        ldi     r21,0x0f
+	ldi	r21,0x0f
 	rcall	card_io_timer_mode
 // timer compare at 372 - normal ETU for ATR
-        ldi     r20,lo8((C_ETU_ATR-1))
-        ldi     r21,hi8((C_ETU_ATR-1))
-        std     Z+OCR_H_OFF,r21
-        std     Z+OCR_L_OFF,r20
+	ldi	r20,lo8((C_ETU_ATR-1))
+	ldi	r21,hi8((C_ETU_ATR-1))
+	std	Z+OCR_H_OFF,r21
+	std	Z+OCR_L_OFF,r20
 
 // clear OCR flag
-        ldi     r20,0x10
-        sts     ETIFR,r20
+	ldi	r20,0x10
+	sts	ETIFR,r20
 // wait minimum one ETU
 0:
 	lds	r20,ETIFR
@@ -173,24 +173,24 @@ card_io_send_atr:
 // in next code, one more ETU wait is programmed, ATR must be send
 // after 400 ticks after RESET, this guarante minimal 2x 372 ticks
 	rcall	card_io_tx
-        ldi     r20,lo8((C_ETU-1))
-        ldi     r21,hi8((C_ETU-1))
-        sts     OCR3AH,r21
-        sts     OCR3AL,r20
+	ldi	r20,lo8((C_ETU-1))
+	ldi	r21,hi8((C_ETU-1))
+	sts	OCR3AH,r21
+	sts	OCR3AL,r20
 	ret
 
-// preset r21 for mode 0xf = 4 CTC  or 0x7 = NORMAL
+// preset r21 for mode 0xf = 4 CTC or 0x7 = NORMAL
 // clear TCNT, in r30,r31 timer registers offset (from etifr)
 // clear r20
 card_io_timer_mode:
 	clr	r20
-	ldi     r30,lo8(ETIFR)
-	ldi     r31,hi8(ETIFR)
-	std     Z+TCCR_A_OFF,r20
-	std     Z+TCCR_B_OFF,r21
+	ldi	r30,lo8(ETIFR)
+	ldi	r31,hi8(ETIFR)
+	std	Z+TCCR_A_OFF,r20
+	std	Z+TCCR_B_OFF,r21
 // count from 0
-	std     Z+TCNT_H_OFF,r20
-	std     Z+TCNT_L_OFF,r20
+	std	Z+TCNT_H_OFF,r20
+	std	Z+TCNT_L_OFF,r20
 	ret
 
 
@@ -284,7 +284,6 @@ card_io_tx_byte_repeat:
 
 card_io_tx:
 	rcall	card_io_osccal_max
-	rcall	rnd_stop
 	sei
 
 // wait timer overflow 
@@ -310,9 +309,9 @@ card_io_tx0_buffer_loop:
 	cpi	r24,0xff
 	breq	card_io_tx0_fail
 // next character .. 
-        adiw	r26,1
-        dec	r22
-        breq	card_io_tx0_ok
+	adiw	r26,1
+	dec	r22
+	breq	card_io_tx0_ok
 	rjmp	card_io_tx0_buffer_loop
 
 card_io_tx0_repeat:
@@ -331,11 +330,6 @@ card_io_tx0_ok:
 	clr	r24
 	clr	r25
 card_io_tx0_fail:
-	push	r24
-	push	r25
-	rcall	rnd_init
-	pop	r25
-	pop	r24
 	ret
 
 
@@ -344,24 +338,23 @@ card_io_tx0_fail:
 card_io_rx:
 	movw	r26, r24
 	rcall	card_io_osccal_max
-	rcall	rnd_stop
 	sei
 
 // preload ETU
-        lds	r18,OCR3AL
-        lds	r19,OCR3AH
+	lds	r18,OCR3AL
+	lds	r19,OCR3AH
 // add 1 (in OCR register is value ETU-1)
-        subi	r18,lo8(-1)
-        sbci	r19,hi8(-1)
+	subi	r18,lo8(-1)
+	sbci	r19,hi8(-1)
 /*
-        tst 	r19
+	tst 	r19
 	breq	card_io_rx_fast
-// low speed mode,  get 0.5 ETU
+// low speed mode, get 0.5 ETU
 */
-        lsr	r19
-        ror	r18
+	lsr	r19
+	ror	r18
 /*
-        rjmp	card_io_rx_etu_ok
+	rjmp	card_io_rx_etu_ok
 card_io_rx_fast:
 // high speed, need some correction to get 
 // correct sample position
@@ -376,7 +369,7 @@ card_io_rx_fast:
 // Minimal ticks per ETU = 31, sample window is 9.3 to 21.7 ticks
 // Timer count from 10 to 31 = 11 ticks
 // 31 - (173/256 * 31) = 20
-// tested on reader  usb vendor/product 076b:3022 OmniKey AG
+// tested on reader usb vendor/product 076b:3022 OmniKey AG
 // at 4.800MHz (with value 179 receive fail!)
 
 // 179:21 - working on 3.8/3.7 (wrong on 4.8)
@@ -385,27 +378,27 @@ card_io_rx_fast:
 // 90  10 - not working on 4.8,3.7,3.8
 
 
-// start bit latency         : min  6 max 9 ticks
+// start bit latency	 : min  6 max 9 ticks
 // sample position latency   : min -5 max 9 ticks
 // sample position error (start bit latency+sample pos. latency) 
 
 // parity signalizing latency: min  6 max 9 ticks
 
-        ldi	r23,128
-        mul	r18,r23
-        mov	r18,r1
-        clr	r1
+	ldi	r23,128
+	mul	r18,r23
+	mov	r18,r1
+	clr	r1
 
 card_io_rx_etu_ok:
 */
 #ifdef EMULATE_ERRORS
 // emulate errors
-        mov	r0, r20
+	mov	r0, r20
 #endif
 // counter of realy received character
 	ldi	r24, 0
 // parity error counter (per character)
-        ldi	r31,MAX_PARITY_ERR
+	ldi	r31,MAX_PARITY_ERR
 // wait line idle
 	ldi	r20,4
 	sec
@@ -428,14 +421,14 @@ card_io_start1_loop:
 // filter IO, if jump to 7, go back to wait 
 // start bit, if fall below 3, this is real start bit
 // update io filter
-        cpi	r20,7
+	cpi	r20,7
 	breq	card_io_start1
 	sbis	CARD_IO_IN,CARD_IO_BIT
-        subi	r20,1
-        adc	r20,r1
-        cpi	r20,3
+	subi	r20,1
+	adc	r20,r1
+	cpi	r20,3
 	brne	card_io_start1_loop
-//        rjmp	.+0
+//	rjmp	.+0
 /////////////////////////////////////////////////////////
 // byte loop
 card_io_byte_loop:
@@ -449,31 +442,31 @@ card_io_byte_loop:
 // bite loop
 card_io_bite_loop:
 // update io filter
-        cpi	r20,7
-        sbis    CARD_IO_IN,CARD_IO_BIT
-        subi	r20,1
-        adc	r20,r1
+	cpi	r20,7
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	subi	r20,1
+	adc	r20,r1
 // test timer tick
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_bite_loop
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_bite_loop
 // time tick, clear request
-        sts    ETIFR,r23
+	sts	ETIFR,r23
 // calculate parity
 // load bite from io_filter
-        cpi	r20,4
-        adc	r30,r1
+	cpi	r20,4
+	adc	r30,r1
 // rotate bite to register
 // load bite from io_filter
-        cpi	r20,4
+	cpi	r20,4
 #if C_TS == 0x3f
 	rol	r25
 #else
 	ror	r25
 #endif
 // decrement bit counter
-        dec	r21
-        brne	card_io_bite_loop
+	dec	r21
+	brne	card_io_bite_loop
 // 10 bits rotate parity bit to C
 #if C_TS == 0x3f
 	ror	r25
@@ -490,29 +483,29 @@ card_io_bite_loop:
 	brne	card_io_no_parity_error
 #else
 // emulate errors
-        lsr	r0
-        brcc	card_io_no_parity_error
+	lsr	r0
+	brcc	card_io_no_parity_error
 #endif
 //---------------------------------------------------
 // wrong parity, check number of parity errors
 // per character
-        tst	r31			//
-        breq	card_io_parity_too_many			// already too many errors
+	tst	r31			//
+	breq	card_io_parity_too_many			// already too many errors
 
 // wait 1st stop bit, imedietly signalize error
 // max 9 cpu ticks, min 6 cpu ticks delay ..
 card_io_wait_1st_stop:
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_wait_1st_stop
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_wait_1st_stop
 // request retransmition of character
-        cbi    CARD_IO_DIR,CARD_IO_BIT
+	cbi	CARD_IO_DIR,CARD_IO_BIT
 // clear timer compare flag
 	sts	ETIFR, r23
 // decrement counter of error per character
-        dec	r31
+	dec	r31
 // go to wait second stop bit
-        rjmp	card_io_wait_2nd_stop
+	rjmp	card_io_wait_2nd_stop
 card_io_parity_too_many:
 
 // repeated character received with parity error too
@@ -520,28 +513,28 @@ card_io_parity_too_many:
 // received characters (RX continues, but all 
 // characters are ignored)
 #ifndef EMULATE_ERRORS
-        clr	r22
-        clr	r24
+	clr	r22
+	clr	r24
 #endif
 // clear timer compare flag
 	sts	ETIFR, r23
-        rjmp	card_io_save_char
+	rjmp	card_io_save_char
 // 	rjmp	card_io_wait_2nd_stop
 //---------------------------------------------------
 // no parity error
 // wait 1st stop bit, save character 
 card_io_no_parity_error:
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_no_parity_error
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_no_parity_error
 // clear timer compare flag
 	sts	ETIFR, r23
 // renew parity error counter (per character) 
-        ldi	r31,MAX_PARITY_ERR
+	ldi	r31,MAX_PARITY_ERR
 card_io_save_char:
 // check if buffer space is available (maximum received chars 255)
-        tst	r22
-        breq	card_io_wait_2nd_stop
+	tst	r22
+	breq	card_io_wait_2nd_stop
 	st	X+,r25
 // save char
 	dec	r22
@@ -549,17 +542,17 @@ card_io_save_char:
 
 // wait 2nd stop bit 
 card_io_wait_2nd_stop:
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_wait_2nd_stop
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_wait_2nd_stop
 	sts	ETIFR, r23
 // do not drive line (line is input)
-        sbi	CARD_IO_IN,CARD_IO_BIT
+	sbi	CARD_IO_IN,CARD_IO_BIT
 // wait 3rd stop bit (only if N is set over 1)
 card_io_wait_3rd_stop:
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_wait_3rd_stop
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_wait_3rd_stop
 	sts	ETIFR, r23
 
 // wait line idle
@@ -573,13 +566,13 @@ card_io_idle2:
 	brne	card_io_idle2
 
 // wait 12 more stop bits 
-        ldi	r25,12
+	ldi	r25,12
 // wait start bit, minimal latency 7 cpu ticks
 // maximal 20 cpu ticks
 card_io_start2:
 // test IO line
-        sbic	CARD_IO_IN,CARD_IO_BIT
-        rjmp	card_io_idle3
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle3
 // posible start bit .. sync timer	// 
 	sts	TCNT3H,r19
 	sts	TCNT3L,r18
@@ -589,87 +582,83 @@ card_io_start3:
 // filter IO, if jump to 7, go back to wait 
 // start bit, if fall below 3, this is real start bit
 // update io filter
-        cpi	r20,7
-        breq	card_io_start2
-        sbis    CARD_IO_IN,CARD_IO_BIT
-        subi	r20,1
-        adc	r20,r1
-        cpi	r20,3
-        brne	card_io_start3
-        rjmp	card_io_byte_loop
+	cpi	r20,7
+	breq	card_io_start2
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	subi	r20,1
+	adc	r20,r1
+	cpi	r20,3
+	brne	card_io_start3
+	rjmp	card_io_byte_loop
 //////////////////////////////////////////
 // line is idle .. 
 card_io_idle3:
 // timer expired?
-        lds	r23,ETIFR
-        andi	r23,0x10
-        breq	card_io_start2
+	lds	r23,ETIFR
+	andi	r23,0x10
+	breq	card_io_start2
 // time tick, clear request
-        sts    ETIFR,r23
+	sts	ETIFR,r23
 // decrement stop bit counter
-        dec	r25
-        brne	card_io_start2
+	dec	r25
+	brne	card_io_start2
 
 // test if this ist 1st received frame after ATR (0xff in null_send)
 	lds	r23,null_send
 	inc	r23
 	brne	card_io_idle4
-	sts	null_send,r23   // clear null_send
+	sts	null_send,r23	// clear null_send
 
 // test if this is PTS frame
 // X is pointer to frame, r24 is counter of characters
 	sub	r26,r24
 	subi	r27,0
-	movw	r30,r26         // save buffer pointer
-	ld	r23,X+          // load CLA
+	movw	r30,r26		// save buffer pointer
+	ld	r23,X+		// load CLA
 	cpi	r23,0xff
-	breq	card_io_pts     // PTS class
+	breq	card_io_pts	// PTS class
 card_io_idle4:
-
-	push	r24
-	rcall	rnd_init
-	pop	r24
 // uint8_t or uint16_ result ..
-        clr	r25
-        ret
+	clr	r25
+	ret
 
 card_io_pts:
 // handle this as PTS, ignore any PTS that does not match correct
 // parameters for OsEID
 
 // correct PTS: 0xff 0x10 C_ATR_TA1 checksum
-//              0xff 0x30 C_ATR_TA1 0x02 checksum
-//              0xff 0x50 C_ATR_TA1 0xXX checksum
-//              0xff 0x70 C_ATR_TA1 0x02 0xXX checksum
+//	      0xff 0x30 C_ATR_TA1 0x02 checksum
+//	      0xff 0x50 C_ATR_TA1 0xXX checksum
+//	      0xff 0x70 C_ATR_TA1 0x02 0xXX checksum
 
 // minimal PTS is 0xff 0x1X 0xXX checksum (PS1 must be present, because
 // missing PS1 is interpreted as Fi=1, D=1 - not correct for OsEID
 
-	cp	r24,4                   // check size (minimal PTS size)
-	ldi	r25,4                   // initial minimum PTS size
-	brcs	card_io_ignore_pts      // not enoungh data for PTS
-                                 // size 0 => 256 bytes is not valid
-                                 // for PTS to ..
+	cp	r24,4			// check size (minimal PTS size)
+	ldi	r25,4			// initial minimum PTS size
+	brcs	card_io_ignore_pts	// not enoungh data for PTS
+					// size 0 => 256 bytes is not valid
+					// for PTS to ..
 
-	clr	r18                     // clear buffers for PS2, PS3
+	clr	r18			// clear buffers for PS2, PS3
 	clr	r19
 
-	ld	r20,X                   // load INS/PS0
-	andi	r20,0x1f                // test protocol, and presence of PS1
-	cpi	r20,0x10                //
-	brne	card_io_ignore_pts      // protocol != 0, or PS1 not present -> this mean Fi=1, Di=1, reject this PTS
+	ld	r20,X			// load INS/PS0
+	andi	r20,0x1f		// test protocol, and presence of PS1
+	cpi	r20,0x10		//
+	brne	card_io_ignore_pts	// protocol != 0, or PS1 not present -> this mean Fi=1, Di=1, reject this PTS
 
-	ld	r20,X+                  // reload INS/PS0, count PTS size
-	ld	r21,X+                  // load PS1
+	ld	r20,X+			// reload INS/PS0, count PTS size
+	ld	r21,X+			// load PS1
 	cpi	r21,C_ATR_TA1
-	brne	card_io_ignore_pts      // do not change TA1
+	brne	card_io_ignore_pts	// do not change TA1
 
 	sbrs	r20,5
 	rjmp	card_io_pts_no_PS2
 	inc	r25
-	ld	r18,X+                  // load PS2
+	ld	r18,X+			// load PS2
 	cpi	r18,2
-	brne	card_io_ignore_pts      // do not change TC1
+	brne	card_io_ignore_pts	// do not change TC1
 
 card_io_pts_no_PS2:
 	sbrs	r20,6
@@ -678,22 +667,22 @@ card_io_pts_no_PS2:
 	ld	r19,X+
 card_io_pts_no_PS3:
 	cp	r24,r25
-	brne	card_io_ignore_pts      // PTS size does not match frame size
+	brne	card_io_ignore_pts	// PTS size does not match frame size
 
 // checksum test
-	ld	r25,X+                  // checksum
+	ld	r25,X+			// checksum
 	eor	r20,r21
 	eor	r20,r18
 	eor	r20,r19
 	eor	r20,r25
-	cpi	r20,0xff                // must match CLA byte
+	cpi	r20,0xff		// must match CLA byte
 	brne	card_io_ignore_pts
 // confirm PTS
-	mov	r22,r24 // size
-	movw	r24,r30 // PTS pointer (in buffer)
-	rcall	card_io_tx // confirm PTS
+	mov	r22,r24			// size
+	movw	r24,r30			// PTS pointer (in buffer)
+	rcall	card_io_tx		// confirm PTS
 card_io_ignore_pts:
-	clr	r24                     // no byte is received
+	clr	r24			// no byte is received
 	ret
 
 
@@ -710,15 +699,15 @@ TIMER3_OVF_vect:
 	sts	null_send,r20
 // max time .. 960 * WI * FI/f (WI is coded in TC2, if not present WI = 10)
 // 372 or 512 from TA1 = Fi, 65536 divisor factor for timer3
-// max value for 372  960*10*372/65535 = 54
-// max value for 512  960*10*512/65535 = 75
+// max value for 372 960*10*372/65535 = 54
+// max value for 512 960*10*512/65535 = 75
 
-#if (C_ATR_TA1 & 0xF0)  == 0x90
+#if (C_ATR_TA1 & 0xF0) == 0x90
 	cpi	r20,68
 #elif (C_ATR_TA1 & 0xF0) == 0
-	cpi     r20,48
+	cpi	r20,48
 #elif (C_ATR_TA1 & 0xF0) == 0x10
-	cpi     r20,48
+	cpi	r20,48
 #else
 #error Please check TA1 value, Fi is not 512 or 372
 #endif
@@ -734,7 +723,7 @@ TIMER3_OVF_vect:
 	push	r31
 	rcall	card_io_osccal_max
 
-// timer mode CTC  from 0 to ETU in OCR3A
+// timer mode CTC from 0 to ETU in OCR3A
 	ldi	r21,0x0f
 	rcall	card_io_timer_mode
 // clear OCR request
@@ -752,7 +741,7 @@ TIMER3_OVF_vect:
 	rcall	card_io_tx_byte
 vector_no_repeat:	
 // timer into normal mode
-        ldi     r21,0x07
+	ldi	r21,0x07
 	rcall	card_io_timer_mode
 	sts	null_send,r20
 	pop	r31
@@ -774,8 +763,8 @@ card_io_start_null:
 // reprogram timer to normal mode (count from 0 to 0xffff)
 // Timer 3 mode CTC TOP 0xffff (mode 0)
 // timer source T3, 
-// load timer  register offset (ETIFR) into Z
-        ldi     r21,0x07
+// load timer register offset (ETIFR) into Z
+	ldi	r21,0x07
 	rcall	card_io_timer_mode
 	sts	null_send,r20
 
@@ -793,8 +782,8 @@ card_io_stop_null:
 // reprogram timer to normal mode (count from 0 to 0xffff)
 // Timer 3 mode CTC TOP by OCRA (mode 4)
 // timer source T3, 
-// load timer  register offset (ETIFR) into Z
-        ldi     r21,0x0F
+// load timer register offset (ETIFR) into Z
+	ldi	r21,0x0F
 	rcall	card_io_timer_mode
 //disable all interrupt from timer
 	std	Z+ETIMSK_OFF,r20
@@ -854,7 +843,7 @@ card_io_init_atr_loop:
 	sei
 	out	0x3e,r25
 	ret
-.section        .noinit,"aw",@nobits
+.section	.noinit,"aw",@nobits
 
 // multifunction variable
 // a) after ATR this is set to 0xff, 1st received frame clear this

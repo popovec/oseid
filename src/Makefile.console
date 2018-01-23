@@ -11,12 +11,17 @@ CC= gcc
 
 all:	$(BUILD)console $(BUILD)libOsEIDsim.so
 
-#to test secp384r1 curve on opensc 0.16 uncomment next line (to enable Infineon ATR)
-#CFLAGS +=                -DInfineon
-
 #Tested without NIST_ONLY, but not set as default
 #CFLAGS += -DNIST_ONLY
 
+# exponentation window
+CFLAGS += -DE_BITS=4
+
+# precalculate inverse P and Q into key file
+CFLAGS += -DUSE_P_Q_INV
+
+# enable exponent blinding
+CFLAGS += -DRSA_EXP_BLINDING
 
 .PHONY:	builddir all
 
@@ -61,9 +66,8 @@ $(BUILD)libOsEIDsim.so:
 include card_os/Makefile
 
 	
-$(BUILD)console:	builddir $(BUILD)card.o $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)iso7816.o $(BUILD)myeid_emu.o $(BUILD)fs.o $(BUILD)ec.o $(BUILD)rsa.o $(BUILD)constants.o
-	$(CC) $(CFLAGS) -o $(BUILD)console $(BUILD)card.o $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)iso7816.o $(BUILD)myeid_emu.o $(BUILD)fs.o $(BUILD)ec.o $(BUILD)rsa.o $(BUILD)constants.o
-	
+$(BUILD)console:	builddir $(COMMON_TARGETS) $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o
+	$(CC) $(CFLAGS) -o $(BUILD)console $(COMMON_TARGETS) $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o
 
 clean:
 	rm -f *~

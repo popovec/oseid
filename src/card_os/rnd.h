@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,6 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+    Random number generatot header file
 
 */
 #ifndef CS_RND_H
@@ -25,7 +26,7 @@
 
 
 void rnd_init (void);
-void rnd_stop(void);
-uint8_t rnd_get (uint8_t *rnd,uint8_t size);
+// for size == 0 return 256 bytes
+void rnd_get (uint8_t *rnd, uint8_t size);
 
 #endif

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -27,4 +27,5 @@
 // this can be called from high/middle level irq or main
 void CPU_do_sleep ();
 void CPU_do_restart_main ();
-
+// turn CPU into IDLE sleep mode, interrupt is enabled
+void CPU_idle ();

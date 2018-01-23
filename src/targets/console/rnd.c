@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -33,16 +33,20 @@ uint8_t
 rnd_get (uint8_t * rnd, uint8_t size)
 {
   FILE *f;
-  uint8_t s;
+  uint16_t s;
+  uint16_t xsize = size;
+
+  if (size == 0)
+    xsize = 256;
 
   f = fopen ("/dev/urandom", "r");
   if (!f)
     return 1;
 
-  s = fread (rnd, sizeof (uint8_t), size, f);
+  s = fread (rnd, sizeof (uint8_t), xsize, f);
   fclose (f);
 
-  if (s != size)
+  if (s != xsize)
     return 1;
   return 0;
 }

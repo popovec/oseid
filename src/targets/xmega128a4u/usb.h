@@ -27,22 +27,29 @@
 
 // CCID part, CCID responses over BULK IN are handled by functions
 // isr_CCID_short_message_to_host() and CCID_response_to_host()
-// CCID layer normaly running in ISR (transaction complete on BULK OUT
-// or CONTROL endpoint). If CCID layer can genrate response inside this
-// ISR, response lenght is below 64 bytes and is synchronously sended back
-// by calling isr_CCID_short_message_to_host(). If CCID layer get
-// PC_to_RDR_XfrBlock message, no reponse can be generated in ISR, data 
-// from CCID layer are prepated to send to card (T0 TPDU transfer). 
-// CCID layer then ommit response to host, and card software is responsible
-// to call CCID_response_to_host() to return data to host. 
+// CCID layer normally running in ISR (transaction complete on BULK OUT
+// or CONTROL endpoint). If CCID layer can generate response inside this
+// ISR and response length is below 64 bytes, response is is synchronously
+// sended back by calling isr_CCID_short_message_to_host(). If CCID layer
+// receive PC_to_RDR_XfrBlock message:
+//
+// T0 protocol: message is transferred to card by CCID layer,
+// CCID layer then commit response to host, and card software is responsible
+// to call CCID_response_to_host() to return data to host.
 // CCID layer block any other PC_to_RDR_XfrBlock message to busy slot,
 // and slot is unblocked after response is generated.
+//
+// T1 protocol: message is send to T1 wrapper, T1 wrapper return R frame
+// (or any other response if needed). If T1 wrapper can construct full APDU
+// for card, CCID layer pass this APDU to card, and if card return response
+// T1 wrapper does call CCID_response_to_host() (for 1st 64 bytes of response).
+// Rest of response is sended back to host in isr.
 
 void isr_CCID_short_message_to_host (uint8_t * buffer, uint8_t length);
 void CCID_response_to_host (uint8_t * buffer, uint16_t length);
 // send CCID message to host with seq number "l_seq" to
 // request longer working time
-void CCID_start_null(uint8_t l_seq);
+void CCID_start_null (uint8_t l_seq);
 ////////////////////////////////////////////////////////////////////////////
 
 // USB descriptors
@@ -57,7 +64,7 @@ struct Descriptor_String_t
 //  uint16_t UnicodeString[];
 };
 
-// Device descriptor 
+// Device descriptor
 struct Descriptor_Device_t
 {
   uint8_t Size;
@@ -143,13 +150,20 @@ struct USB_Descriptor_Configuration_t
   struct Descriptor_Configuration_Header_t Config;
   struct Descriptor_Interface_t Interface;
   struct Descriptor_CCID_Interface_t CCID_Interface;
-  struct Descriptor_Endpoint_t CCID_bulk_in;
   struct Descriptor_Endpoint_t CCID_bulk_out;
+  struct Descriptor_Endpoint_t CCID_bulk_in;
   struct Descriptor_Endpoint_t CCID_interrupt;
 };
+#define CCID_bulk_out_ID 1
+#define CCID_bulk_in_ID 2
+#define CCID_intr_ID 3
 
-#define CCID_bulk_out_ADDR (ENDPOINT_DIR_OUT | 1)
-#define CCID_bulk_in_ADDR  (ENDPOINT_DIR_IN | 2)
+#define ENDPOINT_DIR_OUT                   0x00
+#define ENDPOINT_DIR_IN                    0x80
+
+#define CCID_bulk_out_ADDR (ENDPOINT_DIR_OUT | CCID_bulk_out_ID)
+#define CCID_bulk_in_ADDR  (ENDPOINT_DIR_IN | CCID_bulk_in_ID)
+#define CCID_intr_ADDR      (ENDPOINT_DIR_IN | CCID_intr_ID)
 
 // device independent part
 
@@ -162,8 +176,6 @@ struct USB_Setup_Packet
   uint16_t wLength;
 } __attribute__ ((packed));
 
-#define ENDPOINT_DIR_OUT                   0x00
-#define ENDPOINT_DIR_IN                    0x80
 
 void USB_Init (void);
 void USB_Reinit (void);
@@ -171,7 +183,7 @@ uint16_t USB_Device_GetFrameNumber (void)
   __attribute__ ((warn_unused_result));
 
 ////////////////////////////////////////////////////
-// enumeration and macros for accessing 
+// enumeration and macros for accessing
 // device state variable
 
 // device powered only from bus,
@@ -207,4 +219,5 @@ struct __attribute__ ((packed)) USB_EndpointTable_t
   Endpoints[4];
   uint16_t FrameNum;
 };
+
 //__attribute__ ((packed)) USB_EndpointTable_t;

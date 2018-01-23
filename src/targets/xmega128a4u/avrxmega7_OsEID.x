@@ -110,6 +110,10 @@ SECTIONS
     build/xmega128a4u/ccid.o  (*.text)
     . = ALIGN(2);
     build/xmega128a4u/usb.o  (*.text)
+    . = ALIGN(2);
+    build/xmega128a4u/ccid.o  (*.text.*)
+    . = ALIGN(2);
+    build/xmega128a4u/usb.o  (*.text.*)
 
 /* Do not enable next part, *.progmem.data are accessed by pgm_read_byte not
    by pgm_read_byte_far.  (check Endpoint_Write_Descriptor() and

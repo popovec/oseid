@@ -6,25 +6,37 @@ MCU          = atxmega128a4u
 F_CPU        = 32000000
 F_USB        = 48000000
 
-
+ifeq ($(CARD_SERIAL),)
+CARD_SERIAL:= $(shell date +%s)
+endif
 # dfu programmer used for testing
 
-CFLAGS=  -Wall -Os -DF_USB=$(F_USB)UL -DF_CPU=$(F_CPU)UL
-#CFLAGS+= -Wl,--section-start=.flash_end=0x1ff00
+CFLAGS=  -Wall -Os -mmcu=$(MCU) -ffunction-sections
+LDFLAGS= -Wl,-gc-sections
 # Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
-CFLAGS+=-mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
+CFLAGS+= -mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
+CFLAGS+= -Wl,--section-start=.flash_end=0x21f00
 CFLAGS+= -fshort-enums -fjump-tables --param  case-values-threshold=10
 CFLAGS+= -DOsEID
+# Enable this only for board with serial debug connector
+#CFLAGS += -DSERIAL_DEBUG
 CFLAGS += -std=gnu99
-CFLAGS += -mmcu=$(MCU)
 #CFLAGS += -DNIST_ONLY
 #CFLAGS+= -DCARD_TESTS
+CFLAGS+=  -DF_USB=$(F_USB)UL -DF_CPU=$(F_CPU)UL
 
 BUILD= build/xmega128a4u/
 TARGET= targets/xmega128a4u/
 TARGET_LIB = lib/avr/
-TARGET_SPEC= $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)ccid.o $(BUILD)usb.o $(BUILD)avr_os.o
+TARGET_DEFAULT_LIB = lib/avr/
+TARGET_SPEC = $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)ccid.o $(BUILD)usb.o $(BUILD)avr_os.o $(BUILD)serial_debug.o
+TARGET_SPEC += $(BUILD)des_arch.o $(BUILD)aes_arch.o $(BUILD)bn_lib_arch.o
 
+# precalculate inverse P and Q into key file
+CFLAGS += -DUSE_P_Q_INV
+
+# enable exponent blinding
+CFLAGS += -DRSA_EXP_BLINDING
 
 all:	$(BUILD)card.hex
 
@@ -36,46 +48,24 @@ builddir:
 #device dependent files
 
 HAVE =          -DRSA_BYTES=128
+HAVE +=		-DE_BITS=5
 
 #for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
 HAVE +=         -DRAM_LE32
 
-HAVE +=		-DE_BITS=5
-HAVE +=		-DHAVE_RSA_SHIFTL5
-HAVE +=		-DHAVE_RSA_MUL_192
-HAVE +=         -DHAVE_RSA_MUL_192_NO_ABI
+
+
 TARGET_SPEC +=	$(BUILD)mp_mul_192.o
-
-HAVE +=		-DHAVE_RSA_MUL_256 
-HAVE +=         -DHAVE_RSA_MUL_256_NO_ABI
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
-
-HAVE +=		-DHAVE_RSA_SHIFTL
-HAVE +=		-DHAVE_RSA_SHIFTR_LONG
-
-# not needed if monpro is in asm
-#HAVE +=		-DHAVE_RSA_ADD_LONG
+TARGET_SPEC +=  $(BUILD)mp_mul_24.o
+TARGET_SPEC +=  $(BUILD)mp_mul_32.o
+TARGET_SPEC +=  $(BUILD)mp_mul_128.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
-
-HAVE +=		-DHAVE_RSA_SUB_LONG
-HAVE +=	        -DHAVE_RSA_SUB
-
-HAVE +=		-DHAVE_RSA_MUL_192
-HAVE +=		-DHAVE_RSA_MUL_384
-HAVE +=		-DHAVE_RSA_MUL_512
-HAVE +=		-DHAVE_RSA_MUL_768
-HAVE +=		-DHAVE_RSA_MUL_1024
-HAVE +=		-DHAVE_RSA_MUL_128_MOD
 HAVE +=		-DHAVE_RSA_MUL_192_MOD
-TARGET_SPEC +=	$(BUILD)mp.o
-TARGET_SPEC +=  $(BUILD)mp_mul_24.o
-TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 
-HAVE +=		-DHAVE_RSA_MUL_128
-HAVE +=         -DHAVE_RSA_MUL_128_NO_ABI
-TARGET_SPEC +=	$(BUILD)mp_mul_128.o
+TARGET_SPEC +=	$(BUILD)mp.o
 
 HAVE +=		-DHAVE_RSA_SQUARE_192
 HAVE +=		-DHAVE_RSA_SQUARE_256
@@ -83,33 +73,18 @@ HAVE +=		-DHAVE_RSA_SQUARE_384
 HAVE +=		-DHAVE_RSA_SQUARE_512
 HAVE +=		-DHAVE_RSA_SQUARE_768
 HAVE +=		-DHAVE_RSA_SQUARE_1024
+
 TARGET_SPEC +=  $(BUILD)mp_square.o
-
-HAVE +=		-DHAVE_MON_PRO0 -DUSE_N0=0
-HAVE +=		-DUSE_N0=0
-HAVE +=		-DHAVE_RSA_MOD
-HAVE +=		-DHAVE_RSA_MOD_R
-HAVE +=		-DHAVE_RSA_INV_MOD
 TARGET_SPEC +=	$(BUILD)rsa_S.o
-
 
 HAVE +=		-DHAVE_GET_CONSTANTS
 TARGET_SPEC +=	$(BUILD)xconstants.o
 
 
-HAVE +=         -DHAVE_MP_ADD 
-HAVE +=         -DHAVE_MP_SUB 
-HAVE +=         -DHAVE_MP_CMP 
-HAVE += 	-DHAVE_MP_SHIFTR_C -DHAVE_MP_SHIFTR -DHAVE_MP_SHIFTR_2N
 
-# not needed HAVE_RSA_MOD is set
-#HAVE +=         -DHAVE_MP_SUB_2N
 
-HAVE +=		-DHAVE_MP_SHIFTL
-
-#no bootloader, use own code to program flash
-HAVE +=		-DSELF_SPM
-CFLAGS+= -Wl,--section-start=.flash_end=0x21f00
+$(BUILD)serial_debug.o:	$(TARGET)serial_debug.c $(TARGET)serial_debug.h
+		$(CC) $(CFLAGS) -c -o $(BUILD)serial_debug.o $(TARGET)serial_debug.c
 
 $(BUILD)avr_os.o:	$(TARGET)avr_os.c
 		$(CC) $(CFLAGS) -c -o $(BUILD)avr_os.o $(TARGET)avr_os.c
@@ -126,29 +101,41 @@ $(BUILD)mem_device.o:	 $(TARGET)mem_device.c  card_os/mem_device.h
 $(BUILD)rnd.o:	 $(TARGET)rnd.c  card_os/rnd.h
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rnd.o  $(TARGET)rnd.c -I card_os
 
+$(BUILD)des_arch.o:	$(TARGET_LIB)/des.S  card_os/des.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)des_arch.o  $(TARGET_LIB)/des.S -I card_os
+
+$(BUILD)aes_arch.o:	$(TARGET_LIB)/aes.S  card_os/aes.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)aes_arch.o  $(TARGET_LIB)/aes.S -I card_os
+
 $(BUILD)rsa_S.o:	$(TARGET_LIB)rsa.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rsa_S.o $(TARGET_LIB)rsa.S
 
 $(BUILD)mp_mul_128.o:	$(TARGET_LIB)mp_mul_128.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_128.o $(TARGET_LIB)mp_mul_128.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_128.o $(TARGET_LIB)mp_mul_128.S
 
 $(BUILD)mp_mul_192.o:	$(TARGET_LIB)mp_mul_192.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_192.o $(TARGET_LIB)mp_mul_192.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_192.o $(TARGET_LIB)mp_mul_192.S
 
 $(BUILD)mp_mul_256.o:	$(TARGET_LIB)mp_mul_256.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_256.o $(TARGET_LIB)mp_mul_256.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_256.o $(TARGET_LIB)mp_mul_256.S
 
 $(BUILD)mp_mul_24.o:	$(TARGET_LIB)mp_mul_24.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_24.o $(TARGET_LIB)mp_mul_24.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_24.o $(TARGET_LIB)mp_mul_24.S
 
 $(BUILD)mp_mul_32.o:	$(TARGET_LIB)mp_mul_32.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32.o $(TARGET_LIB)mp_mul_32.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32.o $(TARGET_LIB)mp_mul_32.S
 
 $(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S -Icard_os
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S
 
 $(BUILD)mp.o:	$(TARGET_LIB)mp.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp.o $(TARGET_LIB)mp.S -Icard_os
+
+$(BUILD)bn_lib_arch.o:	$(TARGET_LIB)bn_lib.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib_arch.o $(TARGET_LIB)bn_lib.S -Icard_os
+
+$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
 
 $(BUILD)xconstants.o:	$(TARGET)constants.c
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)xconstants.o $(TARGET)constants.c -Icard_os
@@ -164,7 +151,7 @@ include card_os/Makefile
 L_SCRIPT = $(TARGET)avrxmega7_OsEID.x
 	
 $(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
-			$(CC) $(CFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf -T $(L_SCRIPT)
+			$(CC) $(CFLAGS) $(LDFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf -T $(L_SCRIPT)
 			avr-size --format=SysV $(BUILD)card.elf
 			avr-size $(BUILD)card.elf
 
@@ -172,7 +159,7 @@ $(BUILD)card_orig.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -R .eeprom -R .fuse -R .lock $(BUILD)card.elf $(BUILD)card_orig.hex
 
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text "OsEID"|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text "OsEID"|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string $(CARD_SERIAL) -o $(BUILD)card.hex -Intel
 
 $(BUILD)card.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
@@ -187,26 +174,21 @@ $(BUILD)card.FUSEBYTE2.bin:	$(BUILD)card.fuses.hex
 
 
 
-.PHONY:	program
-program:	$(BUILD)card.hex
-		dfu-programmer $(MCU) erase
-		dfu-programmer $(MCU) flash $(BUILD)card.hex
-		dfu-programmer $(MCU) reset
+.PHONY:	program programRead program-isp fuses programRead-isp clean
 
-programRead:
-		dfu-programmer $(MCU) dump > rom_asm_verify.bin
+program:	program-isp
+
+programRead:	programRead-isp
 
 program-isp:	$(BUILD)card.hex
 		avrdude -p x128a4u -c avrispmkII -e -v -U flash:w:$(BUILD)card.hex
 
-fuses:		$(BUILD)card.FUSEBYTE2.bin
-		avrdude -p x128a4u -c avrispmkII -v -U fuse2:w:$(BUILD)card.FUSEBYTE2.bin:r
-
 programRead-isp:
 		avrdude -p x128a4u -c avrispmkII -v -U flash:r:rom_asm_verify.bin:r
 
+fuses:		$(BUILD)card.FUSEBYTE2.bin
+		avrdude -p x128a4u -c avrispmkII -v -U fuse2:w:$(BUILD)card.FUSEBYTE2.bin:r
 
-.PHONY:	clean
 clean:
 	rm -f *~
 	rm -f card_os/*~

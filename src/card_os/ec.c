@@ -30,13 +30,23 @@
 
     All curves in format Y^2 = X^3 -a * X + b
 */
+
+/*
+    There is support for blinding in scalar * point multiplication (ec_mul).
+    Blinding is realized by adding (random value * curve order) to scalar.
+    Up to 8 bytes of random data can be used.  This blinding slow down
+    multiplication.  3 or 4 bytes of random data are recomended.  If speed
+    is preferred to security, use 0 bytes in blinding.
+*/
+
+//    number of bytes for blinding key in ec_mul, (tested for 0 and 4 only)
+#define EC_BLIND 4
 #include <string.h>
 #include <stdint.h>
 #include "rnd.h"
 #include "ec.h"
+#include "bn_lib.h"
 #include <stdio.h>
-// prototypes
-extern uint8_t mod_len;
 
 uint8_t
 mp_get_len ()
@@ -80,14 +90,14 @@ typedef struct
 } bigbignum_t;
 
 
-// functions map ..  FINAL is function that not call any other functions (except memcpy/memset)        
-// 
+// functions map ..  FINAL is function that not call any other functions (except memcpy/memset)
+//
 
 // ec mathematics (point in projective representation!)
-static uint8_t ecisinf (ec_point_t * point);	// [mp_is_zero]
-static void ec_double (ec_point_t * a);	// [add_mod, sub_mod, field_mul, field_sqr, ecisinf]
-static uint8_t ec_add_ (ec_point_t * a, ec_point_t * b);	// [ecisinf, field_mul, field_sqr, (ec_double)]
-static void ec_mul (ec_point_t * result, bignum_t * f, ec_point_t * point);	// [ec_add_, ec_double, mp_shiftr]
+static uint8_t ecisinf (ec_point_t * point);
+static void ec_double (ec_point_t * a);
+static uint8_t ec_add_ (ec_point_t * a, ec_point_t * b);
+static void ec_mul (ec_point_t * point, uint8_t * f);
 static void ec_projectify (ec_point_t * r);
 
 //return projective representation to affinite
@@ -101,71 +111,92 @@ static void fast192reduction (bignum_t * result, bigbignum_t * bn);
 /**************************************************************************
 *                       modular arithmetic                               *
 ***************************************************************************/
-#ifndef HAVE_MP_ADDSUB_MOD
-static void add_mod (bignum_t * result, bignum_t * a, bignum_t * mod);
-static void sub_mod (bignum_t * result, bignum_t * a, bignum_t * mod);
-#else
-extern void add_mod (bignum_t * result, bignum_t * a, bignum_t * mod);
-extern void sub_mod (bignum_t * result, bignum_t * a, bignum_t * mod);
-#endif
-static void inv_mod (bignum_t * result, bignum_t * a, bignum_t * mod);
 static void mul_mod (bignum_t * result, bignum_t * a, bignum_t * b,
 		     bignum_t * mod);
-static void mp_mod (bigbignum_t * result, bignum_t * mod);
 /**************************************************************************
 *                     basic multiple precision arithmetic                *
 ***************************************************************************/
-#ifdef HAVE_MP_ADD
-extern uint8_t mp_add (bignum_t * result, bignum_t * a);
-#else
-static uint8_t mp_add (bignum_t * result, bignum_t * a);
-#endif
+uint8_t __attribute__ ((weak)) mp_is_zero (bignum_t * a)
+{
+  return bn_is_zero (a);
+}
 
-#ifdef HAVE_MP_SUB
-extern uint8_t mp_sub (bignum_t * result, bignum_t * a, bignum_t * b);
-#else
-static uint8_t mp_sub (bignum_t * result, bignum_t * a, bignum_t * b);
-#endif
+uint8_t __attribute__ ((weak)) mp_add (bignum_t * r, bignum_t * a)
+{
+  return bn_add (r, a);
+}
+
+uint8_t
+  __attribute__ ((weak)) mp_sub (bignum_t * r, bignum_t * a, bignum_t * b)
+{
+  return bn_sub (r, a, b);
+}
+
+uint8_t __attribute__ ((weak)) mp_cmpGE (bignum_t * c, bignum_t * d)
+{
+  return bn_cmpGE (c, d);
+}
+
+void
+  __attribute__ ((weak)) add_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
+{
+  bn_add_mod (r, a, mod);
+}
+
+void
+  __attribute__ ((weak)) sub_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
+{
+  bn_sub_mod (r, a, mod);
+}
+
+uint8_t __attribute__ ((weak)) mp_shiftl (bignum_t * r)
+{
+  return bn_shiftl (r);
+}
+
+uint8_t __attribute__ ((weak)) mp_shiftr (bignum_t * r)
+{
+  return bn_shiftr (r);
+}
+
+uint8_t __attribute__ ((weak)) mp_shiftr_c (bignum_t * r, uint8_t carry)
+{
+  return bn_shiftr_c (r, carry);
+}
+
+void __attribute__ ((weak)) mp_mod (bigbignum_t * result, bignum_t * mod)
+{
+  bn_mod (result, mod);
+}
+
+uint8_t __attribute__ ((weak)) mp_inv_mod (bignum_t * result, bignum_t * a, bignum_t * mod)
+{
+  return bn_inv_mod (result, a, mod);
+}
+
+void __attribute__ ((weak))
+mp_mul_192 (bigbignum_t * r, bignum_t * a, bignum_t * b)
+{
+  bn_mul_v (r, a, b, 24);
+}
+
+void __attribute__ ((weak))
+mp_mul_256 (bigbignum_t * r, bignum_t * a, bignum_t * b)
+{
+  bn_mul_v (r, a, b, 32);
+}
+
+void __attribute__ ((weak))
+mp_mul_384 (bigbignum_t * r, bignum_t * a, bignum_t * b)
+{
+  bn_mul_v (r, a, b, 48);
+}
+
 
 static void mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a);
+
 static void mp_square (bigbignum_t * r, bignum_t * a);
 
-#ifndef HAVE_MP_SHIFTL
-static uint8_t mp_shiftl (bignum_t * result);
-#else
-extern uint8_t mp_shiftl (bignum_t * result);
-#endif
-
-#ifndef HAVE_MP_SHIFTR
-static uint8_t mp_shiftr (bignum_t * result);
-#else
-extern uint8_t mp_shiftr (bignum_t * result);
-#endif
-
-#ifndef HAVE_MP_SHIFTR_C
-static uint8_t mp_shiftr_c (bignum_t * result, uint8_t carry);
-#else
-extern uint8_t mp_shiftr_c (bignum_t * result, uint8_t carry);
-#endif
-
-#ifndef HAVE_MP_SHIFTR_2N
-static uint8_t mp_shiftr_2N (bigbignum_t * result);
-#else
-extern uint8_t mp_shiftr_2N (bigbignum_t * result);
-#endif
-
-
-static uint8_t mp_is_zero (bignum_t * k);
-
-#ifdef HAVE_MP_CMP
-extern uint8_t mp_cmpGE (bignum_t * c, bignum_t * d);
-#else
-static uint8_t mp_cmpGE (bignum_t * c, bignum_t * d);
-#endif
-
-static uint8_t mp_test_even (bignum_t * r);
-static uint8_t mp_is_1 (bignum_t * r);
-static void mp_set_to_1 (bignum_t * r);
 
 #define mp_set(r,c) memcpy (r, c, mp_get_len ())
 #define mp_clear(r) memset (r, 0, mp_get_len ());
@@ -186,7 +217,6 @@ ec_projectify (ec_point_t * r)
   r->Z.value[0] = 1;
 }
 
-
 static void
 field_add (bignum_t * r, bignum_t * a)
 {
@@ -203,36 +233,6 @@ field_sub (bignum_t * r, bignum_t * a)
   sub_mod (r, a, field_prime);
 }
 
-// please write this code for you platform in ASM/C
-// to prevent side channel attack (timing.. ) this code
-// must run in constant time
-#ifndef HAVE_MP_ADDSUB_MOD
-static void
-sub_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
-{
-  uint8_t carry;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  carry = mp_sub (r, r, a);
-  if (carry)
-    mp_add (r, mod);
-}
-
-static void
-add_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
-{
-  uint8_t carry;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  carry = mp_add (r, a);
-  if (carry)
-    mp_sub (r, r, mod);
-  else if (mp_cmpGE (r, mod))
-    mp_sub (r, r, mod);
-}
-#endif
 static void
 mul_mod (bignum_t * c, bignum_t * a, bignum_t * b, bignum_t * mod)
 {
@@ -244,33 +244,6 @@ mul_mod (bignum_t * c, bignum_t * a, bignum_t * b, bignum_t * mod)
   mp_mod (&bn, mod);
   memset (c, 0, mp_get_len ());
   memcpy (c, &bn, mp_get_len ());
-}
-
-static uint8_t
-mp_is_zero (bignum_t * k)
-{
-  uint8_t i, j = 0, ret, len = mp_get_len ();
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  for (i = 0; i < len; i++)
-    j |= k->value[i];
-  ret = (j == 0);
-  return ret;
-}
-
-//return true if k is 1
-static uint8_t
-mp_is_1 (bignum_t * k)
-{
-  uint8_t i, j, ret, len = mp_get_len () - 1;
-
-  DPRINT ("%s\n", __FUNCTION__);
-  j = (k->value[0] ^ 1);
-  for (i = 1; i < len; i++)
-    j |= k->value[i];
-  ret = (j == 0);
-  return ret;
 }
 
 static uint8_t
@@ -414,7 +387,7 @@ P384 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF FFFE FFFF 
 11: d3    ( 0   ||  0  ||  0  ||  0  ||  0  ||  0  ||  0  || a23 || a23 ||  0  ||  0  ||  0  )
 12: d1 = p384 - d1
 13: r = t + 2 s1 + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3
-14: Reduce r mod p384 by subtraction of up to four multiples of p384 
+14: Reduce r mod p384 by subtraction of up to four multiples of p384
 */
 static void
 fast384reduction (bignum_t * result, bigbignum_t * bn)
@@ -646,7 +619,7 @@ fast256reduction (bignum_t * result, bigbignum_t * bn)
  P192 = 0xFF FF FF FF FF FF FF FF  FF FF FF FF FF FF FF FE   FF FF FF FF FF FF FF FF
 
  (Ai  in 64 bit quantities)
- 
+
  T =  ( A2 || A1 || A0 )
  S1 = ( 0  || A3 || A3 )
  S2 = ( A4 || A4 || 0  )
@@ -778,10 +751,10 @@ ec_affinify (ec_point_t * point, struct ec_param *ec)
       DPRINT ("Zero in Z, cannot affinify\n");
       return 1;
     }
-  inv_mod (&n0, &point->Z, &ec->prime);	// n0=Z^-1
+  mp_inv_mod (&n0, &point->Z, &ec->prime);	// n0=Z^-1
   field_sqr (&n1, &n0);		// n1=Z^-2
   field_mul (&point->X, &point->X, &n1);	// X*=n1
-  field_mul (&n0, &n0, &n1);	// n0=Z^-3      
+  field_mul (&n0, &n0, &n1);	// n0=Z^-3
   field_mul (&point->Y, &point->Y, &n0);
   memset (&point->Z, 0, mp_get_len ());
   point->Z.value[0] = 1;
@@ -1170,14 +1143,18 @@ ec_mul_nist (ec_point_t * result, bignum_t * num, ec_point_t * s)
 }
 #endif
 
+#ifndef EC_BLIND
+#define EC_BLIND 0
+#endif
+
 #ifndef EC_MUL_WINDOW
-#define  EC_MUL_WINDOW 3
+#define  EC_MUL_WINDOW 4
 #endif
 
 #if EC_MUL_WINDOW == 2
 // constant time - do ec_add into false result for zero bit(s) in k
 static void
-ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
+ec_mul (ec_point_t * point, uint8_t * k)
 {
   int8_t i;
   uint8_t b, b2, j;
@@ -1196,9 +1173,9 @@ ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
   memcpy (&r[1], &table[2], sizeof (ec_point_t));
   memset (&r[0], 0, sizeof (ec_point_t));
 
-  for (i = mp_get_len () - 1; i >= 0; i--)
+  for (i = mp_get_len () - 1 + EC_BLIND; i >= 0; i--)
     {
-      b = k->value[i];
+      b = k[i];
       for (j = 0; j < 4; j++)
 	{
 	  ec_double (&r[0]);
@@ -1210,11 +1187,14 @@ ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
 	  b <<= 2;
 	}
     }
-  memcpy (result, &r[0], sizeof (ec_point_t));
+  memcpy (point, &r[0], sizeof (ec_point_t));
 }
 #elif EC_MUL_WINDOW == 3
+#if EC_BLIND > 0
+#error this code must be fixed for blinding
+#endif
 static void
-ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
+ec_mul (ec_point_t * point, uint8_t * k)
 {
   int16_t i;
   uint8_t b;
@@ -1272,12 +1252,12 @@ ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
       ec_double (&r[0]);
       ec_double (&r[0]);
     }
-  memcpy (result, &r[0], sizeof (ec_point_t));
+  memcpy (point, &r[0], sizeof (ec_point_t));
 }
 
 #elif EC_MUL_WINDOW == 4
 static void
-ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
+ec_mul (ec_point_t * point, uint8_t * k)
 {
   int8_t i;
   uint8_t b, j;
@@ -1303,9 +1283,9 @@ ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
   memcpy (&r[1], &table[2], sizeof (ec_point_t));
   memset (&r[0], 0, sizeof (ec_point_t));
 
-  for (i = mp_get_len () - 1; i >= 0; i--)
+  for (i = mp_get_len () - 1 + EC_BLIND; i >= 0; i--)
     {
-      b = k->value[i];
+      b = k[i];
       for (j = 0; j < 2; j++)
 	{
 	  ec_double (&r[0]);
@@ -1317,7 +1297,7 @@ ec_mul (ec_point_t * result, bignum_t * k, ec_point_t * point)
 	  b <<= 4;
 	}
     }
-  memcpy (result, &r[0], sizeof (ec_point_t));
+  memcpy (point, &r[0], sizeof (ec_point_t));
 }
 #else
 #error Unknown EC_MUL_WINDOW
@@ -1332,23 +1312,40 @@ ec_set_param (struct ec_param *ec)
   curve_type = ec->curve_type;
 }
 
+#if EC_BLIND > 0
+#if EC_BLIND > 7
+#error too many blinding bytes
+#endif
+static void
+  __attribute__ ((noinline)) ec_blind_key (uint8_t * blind_key,
+					   bignum_t * order)
+{
+  uint8_t blind_val[sizeof (bignum_t) * 2];
+  uint8_t blind_rnd[sizeof (bignum_t)];
+  uint8_t len;
+
+  memset (blind_rnd, 0, sizeof (bignum_t));
+  rnd_get (blind_rnd, EC_BLIND);
+  blind_rnd[EC_BLIND - 1] &= 0x3f;
+  blind_rnd[EC_BLIND - 1] |= 0x20;
+
+  mp_mul ((bigbignum_t *) blind_val, (bignum_t *) blind_rnd, order);
+
+  len = mp_get_len ();
+  mp_set_len (len + 8);
+  mp_add ((bignum_t *) blind_key, (bignum_t *) blind_val);
+  mp_set_len (len);
+}
+#endif
+
 // point = k * point
-uint8_t
+static uint8_t
 ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
 {
-  ec_point_t temp_point;
+  uint8_t blind_key[sizeof (bignum_t) + 8];
 
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (NULL == ec)
-    return 1;
-
   ec_set_param (ec);
-
-  if (NULL == k)
-    return 1;
-  if (NULL == point)
-    return 1;
 
   if (mp_is_zero (k))
     return 1;
@@ -1357,12 +1354,16 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
   if (mp_cmpGE (k, &ec->order))
     return 1;
 
-  memcpy (&temp_point, point, sizeof (ec_point_t));
+  memset (blind_key, 0, sizeof (blind_key));
+  mp_set (blind_key, k);
+#if EC_BLIND > 0
+  ec_blind_key (blind_key, &(ec->order));
+#endif
 
   DPRINT ("multiplication\n");
 
-  ec_projectify (&temp_point);
-  ec_mul (point, k, &temp_point);
+  ec_projectify (point);
+  ec_mul (point, (uint8_t *) k);
 
   if (ec_affinify (point, ec))
     return 1;
@@ -1378,7 +1379,7 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
 
 
 uint8_t
-ec_derive_key (bignum_t * k, ec_point_t * pub_key, struct ec_param * ec)
+ec_derive_key (ec_point_t * pub_key, struct ec_param * ec)
 {
   DPRINT ("%s\n", __FUNCTION__);
   ec_set_param (ec);
@@ -1386,13 +1387,12 @@ ec_derive_key (bignum_t * k, ec_point_t * pub_key, struct ec_param * ec)
   if (!(ec_is_point_affine (pub_key, ec)))
     return 1;
 
-  memcpy (k, &ec->private_key, sizeof (bignum_t));
-  return ec_calc_key (k, pub_key, ec);
+  return ec_calc_key (&ec->working_key, pub_key, ec);
 }
 
 
 uint8_t
-ec_key_gener (bignum_t * k, ec_point_t * pub_key, struct ec_param * ec)
+ec_key_gener (ec_point_t * pub_key, struct ec_param * ec)
 {
   uint8_t i;
 
@@ -1400,22 +1400,12 @@ ec_key_gener (bignum_t * k, ec_point_t * pub_key, struct ec_param * ec)
   // ec_set_param (ec); - called in ec_calc_key()
   // do not use mp_get_len() here
 
-  if (NULL == k)
-    return 1;
-  if (NULL == pub_key)
-    return 1;
-
   for (i = 0; i < 5; i++)
     {
       // load key bytes from rnd
-      uint8_t off;
-      for (off = 0; off < ec->mp_size; off++)
-	while (1 == rnd_get (off + (uint8_t *) k, 1));
+      rnd_get ((uint8_t *) & (ec->working_key), ec->mp_size);
 
-// TODO better "k" (for example check openssl crypto/ecdsa/ecs_ossl.c)
-      memcpy ((uint8_t *) & pub_key->X, &ec->Gx, sizeof (bignum_t));
-      memcpy ((uint8_t *) & pub_key->Y, &ec->Gy, sizeof (bignum_t));
-      if (0 == ec_calc_key (k, pub_key, ec))
+      if (0 == ec_calc_key (&(ec->working_key), pub_key, ec))
 	return 0;
     }
   DPRINT ("key fail!\n");
@@ -1423,14 +1413,14 @@ ec_key_gener (bignum_t * k, ec_point_t * pub_key, struct ec_param * ec)
 }
 
 uint8_t
-ecdsa_sign (ecdsa_sig_t * ecsig, struct ec_param * ec)
+ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param * ec)
 {
-  bignum_t s, r;
+  uint8_t i;
+  ec_point_t *R = &(ecsig->signature);
 
-  ec_point_t R;
-  bignum_t k;
-
-  int i;
+// move private key into ecdsa_sig_t structure
+  bignum_t *k = &(ec->working_key);
+  memcpy (&(ecsig->priv_key), k, sizeof (bignum_t));
 
   DPRINT ("%s\n", __FUNCTION__);
   ec_set_param (ec);
@@ -1438,198 +1428,48 @@ ecdsa_sign (ecdsa_sig_t * ecsig, struct ec_param * ec)
   for (i = 0; i < 5; i++)
     {
       // generate key
-      if (ec_key_gener (&k, &R, ec))
+      if (ec_key_gener (R, ec))
 	continue;
+// From generated temp public key only X coordinate is used
+// as "r" value of result. "s" value is calculated:
+
 // use r= x position of R, e = HASH, dA = private key
-// k,R  temp keys, n = field order 
-// s = (e + dA * r)/k  mod n
+// k,R  temp key (private/public), n = field order
+// s = (dA * r + e)/k  mod n
 
-      mp_set (&r, &R.X);
+      // signature = dA * r + e
+      mul_mod (&(R->Y), &(ecsig->priv_key), &(R->X), &ec->order);
+      add_mod (&(R->Y), (bignum_t *) message, &ec->order);
 
-      mul_mod (&s, &ec->private_key, &r, &ec->order);
-
-      add_mod (&s, ecsig->message, &ec->order);
-      inv_mod (&k, &k, &ec->order);	// division by k 
-      mul_mod (&s, &k, &s, &ec->order);
-      if (!mp_is_zero (&s))
-	{
-	  memcpy (&ecsig->R, &r, sizeof (bignum_t));
-	  memcpy (&ecsig->S, &s, sizeof (bignum_t));
-	  return 0;
-	}
+      mp_inv_mod (k, k, &ec->order);	// division by k
+      mul_mod (&(R->Y), k, &(R->Y), &ec->order);
+      if (!mp_is_zero (&(R->Y)))
+	return 0;
       DPRINT ("repeating, s=0\n");
     }
   return 1;
 }
 
 
-/**********************************************************************
-
-
-***********************************************************************/
+/***********************************************************************/
 //////////////////////////////////////////////////
-#ifndef HAVE_MP_ADD
-static uint8_t
-mp_add (bignum_t * r, bignum_t * a)
-{
-  uint8_t *A, *R;
-  uint8_t carry;
-  uint8_t i;
-  int16_t pA, pB, Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  A = (void *) a;
-  R = (void *) r;
-
-  carry = 0;
-  for (i = 0; i < mp_get_len (); i++)
-    {
-      pA = A[i];
-      pB = R[i];
-      Res = pA + pB + carry;
-
-      R[i] = Res & 255;
-      carry = (Res >> 8) & 1;
-    }
-  return carry;
-}
-#endif
-//////////////////////////////////////////////////
-#ifndef HAVE_MP_SUB
-static uint8_t
-mp_sub (bignum_t * r, bignum_t * a, bignum_t * b)
-{
-  uint8_t *A, *B, *R;
-  uint8_t carry;
-  uint8_t i;
-  int16_t pA, pB, Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  A = (void *) a;
-  B = (void *) b;
-  R = (void *) r;
-
-  carry = 0;
-  for (i = 0; i < mp_get_len (); i++)
-    {
-      pA = A[i];
-      pB = B[i];
-      Res = pA - pB - carry;
-
-      R[i] = Res & 255;
-      carry = (Res >> 8) & 1;
-    }
-  return carry;
-}
-#endif
-//////////////////////////////////////////////////
-#if defined (HAVE_RSA_MUL_384) && defined (HAVE_RSA_MUL_256) && defined (HAVE_RSA_MUL_192)
 static void
 mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a)
 {
   if (mp_get_len () > 32)
     {
-      rsa_mul_384 (&r->value[0], &a->value[0], &b->value[0]);
+      mp_mul_384 (r, a, b);
     }
   else if (mp_get_len () > 24)
     {
-      rsa_mul_256 (&r->value[0], &a->value[0], &b->value[0]);
+      mp_mul_256 (r, a, b);
     }
   else
     {
-      rsa_mul_192 (&r->value[0], &a->value[0], &b->value[0]);
+      mp_mul_192 (r, a, b);
     }
 }
-#else
-static void mp_mul (bigbignum_t * result, bignum_t * a, bignum_t * b);
 
-// normal multiplication r = a * b
-// (replace this by karatsuba or other eficient algo .. )
-#ifdef USE_MP_MUL_8
-// multiplication with 8x8 hardware engine
-void
-mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a)
-{
-  uint8_t i, j, c;
-  uint8_t a_;
-  uint16_t res;
-
-  memset (r, 0, mp_get_len () * 2);	// r = 0
-
-  for (i = 0; i < mp_get_len (); i++)
-    {
-      c = 0;
-      a_ = a->value[i];
-
-      for (j = 0; j < mp_get_len (); j++)
-	{
-	  res = a_ * b->value[j];
-	  res += r->value[i + j];
-	  res += c;
-
-	  c = res >> 8;
-	  r->value[i + j] = res & 255;
-	}
-      r->value[i + mp_get_len ()] = c;
-    }
-}
-#else
-// classical binary multiplication (can run on CPU
-// without multiplier for example attiny85 )
-// This is "generic" code, but very slow.
-
-void
-mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a)
-{
-  uint8_t *A, *B, *R;
-  int8_t i, s, rot;
-  uint8_t carry;
-  int16_t pA, pB, Res;
-
-  uint8_t m;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  A = (void *) a;
-  B = (void *) b;
-  R = (void *) r;
-
-  memset (R + mp_get_len (), 0, mp_get_len ());
-
-  for (s = 0; s < mp_get_len (); s++)
-    {
-      m = A[s];
-      for (rot = 0; rot < 8; rot++, m >>= 1)
-	{
-	  carry = 0;
-	  if (m & 1)		//add b to result
-	    {
-	      for (i = 0; i < mp_get_len (); i++)
-		{
-		  pA = R[i + mp_get_len ()];
-		  pB = B[i];
-		  Res = pA + pB + carry;
-		  R[i + mp_get_len ()] = Res & 255;
-		  carry = (Res >> 8) & 1;
-		}
-	    }
-	  //rotate R
-	  if (carry)
-	    carry = 0x80;
-	  for (i = 2 * mp_get_len () - 1; i >= 0; i--)
-	    {
-	      Res = R[i] >> 1;
-	      Res |= carry;
-	      carry = (R[i] & 1) ? 0x80 : 0;
-	      R[i] = Res;
-	    }
-	}
-    }
-}
-#endif
-#endif
 //////////////////////////////////////////////////
 #if defined (HAVE_RSA_SQUARE_384) && defined (HAVE_RSA_SQUARE_256) && defined (HAVE_RSA_SQUARE_192)
 static void
@@ -1673,287 +1513,4 @@ mp_square (bigbignum_t * r, bignum_t * a)
   mp_mul (r, a, a);
 }
 #endif
-#endif
-
-//////////////////////////////////////////////////
-#ifndef HAVE_MP_SHIFTL
-static uint8_t
-mp_shiftl (bignum_t * r)
-{
-  uint8_t carry;
-  int8_t i;
-  int16_t Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  carry = 0;
-  for (i = 0; i < mp_get_len (); i++)
-    {
-      Res = r->value[i] << 1;
-      Res |= carry;
-      carry = (Res >> 8) & 1;
-      r->value[i] = Res & 255;
-    }
-  return carry;
-}
-#endif
-//////////////////////////////////////////////////
-#ifndef HAVE_MP_SHIFTR
-static uint8_t
-mp_shiftr_c (bignum_t * r, uint8_t carry)
-{
-  uint8_t *R;
-  uint8_t c2;
-  int8_t i;
-  int16_t Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  R = (void *) r;
-
-  carry = carry ? 0x80 : 0;
-  for (i = mp_get_len () - 1; i >= 0; i--)
-    {
-      Res = R[i];
-      c2 = Res & 1;
-      Res = Res >> 1;
-      Res |= carry;
-      carry = c2 << 7;
-      R[i] = Res;
-    }
-  return carry;
-}
-#endif
-#ifndef HAVE_MP_SHIFTR
-static uint8_t
-mp_shiftr (bignum_t * r)
-{
-  return mp_shiftr_c (r, 0);
-}
-#endif
-
-//////////////////////////////////////////////////
-#ifndef HAVE_MP_CMP
-// return  1  if c >= d
-static uint8_t
-mp_cmpGE (bignum_t * c, bignum_t * d)
-{
-  uint8_t *C = (void *) c;
-  uint8_t *D = (void *) d;
-
-  int8_t i;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  for (i = mp_get_len () - 1; i >= 0; i--)
-    {
-      if (C[i] > D[i])
-	return 1;
-      if (C[i] < D[i])
-	return 0;
-    }
-  return 1;
-}
-#endif
-
-
-static void
-mp_set_to_1 (bignum_t * r)
-{
-  uint8_t *Res = (void *) r;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  memset (r, 0, mp_get_len ());
-  *Res = 1;
-}
-
-//return true if r is even
-
-static uint8_t
-mp_test_even (bignum_t * r)
-{
-  return 1 ^ (r->value[0] & 1);
-}
-
-
-//set r = c^(-1) (mod p)
-//based on nist.. 
-// TODO, for  example for 40^(-1) mod 50 this run in loop - this is ok,
-// because this is not correct input, but this must be catched by exception
-// In real code only "Prime" and "Order" numbers are used as "p"
-static void
-inv_mod (bignum_t * r, bignum_t * c, bignum_t * p)
-{
-  bignum_t U, V, X1, X2;
-  bignum_t *u = &U, *v = &V, *x1 = &X1, *x2 = &X2;
-  uint8_t carry;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  mp_set (u, c);
-  mp_set (v, p);
-  mp_clear (x2);
-  mp_set_to_1 (x1);
-
-  for (;;)
-    {
-      if (mp_is_1 (u))
-	{
-	  mp_set (r, x1);
-	  return;
-	}
-      if (mp_is_1 (v))
-	{
-	  mp_set (r, x2);
-	  return;
-	}
-
-
-      while (mp_test_even (u))
-	{
-	  mp_shiftr (u);	// u = u / 2
-	  if (mp_test_even (x1))
-	    {
-	      mp_shiftr (x1);	// x1 = x1 / 2
-	    }
-	  else
-	    {
-	      // x1 = (x1 + p)/2 {do not reduce sum modulo p}
-	      carry = mp_add (x1, p);
-	      mp_shiftr_c (x1, carry);
-	    }
-	}
-
-      while (mp_test_even (v))
-	{
-	  mp_shiftr (v);	// v = v/2
-	  if (mp_test_even (x2))
-	    {
-	      mp_shiftr (x2);	// x1 = x2 / 2
-	    }
-	  else
-	    {
-	      // x2 = (x2 + p)/2 {do not reduce sum modulo p}
-	      carry = mp_add (x2, p);
-	      mp_shiftr_c (x2, carry);
-	    }
-	}
-
-      if (mp_cmpGE (u, v) > 0)
-	{
-	  sub_mod (u, v, p);
-	  sub_mod (x1, x2, p);
-	}
-      else
-	{
-	  sub_mod (v, u, p);
-	  sub_mod (x2, x1, p);
-	}
-    }
-}
-
-//////////////////////////////////////////////////
-//helper for mp_mod
-#ifndef HAVE_MP_SHIFTR_2N
-static uint8_t
-mp_shiftr_2N (bigbignum_t * r)
-{
-  uint8_t carry, c2;
-  int8_t i;
-  int16_t Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  carry = 0;
-  for (i = mp_get_len () * 2 - 1; i >= 0; i--)
-    {
-      Res = r->value[i];
-      c2 = Res & 1;
-      Res = Res >> 1;
-      Res |= carry;
-      carry = c2 << 7;
-      r->value[i] = Res;
-    }
-  return carry;
-}
-#endif
-//////////////////////////////////////////////////
-//////////////////////////////////////////////////
-#if defined (HAVE_RSA_MOD)
-void rsa_mod (bigbignum_t * result, bignum_t * mod);
-
-static void
-mp_mod (bigbignum_t * result, bignum_t * mod)
-{
-  rsa_mod (result, mod);
-}
-#else
-// helper for mp_mod
-#ifdef HAVE_MP_SUB_2N
-extern uint8_t mp_sub_2N (bigbignum_t * result, bigbignum_t * a,
-			  bigbignum_t * b);
-#else
-static uint8_t mp_sub_2N (bigbignum_t * result, bigbignum_t * a,
-			  bigbignum_t * b);
-#endif
-#ifndef HAVE_MP_SUB_2N
-static uint8_t
-mp_sub_2N (bigbignum_t * r, bigbignum_t * a, bigbignum_t * b)
-{
-  uint8_t *A, *B, *R;
-  uint8_t carry;
-  uint8_t i;
-  int16_t pA, pB, Res;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  A = (void *) a;
-  B = (void *) b;
-  R = (void *) r;
-
-  carry = 0;
-  for (i = 0; i < 2 * mp_get_len (); i++)
-    {
-      pA = A[i];
-      pB = B[i];
-      Res = pA - pB - carry;
-
-      R[i] = Res & 255;
-      carry = (Res >> 8) & 1;
-    }
-  return carry;
-}
-#endif
-// "result" = "result" mod "mod"
-static void
-mp_mod (bigbignum_t * result, bignum_t * mod)
-{
-  bigbignum_t bb;
-  bigbignum_t tmp;
-  uint8_t *bb_ptr = (void *) &bb;
-  int16_t i;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  memset (bb_ptr, 0, mp_get_len ());
-  memcpy (bb_ptr + mp_get_len (), mod, mp_get_len ());
-
-  i = mp_get_len () * 8;
-
-  while (!(bb.value[2 * mp_get_len () - 1] & 0x80))
-    {
-      mp_shiftl ((bignum_t *) (bb_ptr + mp_get_len ()));
-      i++;
-    }
-  for (; i >= 0; i--)
-    {
-      int lz = mp_sub_2N (&tmp, result, &bb);
-
-      if (!lz)
-	memcpy (result, &tmp, 2 * mp_get_len ());
-      mp_shiftr_2N (&bb);
-
-    }
-}
 #endif

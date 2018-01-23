@@ -25,10 +25,13 @@
 /////////////////////////////////////////////////////////////
 #include "load_sp.h"
 
-#if defined (HAVE_RSA_MUL_192) && defined(HAVE_RSA_MUL_192_NO_ABI)
+	.global mp_mul_192
+	.type	mp_mul_192, @function
 	.global rsa_mul_192
 	.type	rsa_mul_192, @function
+	.section .text.rsa_mul_192,"ax",@progbits
 
+mp_mul_192:
 rsa_mul_192:
 //save registers
 	push	r2
@@ -78,11 +81,11 @@ rsa_mul_192:
 	pop	r2
 	ret
 
-#endif
-#ifdef HAVE_RSA_MUL_384
+	.global mp_mul_384
+	.type	mp_mul_384, @function
 	.global rsa_mul_384
 	.type	rsa_mul_384, @function
-
+	.section .text.rsa_mul_384,"ax",@progbits
 #define UNROLL 4
 
 #ifndef UNROLL
@@ -93,6 +96,7 @@ rsa_mul_192:
 #define RESULT    r12
 #define OPERAND_A r14
 
+mp_mul_384:
 rsa_mul_384:
 //save registers
 	push	r2
@@ -141,6 +145,9 @@ rsa_mul_384:
 	clr	r1
 
 	ret
+	.global rsa_mul_384_no_abi
+	.type	rsa_mul_384_no_abi, @function
+	.section .text.rsa_mul_384_no_abi,"ax",@progbits
 
 rsa_mul_384_no_abi:
 	movw    r22,r28 // save A pointer copy
@@ -622,13 +629,12 @@ rsa_mul_384_loop1b:
 #undef L5
 #undef L6
 #undef L7
-#endif
 
 
 /////////////////////////////////////////////////////////////
-#if defined (HAVE_RSA_MUL_768 ) && RSA_BYTES >64
         .global rsa_mul_768
         .type   rsa_mul_768, @function
+	.section .text.rsa_mul_768,"ax",@progbits
 
 #define UNROLL 4
 
@@ -831,7 +837,9 @@ middle part is addressed by X
 	subi	r28,lo8(-96)
 	sbci	r29,hi8(-96)
 
-	ldi	_COUNT,6
+//	ldi	_COUNT,6
+	mov	_COUNT,r30
+	subi	_COUNT,(-48)
 // set initial carry for add/sub
 	sub	_CARRY,_CARRY
 	bst	_EOR,0
@@ -867,10 +875,11 @@ rsa_mul_768_xloop1:
 	ror	_CARRY
 	ror	_CARRY
 
-	dec	_COUNT
-	breq	rsa_mul_768_xloop1_end
+//	dec	_COUNT
+//	breq	rsa_mul_768_xloop1_end
+	cpse	_COUNT,r30
 	rjmp	rsa_mul_768_xloop1
-rsa_mul_768_xloop1_end:
+//rsa_mul_768_xloop1_end:
 
 // A,B part	 ok, add D
 // prevent carry, correct Z to point C
@@ -878,13 +887,15 @@ rsa_mul_768_xloop1_end:
 	bst	_CARRY,7	//save B+C carry
 	subi	r30,lo8(-48)
 	sbci	r31,hi8(-48)
-	rol	_CARRY
 /*
      255...192 191...128 127...64 63...0
              Y        Z
 middle part is addressed by X
 */
-	ldi	_COUNT,6
+//	ldi	_COUNT,6
+	mov	_COUNT,r30
+	subi	_COUNT,(-48)
+	rol	_CARRY
 rsa_mul_768_xloop2:
 .irp	pos,0,1,2,3,4,5,6,7
 	ldd	\pos,Z+\pos	//B+C in RAM
@@ -908,10 +919,11 @@ rsa_mul_768_xloop2:
 	ror	_CARRY
 	ror	_CARRY
 
-	dec	_COUNT
-	breq	rsa_mul_768_xloop2_end
+//	dec	_COUNT
+//	breq	rsa_mul_768_xloop2_end
+	cpse	_COUNT,r30
 	rjmp	rsa_mul_768_xloop2
-rsa_mul_768_xloop2_end:
+//rsa_mul_768_xloop2_end:
 
 /*
      255...192 191...128 127...64 63...0
@@ -983,7 +995,6 @@ rsa_mul_768_xloop2_end:
 #undef L5
 #undef L6
 #undef L7
-#endif
 
 
 
@@ -2275,6 +2286,56 @@ rsa_mul_192_mod_no_abi_final:
 
 #ifdef HAVE_RSA_MUL_768_MOD
 // input in r22,r23 r26,27  result r30,31
+	.global	rsa_mul_384_mod
+	.type	rsa_mul_384_mod, @function
+
+rsa_mul_384_mod:
+//save registers
+	push	r2
+	push	r3
+	push	r4
+	push	r5
+	push	r6
+	push	r7
+	push	r8
+	push	r9
+	push	r10
+	push	r11
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	push	r16
+	push	r17
+	push	r28
+	push	r29
+
+	movw	r30,r24
+	movw	r26,r20
+
+	call	rsa_mul_384_mod_no_abi
+
+	clr	r1
+// return registers
+	pop	r29
+	pop	r28
+	pop	r17
+	pop	r16
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
+	pop	r11
+	pop	r10
+	pop	r9
+	pop	r8
+	pop	r7
+	pop	r6
+	pop	r5
+	pop	r4
+	pop	r3
+	pop	r2
+	ret
 
 rsa_mul_384_mod_no_abi:
 // create space on stack - 48 bytes TMP variable, 3x pointer

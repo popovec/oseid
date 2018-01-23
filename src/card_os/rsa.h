@@ -1,9 +1,9 @@
 /*
-    rsa.c
+    rsa.h
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015,2017 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    montgomery modular arithmetics header file
+    RSA algo header file
 
 */
 
@@ -35,20 +35,39 @@
 #if RSA_BYTES != 64 && RSA_BYTES != 96 && RSA_BYTES != 128
 #error only fixed size RSA_BYTES are supported (64,96,128)
 #endif
+#ifndef __RSA_H__
+#define __RSA_H__
 
 #ifndef __ASSEMBLER__
 typedef struct rsa_num
 {
-  uint8_t value[RSA_BYTES]; //128bytes for 2048 RSA modulus + reserve for carry
+  uint8_t value[RSA_BYTES];	//128bytes for 2048 RSA modulus + reserve for carry
 } rsa_num;
 
+// allow use rsa_long_num as two rsa_num
 typedef struct rsa_long_num
 {
-  uint8_t value[RSA_BYTES * 2];     //for multiplication result ..
+  union
+  {
+    uint8_t value[RSA_BYTES * 2];	//for multiplication result ..
+    struct
+    {
+      rsa_num L;
+      rsa_num H;
+    };
+  };
 } rsa_long_num;
 
+typedef struct rsa_exp_num
+{
+  union
+  {
+    uint8_t value[RSA_BYTES + 8];	// always allow 8 bytes! big number arithmetic operates with number length in 64 bit steps
+    rsa_num n;
+  };
+} rsa_exp_num;
 
-// structure is reused for intermediate results 
+// structure is reused for intermediate results
 // in Chinese remainder algorithms
 /*
 struct rsa
@@ -65,8 +84,33 @@ struct rsa
   uint8_t bytes;	 // size of rsa_num in bytes
 };
 */
-// 0 all ok, 1 error 
+// 0 all ok, 1 error
+
+// this struct is used for RSA key generate function
+struct rsa_crt_key
+{
+  union
+  {
+    rsa_long_num t[2];
+    struct
+    {
+      rsa_num dP;
+      rsa_num dQ;
+      rsa_num qInv;
+      rsa_num d;		// public exponent
+    };
+  };
+};
+
+
+
 uint8_t rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size);
+uint8_t rsa_keygen (uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint16_t size);
+
+#ifdef USE_P_Q_INV
+void rsa_inv_mod_N (rsa_num * n_, rsa_num * modulus);
+void rsa_mod (rsa_long_num * result, rsa_num * mod);
+#endif
 #endif
 
 // error codes
@@ -84,3 +128,4 @@ uint8_t rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size);
 #define Re_P_GET_FAIL_4		241
 #define Re_qInv_GET_FAIL_1	242
 #define Re_Q_GET_FAIL_2		243
+#endif

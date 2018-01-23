@@ -18,16 +18,17 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+    myeid emulation header file
 
 */
 #ifndef CS_MYEID_H
 #define CS_MYEID_H
 /* myeid_emu.c */
-uint16_t security_env_set_reset(uint8_t *message, struct iso7816_response *r);
-uint16_t security_operation(uint8_t *message, struct iso7816_response *r);
-uint16_t myeid_generate_key(uint8_t *message);
-uint16_t myeid_get_data(uint8_t *message, struct iso7816_response *r);
-uint16_t myeid_put_data(uint8_t *message, struct iso7816_response * r);
-uint16_t myeid_activate_applet (uint8_t * message);
-uint16_t myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r);
+uint8_t security_env_set_reset(uint8_t *message, struct iso7816_response *r);
+uint8_t security_operation(uint8_t *message, struct iso7816_response *r);
+uint8_t myeid_generate_key(uint8_t *message, struct iso7816_response *r);
+uint8_t myeid_get_data(uint8_t *message, struct iso7816_response *r);
+uint8_t myeid_put_data(uint8_t *message, struct iso7816_response * r);
+uint8_t myeid_activate_applet (uint8_t * message);
+uint8_t myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r);
 #endif

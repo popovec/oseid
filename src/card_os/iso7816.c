@@ -53,15 +53,48 @@
 #define M_P2 message[3]
 #define M_LC message[4]
 
+
 struct iso7816_response iso_response __attribute__ ((section (".noinit")));
 
 static void
-return_status (uint16_t status)
+return_status (uint8_t status)
 {
-  uint8_t message[3];
+  uint8_t message[2];
 
-  message[0] = status >> 8;;
-  message[1] = status & 0xff;
+  message[0] = 0x60 | (status >> 4);
+  message[1] = 0;
+  switch (status)
+    {
+      // here low byte defaults to 0
+    case S_RET_OK:
+      message[0] = 0x90;
+      break;
+    case S0x6700:
+    case S0x6b00:
+    case S0x6d00:
+    case S0x6e00:
+    case S0x6f00:
+      break;
+      // low byte defaults to data size
+    case S0x6100:
+    case S0x6c00:
+      DPRINT ("return_status=%d bytes\n", iso_response.len);
+      message[1] = iso_response.len;
+      break;
+      // for all other codes low byte defaults to 0x8X,
+      // except for codef 0x63XX, here low byte defaults 0xCX
+    default:
+      if ((status & 0xf0) == 0x30)
+	{
+	  // 63
+	  message[1] = 0xc0 | (status & 0xf);
+	}
+      else
+	{
+	  // (60), 62,64,65,66,68,69,6a
+	  message[1] = 0x80 | (status & 0xf);
+	}
+    }
 
 // stop sending NULL bytes
   card_io_stop_null ();
@@ -104,13 +137,13 @@ iso7816_get_response (uint8_t * message)
   if (M_P1 != 0 || M_P2 != 0)
     {
       DPRINT ("incorrect p1,p2\n");
-      return_status (0x6a86);	//incorrect P1,P2
+      return_status (S0x6a86);	//incorrect P1,P2
       return;
     }
   if (iso_response.flag != R_RESP_READY)
     {
       DPRINT ("data already returned / no data to return \n");
-      return_status (0x6985);	//Failure: Not allowed - no data to response
+      return_status (S0x6985);	//Failure: Not allowed - no data to response
       return;
     }
   s1 = M_LC;
@@ -125,7 +158,7 @@ iso7816_get_response (uint8_t * message)
     {
       DPRINT ("reserved data %d !=  received data %d\n",
 	      iso_response.len, message[4]);
-      return_status ((0x6c << 8) | iso_response.len);
+      return_status (S0x6c00);
       return;
     }
 
@@ -155,9 +188,9 @@ iso7816_get_response (uint8_t * message)
     }
   iso_response.len = s2 & 255;
   if (iso_response.len)
-    return_status (0x6100 | iso_response.len);
+    return_status (S0x6100);
   else
-    return_status (0x9000);
+    return_status (S_RET_OK);
 }
 
 
@@ -169,7 +202,7 @@ iso7816_verify (uint8_t * message)
 
   if (M_P1 != 0)
     {
-      return_status (0x6a86);	// Incorrect parameters P1-P2
+      return_status (S0x6a86);	// Incorrect parameters P1-P2
       return;
     }
   if (M_LC)
@@ -177,7 +210,7 @@ iso7816_verify (uint8_t * message)
       confirm_command (message);
       if (read_command_data (message))
 	{
-	  return_status (0x6984);	//invalid data
+	  return_status (S0x6984);	//invalid data
 	  return;
 	}
     }
@@ -193,31 +226,23 @@ iso7816_get_challenge (uint8_t * message)
 
 // TODO if P1 == 2 challange for authentification ..
   if (M_P1 != 0 || M_P2 != 0)
-    {
-      return_status (0x6a86);	//incorrect P1,P2
-      return;
-    }
+    return return_status (S0x6a86);	//incorrect P1,P2
   rlen = M_LC;
-  if (rlen > 8)
-    {
-      return_status (0x6700);	//incorrect data len
-      return;
-    }
   if (rlen == 0)
-    rlen = 8;
-  while (rnd_get (iso_response.data, rlen));
+    return_status (S0x6f00);	//no particular diagnostic (same response as from MyEID 3.3.3)
+  rnd_get (iso_response.data, rlen);
   iso_response.len = rlen;
   iso_response.flag = R_RESP_READY;
-  return_status ((0x61 << 8) | rlen);
+  return_status (S0x6100);
 }
 
 
 static void
-return_status_s (uint16_t status, uint8_t rewrite)
+return_status_s (uint8_t status, uint8_t rewrite)
 {
   if (rewrite)
-    if ((status & 0xff00) == 0x6100)
-      return return_status (0x9000);
+    if (status == S0x6100)
+      return return_status (S_RET_OK);
   return_status (status);
 }
 
@@ -233,7 +258,7 @@ iso7816_select_file (uint8_t * message)
     s = 1;
   else if (M_P2 != 0)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2
+      return_status (S0x6a86);	//Incorrect parameters P1-P2
       return;
     }
 
@@ -250,14 +275,14 @@ iso7816_select_file (uint8_t * message)
 	  return_status_s (fs_select_parent (&iso_response), s);
 	  return;
 	}
-      return_status (0x6700);	//incorrect data len
+      return_status (S0x6700);	//incorrect data len
       return;
     }
   //read rest of apdu
   confirm_command (message);
   if (read_command_data (message))
     {
-      return_status (0x6984);	//invalid data
+      return_status (S0x6984);	//invalid data
       return;
     }
 
@@ -265,9 +290,9 @@ iso7816_select_file (uint8_t * message)
   if ((M_P1 & 0xfe) == 8)
     {
       if (M_LC < 2)
-	return_status (0x6A87);	// len inconsistent with P1
+	return_status (S0x6a87);	// len inconsistent with P1
       if (M_LC & 1)
-	return_status (0x6A87);	// len inconsistent with P1
+	return_status (S0x6a87);	// len inconsistent with P1
       if (M_P1 & 1)
 	return_status_s (fs_select_by_path_from_df
 			 (message + 4, &iso_response), s);
@@ -281,7 +306,7 @@ iso7816_select_file (uint8_t * message)
   if (M_P1 == 4)
     {
       if (M_LC < 1 || M_LC > 16)
-	return_status (0x6A87);	// len inconsistent with P1
+	return_status (S0x6a87);	// len inconsistent with P1
       else
 	//send len and name as first arg
 	return_status_s (fs_select_by_name (message + 4, &iso_response), s);	//select by name, position by P2
@@ -290,11 +315,11 @@ iso7816_select_file (uint8_t * message)
 // rest commands  in all case LC must be 2
   if (M_LC != 2)
     {
-      return_status (0x6A87);	// len inconsistent with P1
+      return_status (S0x6a87);	// len inconsistent with P1
       return;
     }
 
-//select EF/DF by id .. 
+//select EF/DF by id ..
   if (M_P1 < 3)
     {
       uint16_t id;
@@ -317,7 +342,7 @@ iso7816_select_file (uint8_t * message)
       return;
     }
 
-  return_status (0x6A86);	//Incorrect parameters P1-P2
+  return_status (S0x6a86);	//Incorrect parameters P1-P2
 }
 
 static void
@@ -326,12 +351,12 @@ iso7816_read_binary (uint8_t * message)
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
   if (M_P1 > 0x80)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2    -better alt  function not supported ?
+      return_status (S0x6a86);	//Incorrect parameters P1-P2    -better alt  function not supported ?
       return;
     }
   if (!M_LC)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
   return_status (fs_read_binary ((M_P1 << 8) | M_P2, M_LC, &iso_response));
@@ -343,19 +368,19 @@ iso7816_update_binary (uint8_t * message)
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
   if (M_P1 > 0x80)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2 -better alt  function not supported ?
+      return_status (S0x6a86);	//Incorrect parameters P1-P2 -better alt  function not supported ?
       return;
     }
   if (!M_LC)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
   //read rest of apdu
   confirm_command (message);
   if (read_command_data (message))
     {
-      return_status (0x6984);	//invalid data
+      return_status (S0x6984);	//invalid data
       return;
     }
 
@@ -368,12 +393,12 @@ iso7816_erase_binary (uint8_t * message)
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
   if (M_P1 > 0x80)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2 -better alt  function not supported ?
+      return_status (S0x6a86);	//Incorrect parameters P1-P2 -better alt  function not supported ?
       return;
     }
   if (M_LC)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
 
@@ -386,12 +411,12 @@ iso7816_delete_file (uint8_t * message)
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
   if (M_P1 | M_P2)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2
+      return_status (S0x6a86);	//Incorrect parameters P1-P2
       return;
     }
   if (M_LC)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
 
@@ -405,19 +430,19 @@ iso7816_create_file (uint8_t * message)
 
   if (M_P1 != 0 || M_P2 != 0)
     {
-      return_status (0x6A86);	//Incorrect parameters P1-P2    
+      return_status (S0x6a86);	//Incorrect parameters P1-P2
       return;
     }
   if (M_LC == 0)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
   //read rest of apdu
   confirm_command (message);
   if (read_command_data (message))
     {
-      return_status (0x6984);	//invalid data
+      return_status (S0x6984);	//invalid data
       return;
     }
 
@@ -430,20 +455,20 @@ change_reference_data (uint8_t * message)
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
   if (M_P1 != 0)
     {
-      return_status (0x6a86);	// Incorrect parameters P1-P2 
+      return_status (S0x6a86);	// Incorrect parameters P1-P2
       return;
     }
   // correct is only value 16, this is checked in fs_change_pin()
   if (M_LC == 0)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
   //read rest of apdu
   confirm_command (message);
   if (read_command_data (message))
     {
-      return_status (0x6984);	//invalid data
+      return_status (S0x6984);	//invalid data
       return;
     }
 
@@ -457,20 +482,20 @@ reset_retry_counter (uint8_t * message)
 
   if (M_P1 != 0)
     {
-      return_status (0x6a86);	// Incorrect parameters P1-P2
+      return_status (S0x6a86);	// Incorrect parameters P1-P2
       return;
     }
 
   if (M_LC == 0)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
   //read rest of apdu
   confirm_command (message);
   if (read_command_data (message))
     {
-      return_status (0x6984);	//invalid data
+      return_status (S0x6984);	//invalid data
       return;
     }
 
@@ -483,24 +508,38 @@ deauthenticate (uint8_t * message)
 {
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
 
-  if (M_P1 != 0)
-    {
-      return_status (0x6a86);	// Incorrect parameters P1-P2
-      return;
-    }
-  if (M_P2 > 14)
-    {
-      return_status (0x6a86);	// Incorrect parameters P1-P2
-      return;
-    }
+  uint8_t pin = M_P2;
+
   if (M_LC != 0)
     {
-      return_status (0x6700);	//Incorrect length
+      return_status (S0x6700);	//Incorrect length
       return;
     }
 
-  fs_deauth (M_P2);
-  return_status (0x9000);
+  if (M_P1 == 0)
+    {
+      if (M_P2 > 14)
+	return return_status (S0x6a86);	// Incorrect parameters P1-P2
+    }
+  else if (M_P1 == 0xa0)
+    {
+      if (M_P2 != 0)
+	return return_status (S0x6a86);	// Incorrect parameters P1-P2
+      pin = M_P1;
+    }
+  else if (M_P1 == 0xb0)
+    {
+      if (M_P2 != 0)
+	return return_status (S0x6a86);	// Incorrect parameters P1-P2
+      pin = M_P1;
+    }
+  else
+    {
+      return return_status (S0x6a86);	// Incorrect parameters P1-P2
+    }
+
+  fs_deauth (pin);
+  return_status (S_RET_OK);
 }
 
 
@@ -512,7 +551,7 @@ command_class_A0 (uint8_t * message)
       iso7816_delete_file (message);
       return;
     }
-  return_status (0x6f00);	//no particular diagnostic
+  return_status (S0x6f00);	//no particular diagnostic
 }
 
 static void
@@ -540,11 +579,19 @@ command_class_normal (uint8_t * message)
     case 0x2a:
       {
 	uint16_t ret;
-	// only upload first part of RSA decrypt data end with 0x9000,
-	// in all other return codes reset PINs,
+	// only upload first part of RSA decrypt data end with S_RET_OK,
 	ret = (security_operation (message, &iso_response));
-	if (ret != 0x9000)
-	  fs_reset_security ();
+	if (ret != S_RET_OK)
+	  {
+#ifdef RR_ALWAYS
+// version of OsEID card up to 1.jul.2017 does this always ..
+	    fs_reset_security ();
+#elif RR_PROPFLAG
+// TODO check original aventra card .. if this realy unauth PIN ..
+	    if (fs_get_file_proflag () & 0x0080)
+	      fs_reset_security ();
+#endif
+	  }
 	return_status (ret);
       }
       return;
@@ -558,7 +605,7 @@ command_class_normal (uint8_t * message)
       return_status (myeid_activate_applet (message));
       return;
     case 0x46:
-      return_status (myeid_generate_key (message));
+      return_status (myeid_generate_key (message, &iso_response));
       return;
     case 0x84:
       iso7816_get_challenge (message);
@@ -595,46 +642,63 @@ command_class_normal (uint8_t * message)
       iso7816_delete_file (message);
       return;
     }
-  return_status (0x6f00);	//no particular diagnostic
+  return_status (S0x6f00);	//no particular diagnostic
 }
 
 static void
 command_class_default (uint8_t * message)
 {
-  return_status (0x6e00);
+  return_status (S0x6e00);
 }
 
 
-#ifndef NIST_ONLY
 static void
 command_class_prop (uint8_t * message)
 {
   switch (message[1])
     {
+    case 0x2a:
+      {
+	uint16_t ret;
+	// only upload first part of RSA decrypt data end with S_RET_OK,
+	ret = (security_operation (message, &iso_response));
+	if (ret != S_RET_OK)
+	  {
+#ifdef RR_ALWAYS
+// version of OsEID card up to 1.jul.2017 does this always ..
+	    fs_reset_security ();
+#elif RR_PROPFLAG
+// TODO check original aventra card .. if this realy unauth PIN ..
+	    if (fs_get_file_proflag () & 0x0080)
+	      fs_reset_security ();
+#endif
+	  }
+	return_status (ret);
+      }
+      return;
+#ifndef NIST_ONLY
     case 0xda:			// put data - prop command (change key file type to 0x23)
       if (M_P1 != 0 || M_P2 != 0 || M_LC != 0)
 	{
 	  DPRINT ("incorrect p1,p2\n");
-	  return_status (0x6a86);	//incorrect P1,P2
+	  return_status (S0x6a86);	//incorrect P1,P2
 	  return;
 	}
       return_status (fs_key_change_type ());
       return;
+#endif
     default:
-      return_status (0x6f00);	//no particular diagnostic
+      return_status (S0x6f00);	//no particular diagnostic
     }
 }
-#endif
 
 
 #define C_CLASS_PTS 0xff
-#ifndef NIST_ONLY
 #define C_CLASS_PROP 0x80
-#endif
 #define C_CLASS_ACTIVE 0x0
 #define C_CLASS_A0 0xA0
 
-//return positive number (how many characters need to be read from 
+//return positive number (how many characters need to be read from
 static void
 parse_T0 (uint8_t * message)
 {
@@ -642,7 +706,7 @@ parse_T0 (uint8_t * message)
 
 // all implemented functions needs 5 bytes (CLA, INS, P1, P2, LC/LE)
   if (iso_response.input_len < 5)
-    return_status (0x6f00);	//no particular diagnostic
+    return_status (S0x6f00);	//no particular diagnostic
 
   switch (M_CLASS)
     {
@@ -650,11 +714,9 @@ parse_T0 (uint8_t * message)
       return command_class_normal (message);
     case C_CLASS_A0:
       return command_class_A0 (message);
-#ifndef NIST_ONLY
 //proprietary!
     case C_CLASS_PROP:
       return command_class_prop (message);
-#endif
     default:
       DPRINT ("CLASS OTHER\n");
       return command_class_default (message);

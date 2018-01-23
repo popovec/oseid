@@ -38,7 +38,7 @@
     local functions:
 
     rsa_mul_512_no_abi:  512 bit multiplication 
-                         r30:31 result
+                         r28:29 result
                          r22:23 operand B
                          r26:27 operand A
 
@@ -58,15 +58,15 @@ multiplication with modulus (mod 128, 256 .. ):
 /////////////////////////////////////////////////////////////
 #include "load_sp.h"
 
-#if defined(HAVE_RSA_MUL_256_NO_ABI)
+  .global mp_mul_256   
+  .type mp_mul_256, @function
 
-#if defined(HAVE_RSA_MUL_256)
   .global rsa_mul_256   
   .type rsa_mul_256, @function
-rsa_mul_256:
-#endif
+  .section .text.rsa_mul_256,"ax",@progbits
 
-#if defined(HAVE_RSA_MUL_256)
+mp_mul_256:
+rsa_mul_256:
 	push	r2
 	push	r3
 	push	r4
@@ -112,37 +112,39 @@ rsa_mul_256:
 	pop	r3
 	pop	r2
 	ret
-#endif // defined(HAVE_RSA_MUL_256)
 
-#if defined (HAVE_RSA_MUL_512) || defined (HAVE_RSA_MUL_1024)
+//  .global rsa_mul_512_no_abi
+//  .type rsa_mul_512_no_abi, @function
+  .section .text.rsa_mul_512_no_abi,"ax",@progbits
 
 rsa_mul_512_no_abi:
 // create space on stack(64 bytes TMP variable, 3x pointer, 1x sign
-	in	r28, 0x3d
-	in	r29, 0x3e
-	subi	r28, lo8(64+2+2+2+1)
-	sbci	r29, hi8(64+2+2+2+1)
-	LOAD_SP	r0, r28,r29
+	in	r30, 0x3d
+	in	r31, 0x3e
+	subi	r30, lo8(64+2+2+2+1)
+	sbci	r31, hi8(64+2+2+2+1)
+	LOAD_SP	r0, r30,r31
 
 // save  pointers to stack
-	std	Y+1,r22	// A pointer
-	std	Y+2,r23
-	std	Y+3,r30	// Result
-	std	Y+4,r31
-	std	Y+5,r26	// B pointer
-	std	Y+6,r27
+	std	Z+1,r22	// A pointer
+	std	Z+2,r23
+	std	Z+3,r28	// Result
+	std	Z+4,r29
+	std	Z+5,r26	// B pointer
+	std	Z+6,r27
 
 // calculate a_low - a_high -> r
-	movw	r28,r22		//A, A+32 is addressed by Y
+	movw	r30,r22		//A, A+32 is addressed by Y
 	ldi	r25,4		//4*8 = 32 bytes
 	sub	r24,r24		//initial carry(s)
+
 rsa_mul_512_loop1a:
 // load A into r0..r7, A+32 to r8..r15
 .irp	pos,0,1,2,3,4,5,6,7
-	ld	r\pos,Y+
+	ld	r\pos,Z+
 .endr
 .irp	pos,8,9,10,11,12,13,14,15
-	ldd	r\pos,Y+16+\pos
+	ldd	r\pos,Z+16+\pos
 .endr
 // copy
 	movw	r16,r0
@@ -159,7 +161,7 @@ rsa_mul_512_loop1a:
 	sbc	r6,r14
 	sbc	r7,r15
 .irp    pos,0,1,2,3,4,5,6,7
-	st	Z+,r\pos
+	st	Y+,r\pos
 .endr
 	ror	r24	//save carry/renew carry
 	sbc	r8,r16
@@ -171,36 +173,38 @@ rsa_mul_512_loop1a:
 	sbc	r14,r22
 	sbc	r15,r23
 .irp    pos,8,9,10,11,12,13,14,15
-	std	Z+16+\pos,r\pos
+	std	Y+16+\pos,r\pos
 .endr
 	rol	r24	//renew carry
 
 	dec	r25
 	brne	rsa_mul_512_loop1a
 
-	movw	r28,r26 // B pointer
-	movw	r2,r30	// result + 64/96 for b_low -b_high
+	movw	r2,r28	// result + 64/96 for b_low -b_high
+	movw	r30,r26 // B pointer
+
 	bst	r24,0	// save sign	
 	bld	r25,5	// 0 or 32
 
-	sub	r30,r25
-	sbci	r31,0
-	movw	r26,r30		// first operand for multiply
+	sub	r28,r25
+	sbci	r29,0
+
+	movw	r26,r28		// first operand for multiply
 // sign is saved in T flag, r26 position of first operand		
 
 // calculate b_low - b_high -> r
-	movw	r30,r2		// result + 64/96 for b_low -b_high
-	adiw	r30,32
+	movw	r28,r2		// result + 64/96 for b_low -b_high
+	adiw	r28,32
 	ldi	r25,4		//4*8 = 32 bytes
 	sub	r24,r24		//initial carry(s)
 
 rsa_mul_512_loop1b:
 // load A into r0..r7, A+32 to r8..r15
 .irp	pos,0,1,2,3,4,5,6,7
-	ld	r\pos,Y+
+	ld	r\pos,Z+
 .endr
 .irp	pos,8,9,10,11,12,13,14,15
-	ldd	r\pos,Y+16+\pos
+	ldd	r\pos,Z+16+\pos
 .endr
 // copy
 	movw	r16,r0
@@ -217,7 +221,7 @@ rsa_mul_512_loop1b:
 	sbc	r6,r14
 	sbc	r7,r15
 .irp    pos,0,1,2,3,4,5,6,7
-	st	Z+,r\pos
+	st	Y+,r\pos
 .endr
 	ror	r24	//save carry/renew carry
 	sbc	r8,r16
@@ -229,7 +233,7 @@ rsa_mul_512_loop1b:
 	sbc	r14,r22
 	sbc	r15,r23
 .irp    pos,8,9,10,11,12,13,14,15
-	std	Z+16+\pos,r\pos
+	std	Y+16+\pos,r\pos
 .endr
 	rol	r24	//renew carry
 
@@ -237,26 +241,23 @@ rsa_mul_512_loop1b:
 	brne	rsa_mul_512_loop1b
 
 // get xor from sing of (a_low - a_high),(b_low - b_high)
-	in	r28, 0x3d
-	in	r29, 0x3e
-
-	mov	r25,r24	// copy sign
-	bld	r0,0	// previous sign
-	eor 	r25,r0
-	andi	r25,1
-	std	Y+7,r25 // sign	
-
-// select RESULT or RESULT + 32 for |b_low - b_high|
-	bst	r24,0
-	clr	r24
-	bld	r24,5
-	sub	r30,r24
-	sbci	r31,0
-	movw	r28,r30	//second opeand
-// multiply |a_low - a_high| * |b_low - b_high| into TMP
-	
 	in	r30, 0x3d
 	in	r31, 0x3e
+
+	bld	r24,1	// load previous sign from T
+	bst	r24,0	// save new sign into T
+	dec	r24	// do xor old/new sign (in bit 1, but 0 = sign different, 1 same)
+	ror	r24
+	andi	r24,1	// into bit 0
+	std	Z+7,r24 // save sign
+
+// select RESULT or RESULT + 32 for |b_low - b_high|
+	bld	r25,5	// get saved sing from T
+	sub	r28,r25
+	sbci	r29,0
+
+// multiply |a_low - a_high| * |b_low - b_high| into TMP
+	
 	adiw	r30,8		// skip variables on stack to point 64 byt TMP
 		
 	call	rsa_mul_256_no_abi
@@ -306,12 +307,10 @@ rsa_mul_512_loop1b:
 	adiw	r26,8		// skip variables on stack to point 64 byt TMP
 
 // summarize L,H,M, sub/add M (based on sign ..)
-// get sign from _CARRY
+// get sign from _CARRY (already negated => 1 same signs)
 // if signs are the same, set _EOR to 0xff _CARRY to 1
 // else                   set _EOR to 0x00 _CARRY to 0
 
-	ldi	_EOR,1
-	eor	_CARRY,_EOR
 // generate ff/0  from 1/0
 	mov	_EOR,_CARRY
 	neg	_EOR
@@ -617,11 +616,11 @@ rsa_mul_512_loop1b:
 #undef L5
 #undef L6
 #undef L7
-#endif // defined (HAVE_RSA_MUL_512) || defined (HAVE_RSA_MUL_1024)
 
-#ifdef HAVE_RSA_MUL_512
         .global rsa_mul_512
         .type   rsa_mul_512, @function
+	.section .text.rsa_mul_512,"ax",@progbits
+
 // 16363 ticks,
 // stack 18 for regs, 71 for variables, 58 in rsa_256_no_aby = 147
 
@@ -649,7 +648,7 @@ rsa_mul_512:
 	push	r17	// sign of b_low - b_high
 	push	r28
 	push	r29
-	movw	r30,r24
+	movw	r28,r24
 	movw	r26,r20
 	call	rsa_mul_512_no_abi
 // return registers
@@ -675,12 +674,12 @@ rsa_mul_512:
 	clr	r1
 	ret
 
-#endif //HAVE_RSA_MUL_512
 
 
-#if defined (HAVE_RSA_MUL_1024 )
         .global rsa_mul_1024
         .type   rsa_mul_1024, @function
+	.section .text.rsa_mul_1024,"ax",@progbits
+
 // stack 282 
 
 #define UNROLL 4
@@ -812,8 +811,7 @@ rsa_mul_1024_loop4:
 	std	Y+7,r16	// sign
 
 // multiply |a_low - a_high| * |b_low - b_high| into TMP
-	movw	r30,r28		// STACK,
-	adiw	r30,8		// skip variables on stack to point 128 byt TMP
+	adiw	r28,8		// skip variables on stack to point 128 byt TMP
 
 	movw	r22,RESULT
 	movw	r26,RESULT
@@ -822,32 +820,33 @@ rsa_mul_1024_loop4:
 
 	call	rsa_mul_512_no_abi
 // load values back 
-	in	r28, 0x3d
-	in	r29, 0x3e
-	ldd	r30,Y+3	// Result
-	ldd	r31,Y+4
-	ldd	r22,Y+1	// OPERAND_B
-	ldd	r23,Y+2
-	ldd	r26,Y+5	// OPERAND_A
-	ldd	r27,Y+6
+
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+3	// Result
+	ldd	r29,Z+4
+	ldd	r22,Z+1	// OPERAND_B
+	ldd	r23,Z+2
+	ldd	r26,Z+5	// OPERAND_A
+	ldd	r27,Z+6
 
 // a_low * b_low to r
 	call	rsa_mul_512_no_abi
 
 // load values back 
-	in	r28, 0x3d
-	in	r29, 0x3e
+	in	r30, 0x3d
+	in	r31, 0x3e
 // a_high * b_high to r+128
-	ldd	r30,Y+3	// Result
-	ldd	r31,Y+4
-	subi	r30,lo8(-128)
-	sbci	r31,hi8(-128)
-	ldd	r22,Y+1	// OPERAND_B
-	ldd	r23,Y+2
+	ldd	r28,Z+3	// Result
+	ldd	r29,Z+4
+	subi	r28,lo8(-128)
+	sbci	r29,hi8(-128)
+	ldd	r22,Z+1	// OPERAND_B
+	ldd	r23,Z+2
 	subi	r22,lo8(-64)
 	sbci	r23,hi8(-64)	//B+64
-	ldd	r26,Y+5	// OPERAND_A
-	ldd	r27,Y+6
+	ldd	r26,Z+5	// OPERAND_A
+	ldd	r27,Z+6
 	subi	r26,lo8(-64)
 	sbci	r27,hi8(-64)	//B+64
 	call	rsa_mul_512_no_abi
@@ -884,7 +883,8 @@ middle part is addressed by X
 	subi	r28,lo8(-128)
 	sbci	r29,hi8(-128)
 
-	ldi	_COUNT,8
+	mov	_COUNT,r30
+	subi	_COUNT,(-64)
 // set initial carry for add/sub
 	sub	_CARRY,_CARRY
 	bst	_EOR,0
@@ -920,24 +920,25 @@ rsa_mul_1024_xloop1:
 	ror	_CARRY
 	ror	_CARRY
 
-	dec	_COUNT
-	breq	rsa_mul_1024_xloop1_end
+	cpse	_COUNT,r30
 	rjmp	rsa_mul_1024_xloop1
-rsa_mul_1024_xloop1_end:
+//rsa_mul_1024_xloop1_end:
 
 // A,B part	 ok, add D
 // prevent carry, correct Z to point C
-	ror	_CARRY
-	bst	_CARRY,7	//save B+C carry
+	ror	_CARRY		// save B+C carry
+	bst	_CARRY,7	// save B+C carry into T
 	subi	r30,lo8(-64)
 	sbci	r31,hi8(-64)
-	rol	_CARRY
 /*
      255...192 191...128 127...64 63...0
              Y        Z
 middle part is addressed by X
 */
-	ldi	_COUNT,8
+	mov	_COUNT,r30
+	subi	_COUNT,(-64)
+
+	rol	_CARRY		// renew B+C carry
 rsa_mul_1024_xloop2:
 .irp	pos,0,1,2,3,4,5,6,7
 	ldd	\pos,Z+\pos	//B+C in RAM
@@ -961,11 +962,8 @@ rsa_mul_1024_xloop2:
 	ror	_CARRY
 	ror	_CARRY
 
-	dec	_COUNT
-	breq	rsa_mul_1024_xloop2_end
+	cpse	_COUNT,r30
 	rjmp	rsa_mul_1024_xloop2
-rsa_mul_1024_xloop2_end:
-
 /*
      255...192 191...128 127...64 63...0
              Z
@@ -977,7 +975,7 @@ rsa_mul_1024_xloop2_end:
 	mov	r17,_EOR
 
 	clr	_ACC
-	bld	_ACC,0
+	bld	_ACC,0	// renev B+C carry from T
 	adc	_EOR,_ACC
 	adc	r17,r1
 
@@ -1036,11 +1034,8 @@ rsa_mul_1024_xloop2_end:
 #undef L5
 #undef L6
 #undef L7
-#endif // HAVE_RSA_MUL_1024
 
-#endif // HAVE_RSA_MUL_256_NO_ABI
 
-#ifdef HAVE_RSA_MUL_128_NO_ABI
 /////////////////////////////////////////////////////////////
 .macro MUL_32_MOD_ADD  RS3 RS2 RS1 RS0  B3 B2 B1 B0   A3 A2 A1 A0 ZERO
 
@@ -1402,7 +1397,10 @@ rsa_mul_1024_xloop2_end:
 	std	Z+\T+7,\TMP
 .endm
 
-#ifdef HAVE_RSA_MUL_128_MOD
+        .global rsa_mul_128_mod_no_abi
+        .type   rsa_mul_128_mod_no_abi, @function
+	.section .text.rsa_mul_128_mod_no_abi,"ax",@progbits
+
 rsa_mul_128_mod_no_abi:
 // result is constructed into  part:
 // D  B+C  A (all parts 32 bites)
@@ -1846,6 +1844,12 @@ final_L_mod:
 	MEM_ADD64 S_OFF+8   S_OFF+8   RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0     r2
 	ret
 #undef S_OFF
+
+
+        .global rsa_mul_256_mod_no_abi
+        .type   rsa_mul_256_mod_no_abi, @function
+	.section .text.rsa_mul_256_mod_no_abi,"ax",@progbits
+
 // warning, result is in stack, use SP to get result position  
 rsa_mul_256_mod_no_abi:
 // save pointers to stack
@@ -1901,13 +1905,99 @@ rsa_mul_256_mod_no_abi:
 #undef TMP_4
 #undef TMP_5
 
-#endif
-#ifdef HAVE_RSA_MUL_512_MOD
-#ifndef HAVE_RSA_MUL_128_MOD
-#error rsa_mul_512_mod depend on HAVE_RSA_MUL_128_MOD
-#endif
+        .global rsa_mul_512_mod_no_abi
+        .type   rsa_mul_512_mod_no_abi, @function
+	.section .text.rsa_mul_512_mod_no_abi,"ax",@progbits
+
+rsa_mul_512_mod_no_abi:
+
+// create space on stack - 64 bytes TMP variable, 3x pointer
+	in	r28, 0x3d
+	in	r29, 0x3e
+	sbiw	r28,(32+2+2+2)
+	LOAD_SP r0, r28,r29
+
+// save  pointers to stack
+	std	Y+1,r22	// A pointer
+	std	Y+2,r23
+	std	Y+3,r30	// Result
+	std	Y+4,r31
+	std	Y+5,r26	// B pointer
+	std	Y+6,r27
+
+	movw	r28,r22
+	call	rsa_mul_256_no_abi
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+1	// OPERAND_B
+	ldd	r29,Z+2
+	adiw	r28,32	// upper part
+	ldd	r26,Z+5	// OPERAND_A
+	ldd	r27,Z+6
+
+	rcall 	rsa_mul_256_mod_no_abi
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+3	// result
+	ldd	r29,Z+4
+	adiw	r28,32	// upper part
+	adiw	r30,7
+
+//	clc			// R31:r30 + 7 is always below 64kB - carry is cleared
+	ldi	r24,4
+rsa_mul_512_mod_loop1:
+.rept	8
+	ld	r0,Y
+	ld	r25,Z+
+	adc	r25,r0
+	st	Y+,r25
+.endr
+	dec	r24
+	brne	rsa_mul_512_mod_loop1
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+1	// OPERAND_B
+	ldd	r29,Z+2
+	ldd	r26,Z+5	// OPERAND_A
+	ldd	r27,Z+6
+	adiw	r26,32	//upper part
+
+	rcall 	rsa_mul_256_mod_no_abi
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+3	// result
+	ldd	r29,Z+4
+	adiw	r28,32	// upper part
+	adiw	r30,7
+
+	ldi	r24,4
+	sub	r1,r1	// clear carry and r1
+rsa_mul_512_mod_loop2:
+.rept	8
+	ld	r0,Y
+	ld	r25,Z+
+	adc	r25,r0
+	st	Y+,r25
+.endr
+	dec	r24
+	brne	rsa_mul_512_mod_loop2
+// return stack position
+	sbiw	r30,1
+	LOAD_SP	r0, r30,r31
+	ret
+
+
         .global rsa_mul_512_mod
         .type   rsa_mul_512_mod, @function
+	.section .text.rsa_mul_512_mod,"ax",@progbits
 
 rsa_mul_512_mod:
 //save registers
@@ -1932,89 +2022,8 @@ rsa_mul_512_mod:
 	
 	movw	r30,r24
 	movw	r26,r20
-	
-// create space on stack - 64 bytes TMP variable, 3x pointer
-	in	r28, 0x3d
-	in	r29, 0x3e
-//	subi	r28, lo8(32+2+2+2)
-//	sbci	r29, hi8(32+2+2+2)
-	sbiw	r28,(32+2+2+2)
-	LOAD_SP r0, r28,r29
+	rcall	rsa_mul_512_mod_no_abi
 
-// save  pointers to stack
-	std	Y+1,r22	// A pointer
-	std	Y+2,r23
-	std	Y+3,r30	// Result
-	std	Y+4,r31
-	std	Y+5,r26	// B pointer
-	std	Y+6,r27
-
-	movw	r28,r22
-	call	rsa_mul_256_no_abi
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+1	// OPERAND_B
-	ldd	r29,Z+2
-	adiw	r28,32	// upper part
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6	
-
-	rcall 	rsa_mul_256_mod_no_abi
-	
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,32	// upper part
-	adiw	r30,7
-
-	ldi	r24,4
-	clc
-rsa_mul_512_mod_loop1:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_512_mod_loop1
-
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+1	// OPERAND_B
-	ldd	r29,Z+2
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6	
-	adiw	r26,32	//upper part
-
-	rcall 	rsa_mul_256_mod_no_abi
-	
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,32	// upper part
-	adiw	r30,7
-
-	ldi	r24,4
-	sub	r1,r1	// clear carry and r1
-rsa_mul_512_mod_loop2:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_512_mod_loop2
-// return stack position
-	sbiw	r30,1
-	LOAD_SP	r0, r30,r31
 // return registers
 	pop	r29
 	pop	r28
@@ -2036,6 +2045,142 @@ rsa_mul_512_mod_loop2:
 	pop	r2
 // r1 is already cleared
 	ret
+
+
+        .global rsa_mul_1024_mod
+        .type   rsa_mul_1024_mod, @function
+	.section .text.rsa_mul_1024_mod,"ax",@progbits
+
+
+rsa_mul_1024_mod:
+//save registers
+	push	r2
+	push	r3
+	push	r4
+	push	r5
+	push	r6
+	push	r7
+	push	r8
+	push	r9
+	push	r10
+	push	r11
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	push	r16
+	push	r17
+	push	r28
+	push	r29
+
+	movw	r28,r24
+	movw	r26,r20
 	
-#endif  //HAVE_RSA_MUL_512_MOD
-#endif //HAVE_RSA_MUL_128_NO_ABI
+// create space on stack - 64 bytes TMP variable, 3x pointer
+	in	r30, 0x3d
+	in	r31, 0x3e
+	subi	r30,lo8(64+2+2+2)
+	sbci	r31,hi8(64+2+2+2)
+	LOAD_SP r0, r30,r31
+
+// save  pointers to stack
+	std	Z+1,r22	// A pointer
+	std	Z+2,r23
+	std	Z+3,r28	// Result
+	std	Z+4,r29
+	std	Z+5,r26	// B pointer
+	std	Z+6,r27
+
+	call	rsa_mul_512_no_abi		//
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r22,Z+1	// OPERAND_A
+	ldd	r23,Z+2
+	ldd	r26,Z+5	// OPERAND_B
+	ldd	r27,Z+6
+
+	rcall	rsa_mul_helper_1024
+// load values back 
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r22,Z+5	// OPERAND_B
+	ldd	r23,Z+6
+	ldd	r26,Z+1	// OPERAND_A
+	ldd	r27,Z+2
+
+	rcall	rsa_mul_helper_1024
+
+// return stack position
+	sbiw	r30,1
+	LOAD_SP	r0, r30,r31
+
+// return registers
+	pop	r29
+	pop	r28
+	pop	r17
+	pop	r16
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
+	pop	r11
+	pop	r10
+	pop	r9
+	pop	r8
+	pop	r7
+	pop	r6
+	pop	r5
+	pop	r4
+	pop	r3
+	pop	r2
+// r1 is already cleared
+	ret
+
+#if __AVR_3_BYTE_PC__ == 1
+//xmega
+#define S_OFF 3
+#elif __AVR_2_BYTE_PC__ == 1
+//atmega
+#define S_OFF 2
+#else
+#error unknown PC size
+#endif
+
+
+rsa_mul_helper_1024:
+	subi	r22,lo8(-64)	// upper part
+	sbci	r23,hi8(-64)
+	adiw	r30,7	// temp result
+
+	rcall 	rsa_mul_512_mod_no_abi
+
+// load values back
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldi	r24,64		// count
+
+rsa_mul_helper:
+	ldd	r28,Z+3+S_OFF	// result
+	ldd	r29,Z+4+S_OFF
+// move pointer to upper part of number
+	add	r28,r24
+	adc	r29,r1
+// calculate end position of number into r24
+	add	r24,r28
+// tmp number (to be add)
+	adiw	r30,7+S_OFF
+	sub	r1,r1
+rsa_mul_helper_loop:
+.rept	16
+	ld	r0,Y
+	ld	r25,Z+
+	adc	r25,r0
+	st	Y+,r25
+.endr
+	cpse	r24,r28
+	rjmp	rsa_mul_helper_loop
+
+	ret
+#undef S_OFF

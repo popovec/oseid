@@ -449,10 +449,11 @@
 .endm
 
 
-#if defined(HAVE_RSA_MUL_128_NO_ABI)
 #include <avr/io.h>
   .global rsa_mul_128_no_abi
   .type rsa_mul_128_no_abi, @function
+  .section .text.rsa_mul_128_no_abi,"ax",@progbits
+
 rsa_mul_128_no_abi:
   ; init zero registers
 
@@ -1176,4 +1177,3 @@ final:
   STD Z+30, R12
   STD Z+31, R13
   RET
-#endif
