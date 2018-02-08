@@ -8,4 +8,6 @@ for keys/certificates. PKCS#15 structure supported.
 
 USB token with CCID interface based on atmel xmega128a4u with same features as card.
 
+Online HTML doc https://popovec.github.io/OsEID/
+
 PDF documentation: download OSEID.20171231.tgz from https://oseid.sourceforge.io
