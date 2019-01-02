@@ -1,3 +1,25 @@
+OsEID  20190102 (this release)
+Author: Peter Popovec <peter.popovec@gmail.com>
+Date:   Wed Jan  2 07:30:32 CET 2019
+
+	OsEID token fix: response over 248 bytes was truncated
+	ECC: secp521r1 curve added (ECDH, ECDSA)
+	filesystem: subtree delete operation
+	allow use of shareable file flag in file descriptor byte
+	opensc 0.18, 0.19 profile file for OsEID card
+	OsEID-tool: support for generating self signed certificate
+	Security improvements:
+		- RSA: Bellcore attack prevention
+		- RSA: conditional addition in Garner's recombination
+		       replaced by bn_sub_mod
+
+OsEID  20180123 (released as 'branch errata_20171231' on github)
+Author: Peter Popovec <peter.popovec@gmail.com>
+Date:	Tue Jan 23 10:22:15 2018 +0100
+	Fixes (to version 20171231):
+		- fixed ECC blinding - blinding was not used
+		- fixed wrong calculation for secp384r1 (due wrong blinding code)
+
 OsEID  20171231 (released)
 Author: Peter Popovec <peter.popovec@gmail.com>
 Date:   Sun Dec 31 10:42:01 CET 2017
@@ -21,7 +43,6 @@ Date:   Fri Jun 30 08:00:00 CEST 2017
 
 	OsEID-tool
 	ECDH support
-
 
 OsEID  20161231	(released)
 Author: Peter Popovec <peter.popovec@gmail.com>

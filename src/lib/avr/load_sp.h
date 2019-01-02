@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015,2016,2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -44,9 +44,21 @@ xmega:
 XMEGA does not need cli before changing SP, because writing
 to SPL automaticaly disables interrupts for 4 cycles or until the
 next IO memory write
+
+Update Wed Oct  3 12:37:28 CEST 2018
+
+There is new microchip docs available for example for atmega 328p with some
+changes in stack pointer registers description.  Especialy, there is mention
+about related link to "Accessing 16-bit Timer/Counter Registers" in this
+section.
+
+This related link is not relevant for SPL/SPH update, SPH is updated
+directly, not over TEMP reg.
+
+
 */
 
-// if ISR_ENABLE_FORCE is defined, interrupts are enabled, otherwise 
+// if ISR_ENABLE_FORCE is defined, interrupts are enabled, otherwise
 // previous state of I flag is restored
 // if ISR_DISABLED is defined, stack pointer is changed without CLI
 #ifdef ISR_DISABLED

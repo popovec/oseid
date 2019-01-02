@@ -1,0 +1,8 @@
+define avr_break
+	break *(void(*)()) $arg0
+end
+
+define avr_diss
+	 disassemble (void(*)()) $arg0,(void(*)()) 0xffff
+end
+

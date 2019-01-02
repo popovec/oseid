@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -340,57 +340,14 @@ card_io_rx:
 	rcall	card_io_osccal_max
 	sei
 
-// preload ETU
-	lds	r18,OCR3AL
-	lds	r19,OCR3AH
-// add 1 (in OCR register is value ETU-1)
-	subi	r18,lo8(-1)
-	sbci	r19,hi8(-1)
-/*
-	tst 	r19
-	breq	card_io_rx_fast
-// low speed mode, get 0.5 ETU
-*/
-	lsr	r19
-	ror	r18
-/*
-	rjmp	card_io_rx_etu_ok
-card_io_rx_fast:
-// high speed, need some correction to get 
-// correct sample position
-// 0.7 * ETU
-// in this mode, timer overflow occur exact at 
-// 0.3 ETU, sample window is 0.3 to 0.7 ETU
-// because searching start bit latency + parity error signalign latency is
-// 29 cpu ticks, and at 13MHz (minimal F_CPU on RC oscilator tuned at max)
-// is final latency about 2.26uS. 
-// Sample window is 0.4ETU = 2.26uS, minimal ETU is then 5.65uS 
-// This alow us to run at about 177 kbit per second
-// Minimal ticks per ETU = 31, sample window is 9.3 to 21.7 ticks
-// Timer count from 10 to 31 = 11 ticks
-// 31 - (173/256 * 31) = 20
-// tested on reader usb vendor/product 076b:3022 OmniKey AG
-// at 4.800MHz (with value 179 receive fail!)
+// preload half ETU, for maximal speed, here value 15 is in r18,r19,
+// 21 - working on 3.8/3.7 (wrong on 4.8)
+// 20 - working on 4.8,3.7/3.8
+// 11 - working on 4.8,3.7,3.8
+// 10 - not working on 4.8,3.7,3.8
 
-// 179:21 - working on 3.8/3.7 (wrong on 4.8)
-// 173:20 - working on 4.8,3.7/3.8
-// 95: 11 - working on 4.8,3.7,3.8
-// 90  10 - not working on 4.8,3.7,3.8
-
-
-// start bit latency	 : min  6 max 9 ticks
-// sample position latency   : min -5 max 9 ticks
-// sample position error (start bit latency+sample pos. latency) 
-
-// parity signalizing latency: min  6 max 9 ticks
-
-	ldi	r23,128
-	mul	r18,r23
-	mov	r18,r1
-	clr	r1
-
-card_io_rx_etu_ok:
-*/
+	ldi	r18,lo8((C_ETU/2))
+	ldi	r19,hi8((C_ETU/2))
 #ifdef EMULATE_ERRORS
 // emulate errors
 	mov	r0, r20

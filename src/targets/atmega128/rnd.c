@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015, 2017-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,9 +32,8 @@ rnd_init (void)
   // ADC conversion channel:
   ADMUX = 0x5E;			//reference AVcc, measuring internal 1.1V bandgap, ADLAR=0
 
-  // Initialize ADC, clock /64 ( RC oscilator run at ~13.5 MHz, /64 = ~210MHz
-  ADCSRA =
-    (1 << ADEN) | (1 << ADSC) | (1 << ADFR) | (1 << ADPS2) | (1 << ADPS1);// | (1 <<  ADPS0);
+  // Initialize ADC, clock /64 ( RC oscilator run at ~13.5 MHz, /64 = ~210kHz
+  ADCSRA = (1 << ADEN) | (1 << ADSC) | (1 << ADFR) | (1 << ADPS2) | (1 << ADPS1);	// | (1 <<  ADPS0);
 }
 
 static void
@@ -63,7 +62,7 @@ rnd_get_16 (uint8_t * r)
 void
 rnd_get (uint8_t * r, uint8_t size)
 {
-  uint8_t data[256], *d;
+  uint8_t data[16], *d;
   uint8_t k = 0;
 
   do
@@ -72,13 +71,10 @@ rnd_get (uint8_t * r, uint8_t size)
 	{
 	  rnd_get_16 (data);
 	  des_run (data, data + 8, 0);
-	  for (k = 0; k < 8; k++)
-	    data[k] ^= data[k + 8];
-
 	  d = data;
 	  k = 8;
 	}
-      *r = *d;
+      *r = *d ^ *(d + 8);
       d++;
       r++;
       k--;

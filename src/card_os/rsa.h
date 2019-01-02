@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015,2017-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -113,7 +113,10 @@ void rsa_mod (rsa_long_num * result, rsa_num * mod);
 #endif
 #endif
 
-// error codes
+// do not use different error codes for normal code
+// this save about 50 bytes of flash in AVR
+#if 0
+// error codes (for debug)
 #define Re_DATA_RESULT_SAME 	230
 #define Re_P_GET_FAIL_1		231
 #define Re_P_EVEN_1		232
@@ -128,4 +131,27 @@ void rsa_mod (rsa_long_num * result, rsa_num * mod);
 #define Re_P_GET_FAIL_4		241
 #define Re_qInv_GET_FAIL_1	242
 #define Re_Q_GET_FAIL_2		243
+#define Re_R_Single_Error	244
+#define Re_Q_Single_Error	245
+#else
+// error codes (normal)
+#define Re_DATA_RESULT_SAME 	1
+#define Re_P_GET_FAIL_1		1
+#define Re_P_EVEN_1		1
+#define Re_P_MOD_1		1
+#define Re_Q_GET_FAIL_1         1
+#define Re_Q_EVEN_1             1
+#define Re_Q_MOD_1		1
+#define Re_dP_1			1
+#define Re_dQ_1			1
+#define Re_P_GET_FAIL_2		1
+#define Re_P_GET_FAIL_3		1
+#define Re_P_GET_FAIL_4		1
+#define Re_qInv_GET_FAIL_1	1
+#define Re_Q_GET_FAIL_2		1
+#define Re_R_Single_Error	1
+#define Re_Q_Single_Error	1
 #endif
+
+#endif
+

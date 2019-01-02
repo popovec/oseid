@@ -2,17 +2,17 @@
 # apt-get install avrdude srecord avr-libc gcc-avr
 CC=avr-gcc
 OBJCOPY=avr-objcopy
-MCU          = atxmega128a4u
+CPU          = atxmega128a4u
 F_CPU        = 32000000
 F_USB        = 48000000
 
 ifeq ($(CARD_SERIAL),)
 CARD_SERIAL:= $(shell date +%s)
 endif
-# dfu programmer used for testing
 
-CFLAGS=  -Wall -Os -mmcu=$(MCU) -ffunction-sections
+CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections
 LDFLAGS= -Wl,-gc-sections
+
 # Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
 CFLAGS+= -mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
 CFLAGS+= -Wl,--section-start=.flash_end=0x21f00
@@ -28,7 +28,6 @@ CFLAGS+=  -DF_USB=$(F_USB)UL -DF_CPU=$(F_CPU)UL
 BUILD= build/xmega128a4u/
 TARGET= targets/xmega128a4u/
 TARGET_LIB = lib/avr/
-TARGET_DEFAULT_LIB = lib/avr/
 TARGET_SPEC = $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)ccid.o $(BUILD)usb.o $(BUILD)avr_os.o $(BUILD)serial_debug.o
 TARGET_SPEC += $(BUILD)des_arch.o $(BUILD)aes_arch.o $(BUILD)bn_lib_arch.o
 
@@ -37,6 +36,9 @@ CFLAGS += -DUSE_P_Q_INV
 
 # enable exponent blinding
 CFLAGS += -DRSA_EXP_BLINDING
+
+# enable protection for single error in CRT
+CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
 all:	$(BUILD)card.hex
 
@@ -50,16 +52,20 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=5
 
+# ECC size (in bytes 24,32,48,72)
+CFLAGS += -DMP_BYTES=72
+
 #for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
 HAVE +=         -DRAM_LE32
 
 
 
-TARGET_SPEC +=	$(BUILD)mp_mul_192.o
-TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_24.o
+TARGET_SPEC +=	$(BUILD)mp_mul_192.o
+TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
-TARGET_SPEC +=  $(BUILD)mp_mul_128.o
+TARGET_SPEC +=	$(BUILD)mp_mul_256.o
+TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -110,20 +116,23 @@ $(BUILD)aes_arch.o:	$(TARGET_LIB)/aes.S  card_os/aes.h
 $(BUILD)rsa_S.o:	$(TARGET_LIB)rsa.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rsa_S.o $(TARGET_LIB)rsa.S
 
-$(BUILD)mp_mul_128.o:	$(TARGET_LIB)mp_mul_128.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_128.o $(TARGET_LIB)mp_mul_128.S
-
 $(BUILD)mp_mul_192.o:	$(TARGET_LIB)mp_mul_192.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_192.o $(TARGET_LIB)mp_mul_192.S
 
 $(BUILD)mp_mul_256.o:	$(TARGET_LIB)mp_mul_256.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_256.o $(TARGET_LIB)mp_mul_256.S
 
+$(BUILD)mp_mul_521.o:	$(TARGET_LIB)mp_mul_521.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_521.o $(TARGET_LIB)mp_mul_521.S
+
 $(BUILD)mp_mul_24.o:	$(TARGET_LIB)mp_mul_24.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_24.o $(TARGET_LIB)mp_mul_24.S
 
 $(BUILD)mp_mul_32.o:	$(TARGET_LIB)mp_mul_32.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32.o $(TARGET_LIB)mp_mul_32.S
+
+$(BUILD)mp_mul_32_trunc.o:	$(TARGET_LIB)mp_mul_32_trunc.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32_trunc.o $(TARGET_LIB)mp_mul_32_trunc.S
 
 $(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S

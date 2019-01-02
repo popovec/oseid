@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -188,10 +188,10 @@ t1_lrc (uint8_t * f1_rblock, uint8_t rlen)
 static uint8_t
 t1_send_data (uint8_t * buffer)
 {
-  uint8_t len = len;
+  uint8_t len = t1.ifs_ifd;
 
 // do not use reader IFS, xmega USB transport uses max 63 bytes
-  if (t1.ifs_ifd > F_IFS_SIZE)
+  if (len > F_IFS_SIZE)
     len = F_IFS_SIZE;
 
   if (T1_APDU_response_len < len)
@@ -427,15 +427,15 @@ T1_wrapper_frame_error:
 
 // not ISR routine, send card response as T1 I frame
 static void
-T1_return_data (uint8_t * card_response, uint16_t card_response_len)
+T1_return_data ()
 {
   uint8_t buffer[63];
-  uint8_t size = card_response_len - 10;
+  uint16_t size = card_response_len - 10;
   uint8_t *t1_data = buffer + 10;
 
 // save data for retransmit (but not CCID part!)
-  memcpy (T1_APDU_response, card_response + 10, card_response_len - 10);
-  T1_APDU_response_len = card_response_len - 10;
+  memcpy (T1_APDU_response, card_response + 10, size);
+  T1_APDU_response_len = size;
 
   memcpy (buffer, card_response, 10);	// CCID part
 
@@ -443,12 +443,12 @@ T1_return_data (uint8_t * card_response, uint16_t card_response_len)
   size = t1_send_data (t1_data);
 
   // CCID header ..
-  buffer[1] = size + 4;
+  buffer[1] = size + 4;	// add 4 bytes for CCID frame (NAD,PCB,SIZE,LRC)
   buffer[2] = 0;
 
   t1_data[t1_data[T1_LEN] + 3] = t1_lrc (t1_data, t1_data[T1_LEN] + 3);
   t1.need_ack = 1;
-  CCID_response_to_host (buffer, size + 14);
+  CCID_response_to_host (buffer, size + 14);	// 10 CCID, 4 for T1 frame
 }
 
 // NOT called from ISR
@@ -471,8 +471,8 @@ card_io_rx (uint8_t * data, uint8_t len)
   memcpy (data, card_rx_buffer, l_len);
   return l_len;
 }
-
-
+// 256 bytes TPDU response + 2 status + 10 CCID header
+#define MAX_RESP_LEN 268
 // NOT called from ISR
 uint8_t
 card_io_tx (uint8_t * data, uint8_t len)
@@ -495,8 +495,8 @@ card_io_tx (uint8_t * data, uint8_t len)
 	// send this to host in one message
 	// send response to host
 	// check size, truncate oversized response
-	if (card_response_len + llen > 256)
-	  llen = 256 - card_response_len;
+	if (card_response_len + llen > MAX_RESP_LEN)
+	  llen = MAX_RESP_LEN - card_response_len;
 	memcpy (card_response + card_response_len, data, llen);
 	card_response_len += llen;
 	TPDU_state = T_WAIT_STATUS;
@@ -524,7 +524,7 @@ card_io_tx (uint8_t * data, uint8_t len)
 	  // back to host (fall through to T_WAIT_STATUS:)
 	  card_response[card_response_len] = card_ins;
 	  // truncate oversized output from card
-	  if (card_response_len < 256)
+	  if (card_response_len < MAX_RESP_LEN)
 	    card_response_len++;
 	}
       p_byte &= 0xf0;
@@ -576,7 +576,7 @@ card_io_tx (uint8_t * data, uint8_t len)
       card_response[2] = (card_response_len - 10) >> 8;
       TPDU_state = T_IDLE;
       if (reader_protocol == 1)
-	T1_return_data (card_response, card_response_len);
+	T1_return_data ();
       else
 	CCID_response_to_host (card_response, card_response_len);
       return 0;

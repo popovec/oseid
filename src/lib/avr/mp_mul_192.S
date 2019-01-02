@@ -3,7 +3,7 @@
 
     192bit (interrupt safe) multiplication routine for AVR
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -29,11 +29,14 @@
 
   --  no stack register move forward/backwards
   --  code is faster and interrupt safe (please check LOAD_SP macro)
-  --  removed unneded CLR R6 (3x)
   --  improved registers reuse/clear
   --  macros
-  --  code speed up (orig:2923 this: 2888 ticks)
-  --  -7 ticks if RAM_LE32 is defined (2881 ticks)
+  --  code speed up (orig:2923 this: 2867 ticks)
+  --  -7 ticks if RAM_LE32 is defined (2860 ticks)
+      (There is no AVR device with RAM over 32kB, bit 15 of memory pointers
+      is used as one bit variable)
+
+  -- size 4440 bytes (original size 4600 bytes)
 
 */
 //#undef RAM_LE32
@@ -41,23 +44,22 @@
 
 #include <avr/io.h>
 
-.macro ABS48  RS5,RS4,RS3,RS2,RS1,RS0 SIGN ZERO
+.macro ABS48  RS5,RS4,RS3,RS2,RS1,RS0 SIGN 
         eor     \RS0,\SIGN
         eor     \RS1,\SIGN
         eor     \RS2,\SIGN
         eor     \RS3,\SIGN
         eor     \RS4,\SIGN
         eor     \RS5,\SIGN
-        neg     \SIGN
-        add     \RS0,\SIGN
-        adc     \RS1,\ZERO
-        adc     \RS2,\ZERO
-        adc     \RS3,\ZERO
-        adc     \RS4,\ZERO
-        adc     \RS5,\ZERO
+        sub     \RS0,\SIGN
+        sbc     \RS1,\SIGN
+        sbc     \RS2,\SIGN
+        sbc     \RS3,\SIGN
+        sbc     \RS4,\SIGN
+        sbc     \RS5,\SIGN
 .endm
 
-.macro ABS96  RS11,RS10,RS9,RS8,RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0 SIGN ZERO
+.macro ABS96  RS11,RS10,RS9,RS8,RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0 SIGN
         eor     \RS0,\SIGN
         eor     \RS1,\SIGN
         eor     \RS2,\SIGN
@@ -70,19 +72,18 @@
         eor     \RS9,\SIGN
         eor     \RS10,\SIGN
         eor     \RS11,\SIGN
-        neg     \SIGN
-        add     \RS0,\SIGN
-        adc     \RS1,\ZERO
-        adc     \RS2,\ZERO
-        adc     \RS3,\ZERO
-        adc     \RS4,\ZERO
-        adc     \RS5,\ZERO
-        adc     \RS6,\ZERO
-        adc     \RS7,\ZERO
-        adc     \RS8,\ZERO
-        adc     \RS9,\ZERO
-        adc     \RS10,\ZERO
-        adc     \RS11,\ZERO
+        sub	\RS0,\SIGN
+        sbc     \RS1,\SIGN
+        sbc     \RS2,\SIGN
+        sbc     \RS3,\SIGN
+        sbc     \RS4,\SIGN
+        sbc     \RS5,\SIGN
+        sbc     \RS6,\SIGN
+        sbc     \RS7,\SIGN
+        sbc     \RS8,\SIGN
+        sbc     \RS9,\SIGN
+        sbc     \RS10,\SIGN
+        sbc     \RS11,\SIGN
 .endm
 
 .macro ADD96  RS11,RS10,RS9,RS8,RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0  A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0
@@ -113,13 +114,74 @@
 	sbc	\RS10,\A10
 	sbc	\RS11,\A11
 .endm
+.macro SUB48    RZ5 RZ4 RZ3 RZ2 RZ1 RZ0   A5 A4 A3 A2 A1 A0
+        sub     \RZ0,\A0
+        sbc     \RZ1,\A1
+        sbc     \RZ2,\A2
+        sbc     \RZ3,\A3
+        sbc     \RZ4,\A4
+        sbc     \RZ5,\A5
+.endm
+.macro SBC48    RZ5 RZ4 RZ3 RZ2 RZ1 RZ0   A5 A4 A3 A2 A1 A0
+        sbc     \RZ0,\A0
+        sbc     \RZ1,\A1
+        sbc     \RZ2,\A2
+        sbc     \RZ3,\A3
+        sbc     \RZ4,\A4
+        sbc     \RZ5,\A5
+.endm
+.macro ADD48    RZ5 RZ4 RZ3 RZ2 RZ1 RZ0   A5 A4 A3 A2 A1 A0
+        add     \RZ0,\A0
+        adc     \RZ1,\A1
+        adc     \RZ2,\A2
+        adc     \RZ3,\A3
+        adc     \RZ4,\A4
+        adc     \RZ5,\A5
+.endm
+.macro ADC48    RZ5 RZ4 RZ3 RZ2 RZ1 RZ0   A5 A4 A3 A2 A1 A0
+        adc     \RZ0,\A0
+        adc     \RZ1,\A1
+        adc     \RZ2,\A2
+        adc     \RZ3,\A3
+        adc     \RZ4,\A4
+        adc     \RZ5,\A5
+.endm
+.macro  LOAD48_FROM_X  REG5 REG4 REG3 REG2 REG1 REG0
+        ld      \REG0,X+
+        ld      \REG1,X+
+        ld      \REG2,X+
+        ld      \REG3,X+
+        ld      \REG4,X+
+        ld      \REG5,X+
+.endm
+.macro  LOAD48_FROM_Y  REG5 REG4 REG3 REG2 REG1 REG0    M
+        ldd     \REG0,Y+0+\M
+        ldd     \REG1,Y+1+\M
+        ldd     \REG2,Y+2+\M
+        ldd     \REG3,Y+3+\M
+        ldd     \REG4,Y+4+\M
+        ldd     \REG5,Y+5+\M
+.endm
+.macro  LOAD48_FROM_Z  REG5 REG4 REG3 REG2 REG1 REG0    M
+        ldd     \REG0,Z+0+\M
+        ldd     \REG1,Z+1+\M
+        ldd     \REG2,Z+2+\M
+        ldd     \REG3,Z+3+\M
+        ldd     \REG4,Z+4+\M
+        ldd     \REG5,Z+5+\M
+.endm
 
   .global rsa_mul_192_no_abi
   .type rsa_mul_192_no_abi, @function
   .section .text.rsa_mul_192_no_abi,"ax",@progbits
 
 rsa_mul_192_no_abi:
-
+	push	r26
+	push	r27
+	push	r28
+	push	r29
+	push	r30
+	push	r31
   ;------ level 1: compute L ------
 
   ; init zero registers
@@ -130,12 +192,8 @@ rsa_mul_192_no_abi:
   
   ;--- level 2: compute L ---
   LD R2, X+
-  LDD R8,  Y+0
-  LDD R9,  Y+1
-  LDD R10, Y+2
-  LDD R11, Y+3
-  LDD R12, Y+4
-  LDD R13, Y+5
+
+	LOAD48_FROM_Y	r13,r12,r11,r10,r9,r8	0
 
   MUL R2, R10 ;a0 * b2
   MOVW R16, R0
@@ -287,27 +345,9 @@ rsa_mul_192_no_abi:
   STD Z+5, R19
 
   ;--- load a6..a11 and b6..b11 ---
-  LD R14, X+
-  LD R15, X+
-  LD R16, X+
-  LD R17, X+
-  LD R18, X+
-  LD R19, X+
+	LOAD48_FROM_X	r19,r18,r17,r16,r15,r14
 
-  PUSH R26 ; save X register
-  PUSH R27
-  PUSH R28 ; save Y register
-  PUSH R29
-  PUSH R30 ; save Z register
-  PUSH R31
-
-  LDD R8,  Y+6
-  LDD R9,  Y+7
-  LDD R10, Y+8
-  LDD R11, Y+9
-
-  LDD R30, Y+10
-  LDD R31, Y+11
+	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	6
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
   CLR R12
@@ -388,7 +428,6 @@ rsa_mul_192_no_abi:
   ADC R25, R1
   ADC R7, R13
 
-//  CLR R6		// already cleared
   MUL R8, R19
   ADD R25, R0
   ADC R7, R1
@@ -518,8 +557,8 @@ rsa_mul_192_no_abi:
 
   ;--- absolute values ---   
   // zero in r13 
-  ABS48 r19,r18,r17,r16,r15,r14  r0 r13
-  ABS48 r31,r30,r11,r10, r9, r8  r1 r13
+  ABS48 r19,r18,r17,r16,r15,r14  r0
+  ABS48 r31,r30,r11,r10, r9, r8  r1
 
   EOR R0, R1
   BST R0, 0   
@@ -683,12 +722,16 @@ rsa_mul_192_no_abi:
   MUL R19, R31
   ADD R10, R0
   ADC R11, R1
-  
-  ; restore h6 and h7 and Z register
+
+// restore Z register    in stack  26,27,28,29,30,31, r1,r0 ..
+	in	r30, _SFR_IO_ADDR(SPL)
+	in	r31, _SFR_IO_ADDR(SPH)
+	ldd	r0,Z+4
+	ldd	r1,Z+3
+	movw	r30,r0
+; restore h6 and h7
   POP R0
   POP R1
-  POP R31
-  POP R30
   
   ;--- add l5+h0 to l0 and h5 ---
   LDD R14, Z+0
@@ -711,12 +754,9 @@ rsa_mul_192_no_abi:
   ROR R5
 #endif
   ; subtract M
-	SUB96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
-
-  SBC R6, R6
-  SBC R7, R7  
-  ; R7:R6 is -1,0, or 1
-  RJMP final_L
+	SUB96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
+	sbc	R6, R6
+	rjmp	final_L
 
 add_M:
 #ifndef RAM_LE32
@@ -725,13 +765,11 @@ add_M:
   BST R5, 0
   ROR R5
 #endif
-  	ADD96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6  
-
-  CLR R6
-  CLR R7
-  ADC R6, R6
-
+	ADD96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
+	clr	R6
+	adc	R6,R6
 final_L:
+	sbc	R7,R7	// extend r6 to R7:R6
 ; restore carry
 #ifdef RAM_LE32
 	lsr	r31
@@ -740,12 +778,7 @@ final_L:
   ASR R8
 #endif
   ;--- propagate carry to end ---
-  ADC R0, R6
-  ADC R1, R7
-  ADC R2, R7
-  ADC R3, R7
-  ADC R4, R7
-  ADC R5, R7
+	ADC48	r5,r4,r3,r2,r1,r0	r7,r7,r7,r7,r7,r6
 
   STD Z+6, R14
   STD Z+7, R15
@@ -765,12 +798,17 @@ final_L:
   STD Z+21, R3
   STD Z+22, R4
   STD Z+23, R5
-  
-  POP R29
-  POP R28
-  POP R27
-  POP R26
 
+// restore poinetrs to operands
+	in	r28, _SFR_IO_ADDR(SPL)
+	in	r29, _SFR_IO_ADDR(SPH)
+	ldd	r20,Y+4
+	ldd	r21,Y+3
+	ldd	r26,Y+6
+	ldd	r27,Y+5
+	movw	r28,r20
+
+	adiw	r26,12
   ;------ level 1: compute H ------
 
   ;init zero registers
@@ -781,12 +819,7 @@ final_L:
   
   ;--- level 2: Compute L ---
   LD R2, X+
-  LDD R8,  Y+12
-  LDD R9,  Y+13
-  LDD R10, Y+14
-  LDD R11, Y+15
-  LDD R12, Y+16
-  LDD R13, Y+17
+	LOAD48_FROM_Y	r13,r12,r11,r10,r9,r8	12
 
   MUL R2, R10 ;a0 * b2
   MOVW R16, R0
@@ -938,27 +971,9 @@ final_L:
   STD Z+29, R19
 
   ;--- load a6..a11 and b6..b11 ---
-  LD R14, X+
-  LD R15, X+
-  LD R16, X+
-  LD R17, X+
-  LD R18, X+
-  LD R19, X+
+	LOAD48_FROM_X	r19,r18,r17,r16,r15,r14
   
-  PUSH R26 ; save X register
-  PUSH R27
-  PUSH R28 ; save Y register
-  PUSH R29
-  PUSH R30 ; save Z register
-  PUSH R31
-
-  LDD R8,  Y+18
-  LDD R9,  Y+19
-  LDD R10, Y+20
-  LDD R11, Y+21
-
-  LDD R30, Y+22
-  LDD R31, Y+23
+	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	18
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
   CLR R12
@@ -1040,7 +1055,6 @@ final_L:
   ADC R25, R1
   ADC R7, R13
 
-//  CLR R6		// already cleared
   MUL R8, R19
   ADD R25, R0
   ADC R7, R1
@@ -1169,8 +1183,8 @@ final_L:
 
   ;--- absolute values ---    
   // r13 zero, r0,1 sign
-  ABS48 r19,r18,r17,r16,r15,r14  r0 r13
-  ABS48 r31,r30,r11,r10, r9, r8  r1 r13
+  ABS48 r19,r18,r17,r16,r15,r14  r0
+  ABS48 r31,r30,r11,r10, r9, r8  r1
 
   EOR R0, R1
   BST R0, 0   
@@ -1342,12 +1356,7 @@ final_L:
   POP R30
   
   ;--- add l5+h0 to l0 and h5 ---
-  LDD R14, Z+24
-  LDD R15, Z+25
-  LDD R16, Z+26
-  LDD R17, Z+27
-  LDD R18, Z+28
-  LDD R19, Z+29
+	LOAD48_FROM_Z	r19,r18,r17,r16,r15,r14		24
 	ADD96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14   r5,r4,r3,r2,r1,r0,r25,r24,r23,r22,r21,r20
 #ifdef RAM_LE32
 	rol	r31
@@ -1362,12 +1371,9 @@ final_L:
   ROR R5
 #endif
   ; subtract M
-	SUB96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14   r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
-
-  SBC R6, R6
-  SBC R7, R7  
-  ; R7:R6 is -1,0, or 1
-  RJMP final_H
+	SUB96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14   r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
+	sbc	R6, R6
+	rjmp	final_H
 
 add_M_H:
 #ifndef RAM_LE32
@@ -1376,12 +1382,11 @@ add_M_H:
   BST R5, 0
   ROR R5
 #endif
-	ADD96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14   r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6  
-  CLR R6
-  CLR R7
-  ADC R6, R6
-
+	ADD96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14   r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
+	clr	R6
+	adc	R6,R6
 final_H:
+	sbc	R7,R7	// extend r6 to r7:r6
 ; restore carry
 #ifdef RAM_LE32
 	lsr	r31
@@ -1390,12 +1395,7 @@ final_H:
   ASR R8
 #endif
   ;--- propagate carry to end ---
-  ADC R0, R6
-  ADC R1, R7
-  ADC R2, R7
-  ADC R3, R7
-  ADC R4, R7
-  ADC R5, R7
+	ADC48	r5,r4,r3,r2,r1,r0	r7,r7,r7,r7,r7,r6
 
   STD Z+36, R20
   STD Z+37, R21
@@ -1409,20 +1409,9 @@ final_H:
   STD Z+45, R3
   STD Z+46, R4
   STD Z+47, R5
-  
-  POP R29
-  POP R28
-  POP R27
-  POP R26
 
   ;------ level 1: combine L and H ------
-  LDD R6, Z+24
-  LDD R7, Z+25
-  LDD R8, Z+26
-  LDD R9, Z+27
-  LDD R10, Z+28
-  LDD R11, Z+29
-
+	LOAD48_FROM_Z	r11,r10,r9,r8,r7,r6	24
   ; H is stored in: 6,7,8,9,10,11,14,15,16,17,18,19,20,21,22,23,24,25,0,1,2,3,4,5
   ; add HIGH(L)
 .set Off,12
@@ -1434,21 +1423,20 @@ final_H:
 	adc	r\Reg,r12
 .endr
 
-  ; store carry on stack
   CLR R12
   CLR R13
   ADC R13, R12
   ; propagate carry to end
 	ADD96 r5,r4,r3,r2,r1,r0 r25,r24,r23,r22,r21,r20  r12,r12,r12,r12,r12,r12,r12,r12,r12,r12,r12,r13
 .set Off, 0
-	ldd	r12,Z+Off
-	add	r12,r6
-	std	Z+Off+12,r12
+	ldd	r28,Z+Off
+	add	r28,r6
+	std	Z+Off+12,r28
 .irp	Reg,7,8,9,10,11,14,15,16,17,18,19
 .set Off, Off+1
-	ldd	r12,Z+Off
-	adc	r12,r\Reg
-	std	Z+Off+12,r12
+	ldd	r28,Z+Off
+	adc	r28,r\Reg
+	std	Z+Off+12,r28
 .endr
 
   ADC R20, R6
@@ -1476,58 +1464,52 @@ final_H:
   ADC R5, R19
   STD Z+35, R5
 
-  ; store carry in R13
-  CLR R1
-  ADC R13, R1		// R13 is 0, 1 or 2!
-  PUSH R13		// search CARRY HL1 (where is readed from stack)
+  POP R29
+  POP R28
+  POP R27
+  POP R26
+
+  ADC R13, R12		// update carry in R13 is 0, 1 or 2!
 
   ;------ level 1: subtract a0-a12 ------
-  SBIW R26, 24
-.irp	Reg,2,3,4,5,6,7,14,15,16,17,18,19,8,9,10,11,12,13,20,21,22,23,24,25
-	ld	r\Reg,X+
-.endr
 
-	SUB96 r19,r18,r17,r16,r15,r14,r7,r6,r5,r4,r3,r2   r25,r24,r23,r22,r21,r20,r13,r12,r11,r10,r9,r8
+	LOAD48_FROM_X	R7,R6,R5,R4,R3,R2
+	LOAD48_FROM_X	R19,R18,R17,R16,R15,R14
 
-  ; 0xff if carry and 0x00 if no carry
-  SBC R0,  R0
+	LOAD48_FROM_X					R23,R22,R11,R10,R9,R8
+	SUB48		R7,R6,R5,R4,R3,R2		R23,R22,R11,R10,R9,R8
 
-  ;------ level 1: absolute values ------
-  // r0 sign r1 zero
-  ABS96 r19,r18,r17,r16,r15,r14,r7,r6,r5,r4,r3,r2 r0 r1
+	LOAD48_FROM_X					R23,R22,R11,R10,R9,R8
+	SBC48		R19,R18,R17,R16,R15,R14		R23,R22,R11,R10,R9,R8
+	sbc	R0,R0	// sign to R0
+
+	ABS96		R19,R18,R17,R16,R15,R14,R7,R6,R5,R4,R3,R2	R0
 
   // save part to stack 
 .irp Reg,19,18,17,16,15,14,7,6,5,4,3,2
 	push	r\Reg
 .endr
 
-  ;------ level 1: subtract b0-b12 ------
-.irp	Reg,8,9,10,11,12,13,14,15,16,17,18,19
-	ldd	r\Reg,Y+\Reg-8
-.endr
+	LOAD48_FROM_Y	R23,R22,R11,R10,R9,R8	0
+	LOAD48_FROM_Y	R19,R18,R17,R16,R15,R14	6
 
-.set Off, 12
-	ldd	r20,Y+Off
-	sub	r8,r20
-.irp	Reg,9,10,11,12,13,14,15,16,17,18,19
-.set Off, Off+1
-	ldd	r20,Y+Off
-	sbc	r\Reg,r20
-.endr
+	LOAD48_FROM_Y					R25,R24,R27,R26,R21,R20		12
+	SUB48		R23,R22,R11,R10,R9,R8		R25,R24,R27,R26,R21,R20
 
-  ; 0xff if carry and 0x00 if no carry
-  SBC R25,  R25
+	LOAD48_FROM_Y					R25,R24,R27,R26,R21,R20		18
+	SBC48		R19,R18,R17,R16,R15,R14		R25,R24,R27,R26,R21,R20
+	sbc	R1,R1	// sign to R1
 
-  ;------ level 1: absolute values ------
-// sign r25 zero r1
-  ABS96 r19,r18,r17,r16,r15,r14,r13,r12,r11,r10,r9,r8  r25 r1
-
-.irp Reg,19,18,17,16,15,14,13,12,11,10,9,8
+	ABS96 R19,R18,R17,R16,R15,R14,R23,R22,R11,R10,R9,R8  R1
+  // save part to stack
+.irp Reg,19,18,17,16,15,14,23,22,11,10,9,8
 	push	r\Reg
 .endr
-
-  EOR R0, R25
-  PUSH R0		// search SIGN HL1
+	eor	r0,r1
+	rol	r0
+	rol	r13
+// combined value .. bit2,1 = carry, bit 0 sign
+  	push	r13		// search HL1
     
   PUSH R30 ; save Z register
   PUSH R31
@@ -1535,13 +1517,13 @@ final_H:
   ;------ level 1: compute M ------
 
   ; init zero registers
-  CLR R20
-  CLR R21
-  MOVW R22, R20
-  MOVW R24, R20
+//  CLR   R12	// already cleared
+  CLR	R13
+  MOVW R24, R12
+  MOVW R20, R24
   
   ;--- level 2: compute L ---
-// r8.. r13 already loaded
+// r8.. R23 already loaded
 
   MUL R2, R10 ;a0 * b2
   MOVW R16, R0
@@ -1551,13 +1533,13 @@ final_H:
   ADD R15, R0
   ADC R16, R1
   ADC R17, R25
-  MUL R2, R12 ;a0 * b4
+  MUL R2, R22 ;a0 * b4
   MOVW R18, R0
   MUL R2, R11 ;a0 * b3
   ADD R17, R0
   ADC R18, R1
   ADC R19, R25
-  MUL R2, R13 ;a0 * b5
+  MUL R2, R23 ;a0 * b5
   ADD R19, R0
   ADC R20, R1
 
@@ -1572,14 +1554,14 @@ final_H:
   ADD R16, R0
   ADC R17, R1
   ADC R27, R25
-  MUL R3, R12 ;a1 * b4
+  MUL R3, R22 ;a1 * b4
   ADD R18, R27
   ADC R19, R0
   ADC R20, R1
   ADC R21, R25
   MUL R3, R11 ;a1 * b3
   MOVW R26, R0
-  MUL R3, R13 ;a1 * b5
+  MUL R3, R23 ;a1 * b5
   ADD R18, R26
   ADC R19, R27
   ADC R20, R0
@@ -1596,18 +1578,18 @@ final_H:
   ADD R17, R0
   ADC R18, R1
   ADC R27, R25
-  MUL R4, R12 ;a2 * b4
+  MUL R4, R22 ;a2 * b4
   ADD R19, R27
   ADC R20, R0
   ADC R21, R1
-  ADC R22, R25
+  ADC R12, R25
   MUL R4, R11 ;a2 * b3
   MOVW R26, R0
-  MUL R4, R13 ;a2 * b5
+  MUL R4, R23 ;a2 * b5
   ADD R19, R26
   ADC R20, R27
   ADC R21, R0
-  ADC R22, R1
+  ADC R12, R1
 	push	r14
 	push	r15
 	push	r16
@@ -1622,18 +1604,18 @@ final_H:
   ADD R18, R0
   ADC R19, R1
   ADC R15, R25
-  MUL R5, R12 ;a3 * b4
+  MUL R5, R22 ;a3 * b4
   ADD R20, R15
   ADC R21, R0
-  ADC R22, R1
-  ADC R23, R25
+  ADC R12, R1
+  ADC R13, R25
   MUL R5, R11 ;a3 * b3
   MOVW R14, R0
-  MUL R5, R13 ;a3 * b5
+  MUL R5, R23 ;a3 * b5
   ADD R20, R14
   ADC R21, R15
-  ADC R22, R0
-  ADC R23, R1
+  ADC R12, R0
+  ADC R13, R1
 
   MUL R6, R10 ;a4 * b2
   MOVW R14, R0
@@ -1646,17 +1628,17 @@ final_H:
   ADD R19, R0
   ADC R20, R1
   ADC R15, R25
-  MUL R6, R12 ;a4 * b4
+  MUL R6, R22 ;a4 * b4
   ADD R21, R15
-  ADC R22, R0
-  ADC R23, R1
+  ADC R12, R0
+  ADC R13, R1
   ADC R24, R25
   MUL R6, R11 ;a4 * b3
   MOVW R14, R0
-  MUL R6, R13 ;a4 * b5
+  MUL R6, R23 ;a4 * b5
   ADD R21, R14
-  ADC R22, R15
-  ADC R23, R0
+  ADC R12, R15
+  ADC R13, R0
   ADC R24, R1
 
   MUL R7, R10 ;a5 * b2
@@ -1670,16 +1652,16 @@ final_H:
   ADD R20, R0
   ADC R21, R1
   ADC R15, R25
-  MUL R7, R12 ;a5 * b4
-  ADD R22, R15
-  ADC R23, R0
+  MUL R7, R22 ;a5 * b4
+  ADD R12, R15
+  ADC R13, R0
   ADC R24, R1
   ADC R25, R25
   MUL R7, R11 ;a5 * b3
   MOVW R14, R0
-  MUL R7, R13 ;a5 * b5
-  ADD R22, R14
-  ADC R23, R15
+  MUL R7, R23 ;a5 * b5
+  ADD R12, R14
+  ADC R13, R15
   ADC R24, R0
   ADC R25, R1
 	push	R17
@@ -1690,185 +1672,174 @@ final_H:
 	in	r29, _SFR_IO_ADDR(SPH)
 
   ;--- load a6..a11 and b6..b11 ---
-  LDD R14, Y+28
-  LDD R15, Y+29
-  LDD R16, Y+30
-  LDD R17, Y+31
-  LDD R18, Y+32
-  LDD R19, Y+33
+	LOAD48_FROM_Y	r19,r18,r17,r16,r15,r14	28
 
-  LDD R8,  Y+16
-  LDD R9,  Y+17
-  LDD R10, Y+18
-  LDD R11, Y+19
-  LDD R30, Y+20
-  LDD R31, Y+21
+	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	16
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
-  CLR R12
-  CLR R13
-  MOVW R2, R12
-  MOVW R4, R12
-  MOVW R6, R12
+  CLR R22
+  CLR R23
+  MOVW R2, R22
+  MOVW R4, R22
+  MOVW R6, R22
 
   MUL R8, R14
   ADD R20, R0   
   ADC R21, R1   
-  ADC R22, R13
-	adc	R2,R13	//  ADC R6, R13
+  ADC R12, R23
+	adc	R2,R23	//  ADC R6, R23
 
   MUL R8, R15
   ADD R21, R0
-  ADC R22, R1
-	adc	R2,R13	//  ADC R6, R13
+  ADC R12, R1
+	adc	R2,R23	//  ADC R6, R23
   MUL R9, R14
   ADD R21, R0
-  ADC R22, R1
-	adc	R23,R2	//  ADC R23, R6
-	adc	R3,R13	//  ADC R7, R13
+  ADC R12, R1
+	adc	R13,R2	//  ADC R13, R6
+	adc	R3,R23	//  ADC R7, R23
 
 			//  CLR R6
   MUL R8, R16
-  ADD R22, R0 
-  ADC R23, R1
-	adc	R3,R13	//  ADC R7, R13
+  ADD R12, R0 
+  ADC R13, R1
+	adc	R3,R23	//  ADC R7, R23
   MUL R9, R15
-  ADD R22, R0
-  ADC R23, R1
-	adc	R3,R13	//  ADC R7, R13
+  ADD R12, R0
+  ADC R13, R1
+	adc	R3,R23	//  ADC R7, R23
   MUL R10, R14
-  ADD R22, R0
-  ADC R23, R1
+  ADD R12, R0
+  ADC R13, R1
 	adc	R24,R3	//  ADC R24, R7
-  ADC R6, R13
+  ADC R6, R23
 
-	movw  R2,R12	//  CLR R7
+	movw  R2,R22	//  CLR R7
 
   MUL R8, R17
-  ADD R23, R0
+  ADD R13, R0
   ADC R24, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R9, R16
-  ADD R23, R0
+  ADD R13, R0
   ADC R24, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R10, R15
-  ADD R23, R0
+  ADD R13, R0
   ADC R24, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R11, R14
-  ADD R23, R0
+  ADD R13, R0
   ADC R24, R1
   ADC R25, R6
-  ADC R7, R13
+  ADC R7, R23
 
   CLR R6		//
   MUL R8, R18
   ADD R24, R0
   ADC R25, R1
-  ADC R7, R13
+  ADC R7, R23
   MUL R9, R17
   ADD R24, R0
   ADC R25, R1
-  ADC R7, R13
+  ADC R7, R23
   MUL R10, R16
   ADD R24, R0
   ADC R25, R1
-  ADC R7, R13
+  ADC R7, R23
   MUL R11, R15
   ADD R24, R0
   ADC R25, R1
-  ADC R7, R13
+  ADC R7, R23
   MUL R30, R14
   ADD R24, R0
   ADC R25, R1
-  ADC R7, R13
+  ADC R7, R23
 
-//  CLR R6		// already cleared
   MUL R8, R19
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R9, R18
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R10, R17
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R11, R16
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R30, R15
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
   MUL R31, R14
   ADD R25, R0
   ADC R7, R1
-  ADC R6, R13
+  ADC R6, R23
 
   MUL R15, R31
   ADD R7, R0
   ADC R6, R1
-  ADC R2, R13
+  ADC R2, R23
   MUL R16, R30
   ADD R7, R0
   ADC R6, R1
-  ADC R2, R13
+  ADC R2, R23
   MUL R17, R11
   ADD R7, R0
   ADC R6, R1
-  ADC R2, R13
+  ADC R2, R23
   MUL R18, R10
   ADD R7, R0
   ADC R6, R1
-  ADC R2, R13
+  ADC R2, R23
   MUL R19, R9
   ADD R7, R0
   ADC R6, R1
-  ADC R2, R13
+  ADC R2, R23
 
   MUL R16, R31
   ADD R6, R0
   ADC R2, R1
-  ADC R3, R13
+  ADC R3, R23
   MUL R17, R30
   ADD R6, R0
   ADC R2, R1
-  ADC R3, R13
+  ADC R3, R23
   MUL R18, R11
   ADD R6, R0
   ADC R2, R1
-  ADC R3, R13
+  ADC R3, R23
   MUL R19, R10
   ADD R6, R0
   ADC R2, R1
-  ADC R3, R13
+  ADC R3, R23
 
   MUL R17, R31
   ADD R2, R0
   ADC R3, R1
-  ADC R4, R13
+  ADC R4, R23
   MUL R18, R30
   ADD R2, R0
   ADC R3, R1
-  ADC R4, R13
+  ADC R4, R23
   MUL R19, R11
   ADD R2, R0
   ADC R3, R1
-  ADC R4, R13
+  ADC R4, R23
 
   MUL R18, R31
   ADD R3, R0
   ADC R4, R1
-  ADC R5, R13
+  ADC R5, R23
   MUL R19, R30
   ADD R3, R0
   ADC R4, R1
-  ADC R5, R13
+  ADC R5, R23
 
   MUL R19, R31
   ADD R4, R0
@@ -1911,16 +1882,16 @@ final_H:
   SBC R1, R1
 
   ;--- absolute values ---    
-  // r13 zero, r0,1 sign
-  ABS48 r19,r18,r17,r16,r15,r14  r0 r13
-  ABS48 r31,r30,r11,r10, r9, r8  r1 r13
+  // R23 zero, r0,1 sign
+  ABS48 r19,r18,r17,r16,r15,r14  r0
+  ABS48 r31,r30,r11,r10, r9, r8  r1
 
   EOR R0, R1
   BST R0, 0   
   
   ;--- Compute M ---
-  MOVW R26, R12
-  MOVW R28, R12
+  MOVW R26, R22
+  MOVW R28, R22
   
   MUL R14, R8
   MOVW R6, R0
@@ -1931,122 +1902,122 @@ final_H:
   MUL R15, R8
   ADD R7, R0
   ADC R26, R1
-  ADC R27, R13
+  ADC R27, R23
   
   MUL R14, R10
   ADD R26, R0
   ADC R27, R1
-  ADC R28, R13
+  ADC R28, R23
   MUL R15, R9
   ADD R26, R0
   ADC R27, R1
-  ADC R28, R13
+  ADC R28, R23
   MUL R16, R8
   ADD R26, R0
   ADC R27, R1
-  ADC R28, R13
+  ADC R28, R23
   
   MUL R14, R11
   ADD R27, R0
   ADC R28, R1
-  ADC R29, R13
+  ADC R29, R23
   MUL R15, R10
   ADD R27, R0
   ADC R28, R1
-  ADC R29, R13
+  ADC R29, R23
   MUL R16, R9
   ADD R27, R0
   ADC R28, R1
-  ADC R29, R13
+  ADC R29, R23
   MUL R17, R8
   ADD R27, R0
   ADC R28, R1
-  ADC R29, R13
+  ADC R29, R23
 
   MUL R14, R30
   ADD R28, R0
   ADC R29, R1
-  ADC R12, R13
+  ADC R22, R23
   MUL R15, R11
   ADD R28, R0
   ADC R29, R1
-  ADC R12, R13
+  ADC R22, R23
   MUL R16, R10
   ADD R28, R0
   ADC R29, R1
-  ADC R12, R13
+  ADC R22, R23
   MUL R17, R9
   ADD R28, R0
   ADC R29, R1
-  ADC R12, R13
+  ADC R22, R23
   MUL R18, R8
   ADD R28, R0
   ADC R29, R1
-  ADC R12, R13
+  ADC R22, R23
 
   MUL R14, R31
   CLR R14
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
   MUL R15, R30
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
   MUL R16, R11
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
   MUL R17, R10
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
   MUL R18, R9
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
   MUL R19, R8
   ADD R29, R0
-  ADC R12, R1
-  ADC R13, R14
+  ADC R22, R1
+  ADC R23, R14
 
   CLR R8
   MUL R15, R31
-  ADD R12, R0
-  ADC R13, R1
+  ADD R22, R0
+  ADC R23, R1
   ADC R8, R14
   MUL R16, R30
-  ADD R12, R0
-  ADC R13, R1
+  ADD R22, R0
+  ADC R23, R1
   ADC R8, R14
   MUL R17, R11
-  ADD R12, R0
-  ADC R13, R1
+  ADD R22, R0
+  ADC R23, R1
   ADC R8, R14
   MUL R18, R10
-  ADD R12, R0
-  ADC R13, R1
+  ADD R22, R0
+  ADC R23, R1
   ADC R8, R14
   MUL R19, R9
-  ADD R12, R0
-  ADC R13, R1
+  ADD R22, R0
+  ADC R23, R1
   ADC R8, R14
 
   CLR R9
   MUL R16, R31
-  ADD R13, R0
+  ADD R23, R0
   ADC R8, R1
   ADC R9, R14
   MUL R17, R30
-  ADD R13, R0
+  ADD R23, R0
   ADC R8, R1
   ADC R9, R14
   MUL R18, R11
-  ADD R13, R0
+  ADD R23, R0
   ADC R8, R1
   ADC R9, R14
   MUL R19, R10
-  ADD R13, R0
+  ADD R23, R0
   ADC R8, R1
   ADC R9, R14
 
@@ -2082,129 +2053,101 @@ final_H:
   POP R1
 
   ; now load stack pointer in R31:30
-  IN R30, _SFR_IO_ADDR(SPL)
-  IN R31, _SFR_IO_ADDR(SPH) 
+	in	r30, _SFR_IO_ADDR(SPL)
+	in	r31, _SFR_IO_ADDR(SPH) 
 
   ;--- add l5+h0 to l0 and h5 ---
-  LDD R14, Z+6 
-  LDD R15, Z+5 
-  LDD R16, Z+4 
-  LDD R17, Z+3 
-  LDD R18, Z+2 
-  LDD R19, Z+1 
-
-	ADD96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14  r5,r4,r3,r2,r1,r0,r25,r24,r23,r22,r21,r20
-
-//  ; store carry in r31
-	rol	r31
+	LOAD48_FROM_Z			r14,r15,r16,r17,r18,r19		1
+	ADD96	r25,r24,r13,r12,r21,r20,r19,r18,r17,r16,r15,r14	 r5,r4,r3,r2,r1,r0,r25,r24,r13,r12,r21,r20
+	rol	r31	// carry to r31
   ;--- process sign bit ---  
   BRTS add_M_M
   
   ;subtract M
-	SUB96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14         r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
-
-  SBC R6, R6
-  SBC R7, R7
-  ; R7:R6 is -1,0, or 1
-  RJMP final_M
+	SUB96	r25,r24,r13,r12,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r23,r22,r29,r28,r27,r26,r7,r6
+	sbc	r6,r6
+	rjmp	final_M
 
 add_M_M: 
-	ADD96	r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14		r11,r10,r9,r8,r13,r12,r29,r28,r27,r26,r7,r6
-
-  CLR R6
-  CLR R7
-  ADC R6, R6
-
+	ADD96	r25,r24,r13,r12,r21,r20,r19,r18,r17,r16,r15,r14  r11,r10,r9,r8,r23,r22,r29,r28,r27,r26,r7,r6
+	clr	r6
+	adc	r6,r6
 final_M:
+	sbc	r7,r7	// extend r6 to r7:r6
 	// restore carry
 	lsr	r31
 #ifndef RAM_LE32
 // restore r31
-	in R31, _SFR_IO_ADDR(SPH)
+	in	r31, _SFR_IO_ADDR(SPH)
 #endif
   ;--- propagate carry to end ---
-  ADC R0, R6
-  ADC R1, R7
-  ADC R2, R7
-  ADC R3, R7
-  ADC R4, R7
-  ADC R5, R7
-  ; now load stack pointer in R31:30
+	ADC48	r5,r4,r3,r2,r1,r0	r7,r7,r7,r7,r7,r6
+
 	ldd	R29,Z+7	;load Y register - pointer to result
 	ldd	R28,Z+8
   ;------ level 1: combine L, H, and M ------
 
   ; load m0..m5 in 8,9,10,11,12,13
-  LDD R8,  Z+6
-  LDD R9,  Z+5
-  LDD R10, Z+4
-  LDD R11, Z+3
-  LDD R12, Z+2
-  LDD R13, Z+1
+	LOAD48_FROM_Z	r8,r9,r10,r11,r22,r23	1
   ; M is stored in: 8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,0,1,2,3,4,5
 
-  ;--- process sign bit ---  
-	ldd	R7,Z+9		// search backwards for SIGN HL1
-	sbrc	r7,0
-	rjmp	final_addition
-
-// result(MEM) -= registers
-.set Off, 12
-	ldd	r6, Y+Off
-	sub	r6,r8
-	std	Y+Off,r6
-.irp Reg,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,0,1,2,3,4,5
-.set Off, Off+1
-	ldd	r6,Y+Off
-	sbc	r6,r\Reg
-	std	Y+Off,r6
-.endr
-
-  SBC R6, R6
-  SBC R7, R7
-  ; R7:R6 is -1,0, or 1  
-  RJMP final
+	clr	r27
+// load sign bit, load carry (carry in bits 2,1 sign in bit 0)
+	ldd	r26,Z+9		// search backwards for HL1
+	lsr	r26		
+	brcc	final_sub
 
 final_addition:
 // result(MEM) += registers
 .set Off, 12
 	ldd	r6,Y+Off
 	add	r6,r8
-	std	Y+Off,r6
-.irp Reg,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,0,1,2,3,4,5
+.set Preg, 8
+.irp Reg,9,10,11,22,23,14,15,16,17,18,19,20,21,12,13,24,25,0,1,2,3,4,5
 .set Off, Off+1
-	ldd	r6,Y+Off
-	adc	r6,r\Reg
-	std	Y+Off,r6
+	ldd	Preg,Y+Off
+	adc	Preg,r\Reg
+.set Preg, \Reg
+.endr
+	adc	r26, r27
+	rjmp	final
+
+final_sub:
+// result(MEM) -= registers
+.set Off, 12
+	ldd	r6, Y+Off
+	sub	r6,r8
+.set Preg, 8
+.irp Reg,9,10,11,22,23,14,15,16,17,18,19,20,21,12,13,24,25,0,1,2,3,4,5
+.set Off, Off+1
+	ldd	Preg,Y+Off
+	sbc	Preg,r\Reg
+.set Preg, \Reg
+.endr
+	sbc	r26,r27
+	sbc	r27,r27
+final:
+
+.set Off, 12
+.irp Reg,6,8,9,10,11,22,23,14,15,16,17,18,19,20,21,12,13,24,25,0,1,2,3,4
+	std	Y+Off,r\Reg
+.set Off, Off+1
 .endr
 
-  CLR R6
-  CLR R7
-  ADC R6, R6
-
-final:
-  ; load carry from stack
-  LDD R26, Z+34			// search CARRY HL1
-//r26 is 0,1 or 2!
-  // return stack back
-  ADIW R30, 34
+// return stack back
+	adiw	r30,33
 // use atomic update of stack pointer
-	LOAD_SP R0, R30,R31
+	LOAD_SP r0, r30,r31
 
-  CLR R0
-  ADD R6, R26
-  ADC R7, R0
-
-  ;--- propagate carry to end ---
+// R27:R26 is -1,0,1,2,  propagate carry to end
 .set Off, 36
-	ldd	r12,Y+Off
-	add	r12,r6
-	std	Y+Off,r12
+	ldd	r0,Y+Off
+	add	r0,r26
+	std	Y+Off,r0
 .rept	11
 .set Off, Off+1
-	ldd	r12,Y+Off
-	adc	r12,r7
-	std	Y+Off,r12
+	ldd	r0,Y+Off
+	adc	r0,r27
+	std	Y+Off,r0
 .endr
 	ret
-

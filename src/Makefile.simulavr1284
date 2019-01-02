@@ -2,17 +2,9 @@
 # apt-get install avrdude srecord avr-libc gcc-avr
 CC=avr-gcc
 OBJCOPY=avr-objcopy
-CPU=atmega128
-#WARNING! there is a limitation in usbtiny, write over 64k _fail_ on atmega128
-#PRG=usbtiny -B 10
-#PRG=dapa_i2c
-PRG=avrispmkII
+CPU=atmega1284
 
-ifeq ($(CARD_SERIAL),)
-CARD_SERIAL:= $(shell date +%s)
-endif
-
-CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections
+CFLAGS=  -Wall -Os -mmcu=$(CPU) -g -ffunction-sections
 LDFLAGS= -Wl,-gc-sections
 
 # Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
@@ -23,8 +15,8 @@ CFLAGS+= -DOsEID
 #CFLAGS += -DNIST_ONLY
 #CFLAGS+= -DCARD_TESTS
 
-BUILD= build/atmega128/
-TARGET= targets/atmega128/
+BUILD= build/simulavr/
+TARGET= targets/simulavr/
 TARGET_LIB = lib/avr/
 TARGET_SPEC  = $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)avr.o
 TARGET_SPEC += $(BUILD)des_arch.o $(BUILD)aes_arch.o $(BUILD)bn_lib_arch.o
@@ -56,8 +48,8 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=4
 
-# ECC size (in bytes 24,32,48,72 (72 bytes may work with 2 bits window for point multiplications)
-CFLAGS += -DMP_BYTES=48
+# ECC size (in bytes 24,32,48,72)
+CFLAGS += -DMP_BYTES=72
 
 #for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
 HAVE +=         -DRAM_LE32
@@ -66,6 +58,7 @@ HAVE +=         -DRAM_LE32
 
 TARGET_SPEC +=  $(BUILD)mp_mul_24.o
 TARGET_SPEC +=	$(BUILD)mp_mul_192.o
+TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
@@ -144,6 +137,13 @@ $(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
 $(BUILD)xconstants.o:	$(TARGET)constants.c
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)xconstants.o $(TARGET)constants.c -Icard_os
 
+init:		builddir $(COMMON_TARGETS) $(TARGET_SPEC)
+
+$(BUILD)init_flash.o:	card_mem
+		dd if=card_mem of=$(BUILD)init_flash_trimmed bs=256 count=255
+		avr-objcopy --rename-section .data=.card_mem -I binary -O elf32-avr -B avr5 $(BUILD)init_flash_trimmed $(BUILD)init_flash.o
+
+
 
 #-------------------------------------------------------------------
 # card_os files
@@ -151,19 +151,25 @@ $(BUILD)xconstants.o:	$(TARGET)constants.c
 
 include card_os/Makefile
 
-
+init:			builddir $(COMMON_TARGETS) $(TARGET_SPEC) $(BUILD)init_flash.o
+			$(CC) $(CFLAGS) $(LDFLAGS) -Wl,--section-start=.card_mem=0x10000  $(COMMON_TARGETS) $(TARGET_SPEC) \
+				$(BUILD)init_flash.o -o $(BUILD)card.elf
+			avr-size --format=SysV $(BUILD)card.elf
+			avr-size $(BUILD)card.elf
+			
 	
 $(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
 			$(CC) $(CFLAGS) $(LDFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf
 			avr-size --format=SysV $(BUILD)card.elf
 			avr-size $(BUILD)card.elf
+			cp $(TARGET)run_pcscd.sh $(BUILD)
 
 $(BUILD)card_orig.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -R .eeprom -R .fuse -R .lock $(BUILD)card.elf $(BUILD)card_orig.hex
 
 #insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string $(CARD_SERIAL) -o $(BUILD)card.hex -Intel
+		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
 
 $(BUILD)card.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
@@ -186,38 +192,6 @@ $(BUILD)card.hfuse.hex:	$(BUILD)card.fuses.hex
 $(BUILD)card.efuse.hex:	$(BUILD)card.fuses.hex
 		srec_cat $(BUILD)card.fuses.hex -Intel -crop 0x02 0x03 -offset -2 -O $(BUILD)card.efuse.hex -Intel -address-length=2
 
-.PHONY:	program
-program:	$(BUILD)card.hex
-		avrdude -p m128 -c $(PRG) -v -U flash:w:$(BUILD)card.hex
-
-# original fuses atmega128a:
-# signature = 0x1e9702
-# fuses: (E:FD, H:99, L:E1)
-# fuses are defined in targest/atmega128/avr.c
-
-.PHONY:	fuses
-fuses:	e_fuse l_fuse h_fuse
-
-.PHONY:	l_fuse h_fuse e_fuse
-l_fuse:	$(BUILD)card.lfuse.hex
-	avrdude -p m128 -c $(PRG) -v -U lfuse:w:$(BUILD)card.lfuse.hex
-
-h_fuse:	$(BUILD)card.hfuse.hex
-	avrdude -p m128 -c $(PRG) -v -U hfuse:w:$(BUILD)card.hfuse.hex
-
-e_fuse:	$(BUILD)card.efuse.hex
-	avrdude -p m128 -c $(PRG) -v -U efuse:w:$(BUILD)card.efuse.hex
-
-lock:	$(BUILD)card.lock.hex
-	avrdude -p m128 -c $(PRG) -v -U lock:w:$(BUILD)card.lock.hex
-
-programRead:
-	avrdude -p m128 -c $(PRG) -v -U flash:r:rom_asm_verify.bin:r
-
-#	avrdude -p m128 -c $(PRG) -v -U flash:r:rom_asm_verify.hex:i
-
-eepromRead:
-	avrdude -p m128 -c $(PRG) -v -U eeprom:r:eeprom_verify.bin:r
 
 .PHONY:	clean
 clean:

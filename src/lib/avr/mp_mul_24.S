@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -632,6 +632,8 @@ rsa_mul_384_loop1b:
 
 
 /////////////////////////////////////////////////////////////
+	.global mp_mul_768
+	.type	mp_mul_768, @function
         .global rsa_mul_768
         .type   rsa_mul_768, @function
 	.section .text.rsa_mul_768,"ax",@progbits
@@ -646,6 +648,7 @@ rsa_mul_384_loop1b:
 #define RESULT    r12
 #define OPERAND_A r14
 rsa_mul_768:
+mp_mul_768:
 //save registers
 	push	r2
 	push	r3
@@ -695,19 +698,17 @@ rsa_mul_768_loop1:
 	brne	rsa_mul_768_loop1
 
 // negate if needed, sign based on carry
-	adc	r16,r1		//r16=0 or 1 by carry
+	sbc	r16,r16		//r16=0/0xff (from carry)
 
 	movw	r26,RESULT	// r to X
 	ldi	r21,48/UNROLL	// loop counter
 
-	mov	r25,r16		//duplicate
-	neg	r25		//create 0 or 0xff into r25, carry is set if r25 !=0
-
+	clc
 rsa_mul_768_loop2:
 .rept	UNROLL
 	ld	r24,X
-	eor	r24,r25		// xor 0xff
-	adc	r24,r1		// add carry
+	eor	r24,r16		// xor 0xff
+	sbc	r24,r16
 	st	x+,r24
 .endr
 	dec	r21
@@ -732,21 +733,19 @@ rsa_mul_768_loop3:
 	brne	rsa_mul_768_loop3
 
 // negate if needed, sign based on carry
-	adc	r17,r1		//r17=0 or 1 by carry
+	sbc	r17,r17		//r17=0/0xff (from carry)
 
 	movw	r26,RESULT	// r to X
 	subi	r26,lo8(-48)
 	sbci	r27,hi8(-48)	//r+48
 	ldi	r21,48/UNROLL	// loop counter
 
-	mov	r25,r17		//duplicate
-	neg	r25		//create 0 or 0xff into r25, carry is set if r25 !=0
-
+	clc
 rsa_mul_768_loop4:
 .rept	UNROLL
 	ld	r24,X
-	eor	r24,r25		// xor 0xff
-	adc	r24,r1		// add carry
+	eor	r24,r17		// xor 0/0xff
+	sbc	r24,r17		
 	st	x+,r24
 .endr
 	dec	r21
@@ -822,7 +821,6 @@ rsa_mul_768_loop4:
 // if signs are the same, set _EOR to 0xff
 // else                   set _EOR to 0x00
 
-	neg	_EOR
 	com	_EOR
 
 // _CARRY is used as initial carry, _EOR as eor value
@@ -1357,20 +1355,19 @@ rsa_mul_768_xloop2:
 	adc	\RS11,r1
 .endm
 
-.macro ABS_48  RS5 RS4 RS3 RS2 RS1 RS0   SIGN ZERO
+.macro ABS_48  RS5 RS4 RS3 RS2 RS1 RS0   SIGN
 	eor	\RS0,\SIGN
 	eor	\RS1,\SIGN
 	eor	\RS2,\SIGN
 	eor	\RS3,\SIGN
 	eor	\RS4,\SIGN
 	eor	\RS5,\SIGN
-	neg 	\SIGN
-	add	\RS0,\SIGN
-	adc	\RS1,\ZERO
-	adc	\RS2,\ZERO
-	adc	\RS3,\ZERO
-	adc	\RS4,\ZERO
-	adc	\RS5,\ZERO
+	sub	\RS0,\SIGN
+	sbc	\RS1,\SIGN
+	sbc	\RS2,\SIGN
+	sbc	\RS3,\SIGN
+	sbc	\RS4,\SIGN
+	sbc	\RS5,\SIGN
 .endm
 
 // multiply 6 bytes pointed by X and 6 bytes pointed by Y, add resul to
@@ -2114,9 +2111,9 @@ rsa_mul_192_mod_no_abi:
 // save carry (for sign)
 	sbc	r1,r1
 
-//                                      sign zero
-	ABS_48 r19 r18 r17 r16 r15 r14  r0   r31
-	ABS_48 r13 r12 r11 r10 r9 r8    r1   r31
+//                                      sign
+	ABS_48 r19 r18 r17 r16 r15 r14  r0
+	ABS_48 r13 r12 r11 r10 r9 r8    r1
 
 // sign is needed to decide subtraction/adition
 		eor	r0,r1

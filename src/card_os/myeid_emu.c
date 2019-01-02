@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -45,6 +45,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stddef.h>
+#include <alloca.h>
 #include "card_io.h"
 #include "ec.h"
 #include "iso7816.h"
@@ -126,6 +127,7 @@ get_rsa_key_part (void *here, uint8_t id)
   uint16_t part_size;
   uint8_t *key = here;
 
+  memset (key, 0, RSA_BYTES);
   part_size = fs_key_read_part (NULL, id);
   if (part_size > RSA_BYTES)
     return 0;
@@ -263,10 +265,11 @@ static uint8_t
 prepare_ec_param (struct ec_param *c, ec_point_t * p, uint8_t size)
 {
   uint16_t ret;
-  uint8_t var_Gx, var_Gy, var_A, var_B, var_PRIME, var_ORDER, var_TYPE;
+  uint8_t var_C;
 
 
   memset (c, 0, sizeof (struct ec_param));
+
   // ACL and file existence is checked in fs_key_read, return value can be used to select
   // 192/256/384 key algo
 
@@ -278,63 +281,52 @@ prepare_ec_param (struct ec_param *c, ec_point_t * p, uint8_t size)
 #ifndef NIST_ONLY
   if (fs_get_file_type () == 0x23)
     {
-      var_Gx = N_SECP256K1_Gx;
-      var_Gy = N_SECP256K1_Gy;
-      var_A = N_SECP256K1_a;
-      var_B = N_SECP256K1_b;
-      var_PRIME = N_SECP256K1_prime;
-      var_ORDER = N_SECP256K1_order;
-      var_TYPE = C_secp256k1;
+      var_C = C_SECP256K1 | C_SECP256K1_MASK;
     }
   else
 #endif
     {
       if (ret == 24)
 	{
-	  var_Gx = N_P192V1_Gx;
-	  var_Gy = N_P192V1_Gy;
-	  var_A = N_P192V1_a;
-	  var_B = N_P192V1_b;
-	  var_PRIME = N_P192V1_prime;
-	  var_ORDER = N_P192V1_order;
-	  var_TYPE = C_PRIME192V1;
+	  var_C = C_P192V1 | C_P192V1_MASK;
 	}
+#if MP_BYTES >= 32
       else if (ret == 32)
 	{
-	  var_Gx = N_P256V1_Gx;
-	  var_Gy = N_P256V1_Gy;
-	  var_A = N_P256V1_a;
-	  var_B = N_P256V1_b;
-	  var_PRIME = N_P256V1_prime;
-	  var_ORDER = N_P256V1_order;
-	  var_TYPE = C_PRIME256V1;
+	  var_C = C_P256V1 | C_P256V1_MASK;
 	}
+#endif
+#if MP_BYTES >= 48
       else if (ret == 48)
 	{
-	  var_Gx = N_P384V1_Gx;
-	  var_Gy = N_P384V1_Gy;
-	  var_A = N_P384V1_a;
-	  var_B = N_P384V1_b;
-	  var_PRIME = N_P384V1_prime;
-	  var_ORDER = N_P384V1_order;
-	  var_TYPE = C_secp384r1;
+	  var_C = C_SECP384R1 | C_SECP384R1_MASK;
 	}
+#endif
+#if MP_BYTES >= 66
+      else if (ret == 66)
+	{
+	  var_C = C_SECP521R1 | C_SECP521R1_MASK;
+	}
+#endif
       else
 	return 0;
     }
+  c->curve_type = var_C;
+  var_C &= 0x3f;
   if (p)
     {
-      get_constant ((uint8_t *) & (p->X), var_Gx);
-      get_constant ((uint8_t *) & (p->Y), var_Gy);
+      memset (p, 0, sizeof (ec_point_t));
+      get_constant ((uint8_t *) & (p->X), var_C + 5);
+      get_constant ((uint8_t *) & (p->Y), var_C + 6);
     }
-  get_constant (&c->prime, var_PRIME);
-  get_constant (&c->order, var_ORDER);
-  get_constant (&c->a, var_A);
-  get_constant (&c->b, var_B);
-  c->curve_type = var_TYPE;
+  get_constant (&c->prime, var_C + 1);
+  get_constant (&c->order, var_C + 2);
+  get_constant (&c->a, var_C + 3);
+  get_constant (&c->b, var_C + 4);
 
   reverse_string ((uint8_t *) & c->working_key, ret);
   c->mp_size = ret;
+
   return ret;
 }
 
@@ -358,16 +350,21 @@ add_num_to_seq (uint8_t * here, uint8_t * num, uint8_t size)
   return ret + 2;
 }
 
-// return 0 if fail, or size of response if ok
+// return error code if fail, or response if ok
 static uint8_t
 sign_ec_raw (uint8_t * message, struct iso7816_response *r)
 {
 //message -  first byte len, rest  data
 
+#if MP_BYTES > 48
+  ecdsa_sig_t *e = alloca (sizeof (ecdsa_sig_t));
+  struct ec_param *c = alloca (sizeof (struct ec_param));
+#else
 // reuse "message" buffer for ecdsa_sig_t (warning, this is realy only for max 48 bytes in bignum_t)
   ecdsa_sig_t *e = (ecdsa_sig_t *) (message + 1 + sizeof (bignum_t));
 // reuse result buffer for ec_param structure
   struct ec_param *c = (struct ec_param *) r->data;
+#endif
   uint16_t off;
   uint16_t ret;
 
@@ -382,7 +379,7 @@ sign_ec_raw (uint8_t * message, struct iso7816_response *r)
   if (ret == 0)
     {
       DPRINT ("Error, unable to get EC parameters/key\n");
-      return 0;
+      return S0x6985;
     }
 
   off = message[0];
@@ -397,9 +394,31 @@ sign_ec_raw (uint8_t * message, struct iso7816_response *r)
   {
     int i;
     DPRINT ("mesage =\n");
-    for (i = 0; i < 32; i++)
+    for (i = 0; i < ret; i++)
       DPRINT ("%02X ", message[i]);
     DPRINT ("\n");
+    DPRINT ("working key:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", c->working_key.value[i]);
+    DPRINT ("\n");
+    DPRINT ("prime:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", c->prime.value[i]);
+    DPRINT ("\n");
+    DPRINT ("a:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", c->a.value[i]);
+    DPRINT ("\n");
+    DPRINT ("b:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", c->b.value[i]);
+    DPRINT ("\n");
+    DPRINT ("order:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", c->order.value[i]);
+    DPRINT ("\n");
+    DPRINT ("size: %d\n", c->mp_size);
+    DPRINT ("type: %d\n", c->curve_type);
   }
 #endif
 
@@ -407,29 +426,60 @@ sign_ec_raw (uint8_t * message, struct iso7816_response *r)
   if (ecdsa_sign (message, e, c))
     {
       DPRINT ("SIGN FAIL\n");
-      return 0;
+      return S0x6985;
     }
   DPRINT ("SIGN OK, generating response\n");
-
+#ifdef DEBUG
+  {
+    int i;
+    DPRINT ("SIGNATURE R:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", e->R.value[i]);
+    DPRINT ("\n");
+    DPRINT ("SIGNATURE S:\n");
+    for (i = 0; i < ret; i++)
+      DPRINT ("%02X ", e->S.value[i]);
+    DPRINT ("\n");
+  }
+#endif
 // Generate object 1.2.840.10045.4.1  with r and s value
 
   uint8_t *here;
-  uint8_t skip;
+  uint8_t skip, skip0;
 
-  here = r->data + 2;
+  DPRINT ("size=%d\n", c->mp_size);
+
+// sequence 0x30, LEN, 0x02, R, 0x02, S
+// there is simplification for calculating LEN that generates invalid DER (valid BER) for 61 bytes R/S value:
+
+// 0x30, LEN      , 2  ,R[61],2,  S[61]  = 126
+// 0x30, LEN      , 2,0,R[61],2,  S[61]  = 127
+// 0x30, LEN      , 2,0,R[61],2,0,S[61]  = 127
+// 0x30, 0x81,LEN , 2,0,R[61],2,0,S[61]  = 129
+
+// for LEN = 126 / 127  LEN is coded as 0x81 0x7e / 0x81 0x7f correct coding is 0x7e / 0x7f
+// This simplification is no problem for OsEID, here only  24,32,48, or 66 bytes are used
+
+  r->data[0] = 0x30;
+  skip0 = 2;
+
+#if MP_BYTES > 60
+  if (c->mp_size > 60)
+    {
+      r->data[1] = 0x81;
+      skip0 = 3;
+    }
+#endif
+  here = r->data + skip0;
   skip = add_num_to_seq (here, e->R.value, c->mp_size);
   here += skip;
   skip += add_num_to_seq (here, e->S.value, c->mp_size);
 
-  r->data[0] = 0x30;
-  r->data[1] = skip;
-  skip += 2;
+  r->data[skip0 - 1] = skip;
 
-  r->flag = R_RESP_READY;
-  r->len = skip;
-  return skip;
+  skip += skip0;
+  return resp_ready (r, skip);
 }
-
 
 uint8_t
 security_env_set_reset (uint8_t * message, struct iso7816_response * r)
@@ -592,9 +642,7 @@ security_operation_rsa_ec_sign (uint8_t * message, struct iso7816_response *r)
       // this is  long operation, start sending NULL
       card_io_start_null ();
       // in buffer RAW data to be signed
-      if (sign_ec_raw (message + 4, r))
-	return resp_ready (r, r->len);
-      return S0x6985;		//    Conditions not satisfied
+      return sign_ec_raw (message + 4, r);
     }
 
   if (sign_algo == 2)
@@ -900,9 +948,15 @@ security_operation_decrypt (uint8_t * message, struct iso7816_response *r)
 uint8_t
 myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r)
 {
+#if MP_BYTES > 48
+  struct ec_param *ec = alloca (sizeof (struct ec_param));
+  ec_point_t *derived_key = alloca (sizeof (ec_point_t));
+  memset (derived_key, 0, sizeof (ec_point_t));
+#else
   // reuse result buffer for ec_param structure
   struct ec_param *ec = (struct ec_param *) message;
   ec_point_t *derived_key = (ec_point_t *) (r->data + L_ECDH_OFFSET);
+#endif
 
   uint8_t ret;
   uint8_t t_len, *t;
@@ -929,33 +983,40 @@ myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r)
 // security operation always need data
   if (M_LC == 0)
     return S0x6984;		//invalid data
+#if  MP_BYTES <= 48
   if (M_LC > L_ECDH_OFFSET)
     return S0x6700;		//Incorrect length
+#endif
   confirm_command (message);
   if (read_command_data (message))
     return S0x6984;		//invalid data
 
-  t = r->data;
+// check minimal LC: 0x7c LEN TAG ..  or 0x7x 0x81 LEN
+  if (M_LC < 3)
+    return S0x6984;		// Invalid data
 
-// message is reused as ec_param structure
+  t = r->data;
+// message is reused as ec_param structure (for MP_BYTES <= 48)
   memcpy (t, message + 5, M_LC);
 
+  uint8_t dlen = M_LC;
 // check rest of APDU
   if (*t++ != 0x7c)		// Dynamic autentification template
     return S0x6984;		// Invalid data
 
 // parse ASN1 LEN value (0-255)
   t_len = *t++;
-  if (t_len == 0x80)
+  if (t_len & 0x80)
     {
+      dlen--;
       if (t_len != 0x81)
 	return S0x6984;		// Invalid data (ASN1 length > 255)
       t_len = *t++;
     }
 
-  if (t_len != M_LC - 2)	// check length of template
+  if (t_len != dlen - 2)	// check length of template
     return S0x6984;		// Invalid data
-////
+
   while (t_len > 1)
     {
       tg = *t++;
@@ -963,12 +1024,13 @@ myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r)
       tl = *t++;
       if (tl & 0x80)
 	{
-	  if (t_len != 0x81)
+	  t_len--;
+	  if (tl != 0x81)
 	    return S0x6984;	// Invalid data (ASN1 length >255)
 	  tl = *t++;
 	}
-
       t_len -= 2;
+
       if (t_len < tl)
 	{
 	  DPRINT ("Wrong length of tag  %02x lenght %d (in buffer only %d)\n",
@@ -995,7 +1057,6 @@ myeid_ecdh_derive (uint8_t * message, struct iso7816_response * r)
 	  return S0x6984;	// Invalid data
 	}
     }
-
   // prepare Ec constant, use size based on key  (key from selected file)
   ret = prepare_ec_param (ec, NULL, 0);
   if (ret == 0)
@@ -1089,10 +1150,18 @@ check_ec_key_file (uint16_t size, uint8_t type)
     {
       if (size == 192)
 	return 0;
+#if MP_BYTES >= 32
       if (size == 256)
 	return 0;
+#endif
+#if MP_BYTES >=48
       if (size == 384)
 	return 0;
+#endif
+#if MP_BYTES >=66
+      if (size == 521)
+	return 0;
+#endif
     }
   return 1;
 }
@@ -1287,12 +1356,77 @@ static __attribute__ ((noinline))
       return err;
     }
 
-  // TODO return modulus in normal form (higest bytest first)
-  // MyEID return here only modulus size
-  // (TODO test this, because MyEID doc is not precise enough)
+/*
+Return plain modulus, tested on MyEID 3.3.3, RSA key 1024:
 
+Outgoing APDU (12 bytes):
+00 46 00 00 07 30 05 81 03 01 00 01
+Incoming APDU (130 bytes):
+B8 80 9E 31 7D 91 CC 7D 30 66 FB 9C 93 DB FD F0
+92 6B B0 60 77 52 89 50 CF 03 F1 1F 24 C9 C1 3B
+72 15 9B E5 17 66 5F 75 47 87 FC 2B 0D CD 44 15
+B2 6E 0E 2E 87 AC 2C 91 28 E5 A2 AB 6A 6E 64 50
+7E 44 76 C6 FD AA 35 5B B1 05 73 BB 47 6D 1C DB
+CE 63 8B C4 19 CE 2A 04 3E 33 20 B1 C8 65 BE 47
+C6 70 B0 7F E7 0A AA 5D 7E 22 42 C5 9C 92 77 E9
+96 64 D9 AF 8A 38 22 D3 86 64 3C 5C D2 14 78 9D
+90 00
+
+pkcs15-tool --read-public-key:
+
+00000000  30 81 9f 30 0d 06 09 2a  86 48 86 f7 0d 01 01 01  |0..0...*.H......|
+00000010  05 00 03 81 8d 00 30 81  89 02 81 81 00 b8 80 9e  |......0.........|
+00000020  31 7d 91 cc 7d 30 66 fb  9c 93 db fd f0 92 6b b0  |1}..}0f.......k.|
+00000030  60 77 52 89 50 cf 03 f1  1f 24 c9 c1 3b 72 15 9b  |`wR.P....$..;r..|
+00000040  e5 17 66 5f 75 47 87 fc  2b 0d cd 44 15 b2 6e 0e  |..f_uG..+..D..n.|
+00000050  2e 87 ac 2c 91 28 e5 a2  ab 6a 6e 64 50 7e 44 76  |...,.(...jndP~Dv|
+00000060  c6 fd aa 35 5b b1 05 73  bb 47 6d 1c db ce 63 8b  |...5[..s.Gm...c.|
+00000070  c4 19 ce 2a 04 3e 33 20  b1 c8 65 be 47 c6 70 b0  |...*.>3 ..e.G.p.|
+00000080  7f e7 0a aa 5d 7e 22 42  c5 9c 92 77 e9 96 64 d9  |....]~"B...w..d.|
+00000090  af 8a 38 22 d3 86 64 3c  5c d2 14 78 9d 02 03 01  |..8"..d<\..x....|
+000000a0  00 01                                             |..|
+000000a2
+*/
   reverse_string (r->data, ret * 2);
   return resp_ready (r, ret * 2);
+}
+
+static uint8_t
+ec_read_public_key (struct iso7816_response *r, uint8_t tag)
+{
+/*
+Return seq:
+TAG 0x__len__ _public_key_
+return size = 2 + _public_key_size_
+opensc add to this data OID of prime192v1 or prime256v1 curve.
+Use public key with "uncompressed" indicator (byte 04 at start)
+(size 49 for prime192v1 or size 65 for prime256v1)
+*/
+  uint8_t ret;
+  uint8_t *here = r->data;
+  uint8_t add = 2;
+
+  *here = tag;
+  here++;
+// check size
+  ret = fs_key_read_part (NULL, KEY_EC_PUBLIC);
+  DPRINT ("Public key len %d\n", ret);
+  if (ret == 0)
+    return S0x6985;		// conditions not satisfaied
+
+  if (ret > 128)
+    {
+      *here = 0x81;
+      here++;
+      add++;
+    }
+  *here = ret;
+  here++;
+
+  ret = fs_key_read_part (here, KEY_EC_PUBLIC);
+  if (ret == 0)
+    return S0x6985;		// conditions not satisfaied
+  return resp_ready (r, ret + add);
 }
 
 // generate key, file is already selected,
@@ -1342,9 +1476,15 @@ myeid_generate_key (uint8_t * message, struct iso7816_response * r)
   };
 
   // reuse r->data and message for ec param structure and fo pub_key structure
+#if MP_BYTES > 96
+#error MP_BYTES over 96, check all reused RAM spaces
+#endif
   struct pub_key *pub_key = (struct pub_key *) r->data;
+#if MP_BYTES > 48
+  struct ec_param *c = alloca (sizeof (struct ec_param));
+#else
   struct ec_param *c = (struct ec_param *) (message);
-
+#endif
 // get key size (from file size), now only EC keys are supported (192,256,384 bits)
   k_size = fs_get_file_size ();
   if (check_ec_key_file (k_size, type))
@@ -1355,7 +1495,7 @@ myeid_generate_key (uint8_t * message, struct iso7816_response * r)
   DPRINT ("Generating key, selected file 0x%04x, key size %d bits\n",
 	  fs_get_selected (), k_size);
 
-  if (0 == prepare_ec_param (c, &(pub_key->key), k_size / 8))
+  if (0 == prepare_ec_param (c, &(pub_key->key), (k_size + 7) / 8))
     {
       DPRINT ("Wrong EC parameteres\n");
       return S0x6985;		//    Conditions not satisfied
@@ -1394,12 +1534,7 @@ myeid_generate_key (uint8_t * message, struct iso7816_response * r)
 		       offsetof (struct pub_key, type));
   if (ret != S_RET_OK)
     return ret;
-  size++;
-  memcpy (r->data, &pub_key, size);
-  // public key TAG
-  r->data[0] = 0x86;
-  return resp_ready (r, size);
-
+  return ec_read_public_key (r, 0x86);
 }
 
 static uint8_t
@@ -1541,26 +1676,8 @@ myeid_get_data (uint8_t * message, struct iso7816_response * r)
 //read public key
     case 0x86:
       {
-	uint16_t ret;
-
 	DPRINT ("Reading public EC key\n");
-/*
-Return seq:
-0x30 0x__len__ _public_key_
-return size = 2 + _public_key_size_
-opensc add to this data OID of prime192v1 or prime256v1 curve.
-Use public key with "uncompressed" indicator (byte 04 at start)
-(size 49 for prime192v1 or size 65 for prime256v1)
-*/
-	// read public key (insert offset for seq 0x30, len)
-	ret = fs_key_read_part (r->data + 2, KEY_EC_PUBLIC);
-	DPRINT ("Public key len %d\n", ret);
-	if (ret == 0)
-	  return S0x6985;	// conditions not satisfaied
-	//correct first two bytes in response
-	r->data[0] = 0x30;
-	r->data[1] = ret;
-	return resp_ready (r, ret + 2);
+	return ec_read_public_key (r, 0x30);
       }
     default:
       return S0x6a88;		//Referenced data (data objects) not found

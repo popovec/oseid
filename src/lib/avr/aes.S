@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -515,6 +515,7 @@ L_aes_init:
 	movw	r28,r24	// STATE pointer in Y
 
 // allocate space on stack
+// plase read load_sp.h about SPL/SPH update
 
 	in	r31,0x3e
 #ifdef AES_RAM_SBOX

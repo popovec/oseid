@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -387,22 +387,35 @@ iso7816_update_binary (uint8_t * message)
   return_status (fs_update_binary (message + 4, (M_P1 << 8) | M_P2));
 }
 
+
 static void
 iso7816_erase_binary (uint8_t * message)
 {
   DPRINT ("%s %02x %02x\n", __FUNCTION__, M_P1, M_P2);
-  if (M_P1 > 0x80)
-    {
-      return_status (S0x6a86);	//Incorrect parameters P1-P2 -better alt  function not supported ?
-      return;
-    }
+
+// TODO: end of erased area can be specified in data field (LC=2)
+// data field then contain address of 1st unerased byte in file
+// do not add this function for now (due limited flash size)
+
+//  uint16_t end = 0x7fff;
+  uint16_t start;
+
+  start = (M_P1 << 8) | M_P2;
+/*
+  if (M_LC == 2)
+    end = (message[5] << 8) | message[6];
+  else */
   if (M_LC)
     {
       return_status (S0x6700);	//Incorrect length
       return;
     }
-
-  return_status (fs_erase_binary ((M_P1 << 8) | M_P2));
+  if ((start /*|end */ ) & 0x8000)
+    {
+      return_status (S0x6a86);	//Incorrect parameters P1-P2
+      return;
+    }
+  return_status (fs_erase_binary (start/*, end */ ));
 }
 
 static void
@@ -414,6 +427,7 @@ iso7816_delete_file (uint8_t * message)
       return_status (S0x6a86);	//Incorrect parameters P1-P2
       return;
     }
+  // TODO, LC==2, data field contain file ID to be deleted (ISO7816-/6.4.2.1)
   if (M_LC)
     {
       return_status (S0x6700);	//Incorrect length
@@ -601,7 +615,7 @@ command_class_normal (uint8_t * message)
     case 0x2e:
       deauthenticate (message);
       return;
-    case 0x44:
+    case 0x44:			// activate file
       return_status (myeid_activate_applet (message));
       return;
     case 0x46:
@@ -641,6 +655,17 @@ command_class_normal (uint8_t * message)
     case 0xe4:
       iso7816_delete_file (message);
       return;
+/* TODO
+    case 0xe6:
+      iso7816_terminate_df (message);	// terminate current DF LC=0
+      return;
+    case 0xe8:
+      iso7816_terminate_ef (message);	// terminate current EF LC=0
+      return;
+    case 0xfe:
+      iso7816_terminate_card (message);	// terminate card usage LC=0
+      return;
+*/
     }
   return_status (S0x6f00);	//no particular diagnostic
 }

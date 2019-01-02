@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -402,7 +402,7 @@ void __attribute__ ((weak)) bn_mod (void *result, void *mod)
 }
 
 /////////////////////////////////////////////////////////////////////
-#if 1				// please check code belov for odd modulus only
+#if 1				// please check code below for odd modulus only
 
 // set r = a^(-1) (mod m) this function can handle odd and even motulus, if
 // inversion does not exist return from this fcion is 1 otherwise 0.
@@ -468,7 +468,7 @@ uint16_t __attribute__ ((weak)) bn_count_bits (void *n)
 }
 
 // 0 - inversion exists
-// 1 - no iversion exists
+// 1 - no inversion exists
 uint8_t __attribute__ ((weak)) bn_inv_mod (void *result, void *a, void *m)
 {
   uint8_t bn_len = mod_len;
@@ -635,9 +635,9 @@ bn_is_1 (void *n)
 //set r = c^(-1) (mod p)
 
 // based on NIST, working only for odd modulus (usable in ECC code for prime
-// or order as "p").  Even modulus is not checked here, code can run in
-// never ending loop.
-#error Do notude this code, this code fail for RSA key calculation (because even modulus)
+// or order as "p").  Even modulus is not checked here, code can run into
+// never ending loop. This code fail for not coprime numbers too.
+#error Do not use this code, this code fail for RSA key calculation (because even modulus)
 
 uint8_t __attribute__ ((weak)) bn_inv_mod (void *r, void *c, void *p)
 {

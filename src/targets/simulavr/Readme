@@ -18,23 +18,27 @@ and compile binary for simulavr:
 
 $ make -f Makefile.simulavr
 
+or to compile simulated version for atmega1284p (more RAM, support for secp521r1)
+
+$ make -f Makefile.simulavr1284
 
 Then run as root:
 
 # build/simulavr/run_pcscd.sh
 
-on another console then run:
+on another console then run (as normal user or root):
 
 # avr-gdb -ex "target remote localhost:1212" build/simulavr/card.elf
 
-In avr-gdb next commands to start simulation:
+In avr-gdb use next commands to start simulation:
 
 (gdb) load
 (gdb) cont
 
 
 
-Simulated card is now available (after ~ 10 sec).. you can check this by running:
+Simulated card is now available (after ~ 10 sec)..  you can check this in
+another console by running:
 
 $ pcsc_scan
 
@@ -47,3 +51,237 @@ must be readed to return control into avr-gdb. Use for example:
 echo "00 a4 00 00 00" |scriptor
 
 to interrupt avr-gdb and get command line in avr-gdb.
+
+
+Example used to measure timing of ECDSA operation:
+--------------------------------------------------
+
+run simulation (as root):
+
+# build/simulavr/run_pcscd.sh
+
+in second console run (as normal user), avr-gdb, use 'load', 'list', 'break'
+and 'cont' commands to set breakpoints and run simulation
+
+
+$ avr-gdb -ex "target remote localhost:1212" build/simulavr/card.elf
+GNU gdb (GDB) 7.12.0.20161007-git
+Copyright (C) 2016 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.  Type "show copying"
+and "show warranty" for details.
+This GDB was configured as "--host=x86_64-linux-gnu --target=avr".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+<http://www.gnu.org/software/gdb/documentation/>.
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from build/simulavr/card.elf...done.
+Remote debugging using localhost:1212
+0x00000000 in __vectors ()
+(gdb) load
+Loading section .text, size 0xf840 lma 0x0
+Loading section .flash_end, size 0x100 lma 0x1ff00
+Start address 0x0, load size 63808
+Transfer rate: 391 KB/sec, 32 bytes/write.
+(gdb) list ecdsa_sign
+1240      return 1;
+1241    }
+1242
+1243    uint8_t
+1244    ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param * ec)
+1245    {
+1246      uint8_t i;
+1247      ec_point_t *R = &(ecsig->signature);
+1248
+1249      DPRINT ("%s\n", __FUNCTION__);
+(gdb)
+1250
+1251    // move private key into ecdsa_sig_t structure
+1252      bignum_t *k = &(ec->working_key);
+1253      memcpy (&(ecsig->priv_key), k, sizeof (bignum_t));
+1254
+1255      ec_set_param (ec);
+1256
+1257      for (i = 0; i < 5; i++)
+1258        {
+1259          // generate key
+(gdb)
+1260          if (ec_key_gener (R, ec))
+1261            continue;
+1262    // From generated temp public key only X coordinate is used
+1263    // as "r" value of result. "s" value is calculated:
+1264
+1265    // use r= x position of R, e = HASH, dA = private key
+1266    // k,R  temp key (private/public), n = field order
+1267    // s = (dA * r + e)/k  mod n
+1268
+1269          // signature = dA * r + e
+(gdb)
+1270          mul_mod (&(R->Y), &(ecsig->priv_key), &(R->X), &ec->order);
+1271          add_mod (&(R->Y), (bignum_t *) message, &ec->order);
+1272
+1273          mp_inv_mod (k, k, &ec->order);    // division by k
+1274          mul_mod (&(R->Y), k, &(R->Y), &ec->order);
+1275          if (!mp_is_zero (&(R->Y)))
+1276            return 0;
+1277          DPRINT ("repeating, s=0\n");
+1278        }
+1279      return 1;
+(gdb) break 1253
+Breakpoint 1 at 0x7e38: file card_os/ec.c, line 1253.
+(gdb) break 1275
+Breakpoint 2 at 0x7ea2: file card_os/ec.c, line 1275.
+(gdb) cont
+Continuing.
+
+
+Now use in another console OsEID-tool:
+
+$ ./OsEID-tool INIT
+$ ./OsEID-tool EC-GENERATE-KEYS
+$ ./OsEID-tool EC-SIGN-TEST
+
+Return back to root console (where 'build/simulavr/run_pcscd.sh' is
+running), after some time, message similar to next can be found in this console:
+
+decoder.c:737: MESSAGE: BREAK POINT: PC = 0x00003f1c: clock = 277425588
+
+Please copy 'clock' value into calculator, then return to avr-gdb and make program to continue:
+
+
+Breakpoint 1, ecdsa_sign (message=0x800208 <iso_response+264> "\203\237\177\345\224\023\371\301\335\236\272\302vn\306\"\275C\022N",
+    ecsig=0x803fc4, ec=0x803e5a) at card_os/ec.c:1253
+1253      memcpy (&(ecsig->priv_key), k, sizeof (bignum_t));
+(gdb) cont
+Continuing.
+
+
+after some time new message appears:
+
+
+Breakpoint 2, ecdsa_sign (message=0x800208 <iso_response+264> "\203\237\177\345\224\023\371\301\335\236\272\302vn\306\"\275C\022N",
+    ecsig=0x803fc4, ec=0x803e5a) at card_os/ec.c:1275
+1275          if (!mp_is_zero (&(R->Y)))
+(gdb)
+
+Now check root console, and get new 'clock' value into calculator:
+
+decoder.c:737: MESSAGE: BREAK POINT: PC = 0x00003f51: clock = 292806953
+
+Difference of clock cycles for ECDSA operation:
+
+292806953-277425588 = 15381365
+
+(In this example 192 bit key was used.)
+
+
+
+Simulavr/avr-gdb problems:
+--------------------------
+
+Handling separate FLASH and RAM space in AVR devices seems to be problem in
+avr-gdb.  Because RAM is mapped at address 0x800000 avr-gdb add this value
+to user specified value. This is visible in examine memory command:
+
+(gdb) x/64xb 0x400
+0x800400:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800408:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800410:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800418:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800420:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800428:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800430:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+0x800438:       0x00    0x00    0x00    0x00    0x00    0x00    0x00    0x00
+(gdb)
+
+
+Because of this handling, RAM is accessed instead FLASH even for commands,
+which should work with flash memory.
+
+For example:
+
+(gdb) disassemble 0x400
+No function contains specified address.
+(gdb)
+
+
+This problem can be solved by workarounds, please read
+https://sourceware.org/ml/gdb/2014-10/msg00142.html
+
+
+Here examples:
+
+(gdb) disassemble rsa_square_192
+No function contains specified address.
+(gdb)
+
+Workaround:
+
+(gdb) disassemble (void(*)())rsa_square_192
+Dump of assembler code for function rsa_square_192:
+   0x000030ec <+0>:     push    r2
+   0x000030ee <+2>:     push    r3
+   0x000030f0 <+4>:     push    r4
+
+
+Disassemble memory region:
+
+(gdb) disassemble (void(*)())0x28d6,(void(*)())0xffff
+
+
+(gdb) break 0x28d6
+Function "0x28d6" not defined.
+Make breakpoint pending on future shared library load? (y or [n]) n
+
+Workaround:
+
+(gdb) break  *(void(*)())0x28d6
+Breakpoint 1 at 0x28d6
+(gdb)
+
+
+Examine memory (FLASH):
+
+(gdb) x/64xb *(void(*)())0x100
+0x100 <constants+116>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x108 <constants+124>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x110 <constants+132>:  0xff    0xff    0xff    0x01    0x2b    0x42    0xfc    0xff
+0x118 <constants+140>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x120 <constants+148>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x128 <constants+156>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x130 <constants+164>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+0x138 <constants+172>:  0xff    0xff    0xff    0xff    0xff    0xff    0xff    0xff
+
+Examine memory (RAM):
+
+(gdb) x/64xb 0x100
+0x800100 <iso_response>:        0x74    0x65    0x73    0x74    0x74    0x65    0x73    0x74
+0x800108 <iso_response+8>:      0x74    0x65    0x73    0x74    0x74    0x65    0x73    0x74
+0x800110 <iso_response+16>:     0x74    0x65    0x73    0x74    0x0a    0xea    0x34    0xa3
+0x800118 <iso_response+24>:     0x18    0x69    0xe2    0xf3    0x75    0x6d    0x30    0x88
+0x800120 <iso_response+32>:     0x9a    0x3b    0x10    0x9e    0xb6    0x77    0xc2    0x80
+0x800128 <iso_response+40>:     0xcc    0x3c    0xb5    0x8f    0x63    0x7c    0x3f    0x84
+0x800130 <iso_response+48>:     0x0d    0x95    0x59    0xb9    0xf5    0x79    0xda    0x42
+0x800138 <iso_response+56>:     0xde    0x59    0x3f    0x77    0xfa    0x3d    0xb5    0x67
+
+
+Perhaps the most elaborate solution is to use macros which will give us the
+necessary casting of arguments.
+
+Here some macros:
+
+define avr_break
+	break *(void(*)()) $arg0
+end
+
+define avr_diss
+	 disassemble (void(*)()) $arg0,(void(*)()) 0xffff
+end
+
+Or You use predefined macro file from command line:
+
+$ avr-gdb -x targets/simulavr/gdb_macros -ex "target remote localhost:1212" build/simulavr/card.elf

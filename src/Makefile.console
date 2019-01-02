@@ -17,11 +17,17 @@ all:	$(BUILD)console $(BUILD)libOsEIDsim.so
 # exponentation window
 CFLAGS += -DE_BITS=4
 
+# ECC size (in bytes 24,32,48,72)
+CFLAGS += -DMP_BYTES=72
+
 # precalculate inverse P and Q into key file
 CFLAGS += -DUSE_P_Q_INV
 
 # enable exponent blinding
 CFLAGS += -DRSA_EXP_BLINDING
+
+# enable protection for single error in CRT
+CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
 .PHONY:	builddir all
 

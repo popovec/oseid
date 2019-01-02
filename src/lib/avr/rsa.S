@@ -24,8 +24,6 @@
 */
 
 
-// (uint8_t *result, uint8_t *t  uint8_t *n,  uint16_t n0)
-
 //Assembler code below is equivalent to C code in card_os/rsa.c
 
 /////////////////////////////////////////////////////////////////////////////
@@ -43,13 +41,14 @@
 
 // clock cycles:
 //  1024->512bits| 1536->768 | 2048->1024
-//    394998     |   868846  |  1527014
-
+// unrolled 8x
+//    262593     |   575021  |  1008281
 #define RESULT_PTR r14
 #define HELPER_PTR r16
 #define HELPER_PTR_H r17
-#define LOOP r18
+#define LOOP r1
 #define BYTES r19
+#define BYTES_1 r5
 #define INDEX r20
 #define	TMP0	r22
 #define TMP1	r23
@@ -61,11 +60,15 @@
 #define M_TABLE r12
 #define M_TABLEl r12
 #define M_TABLEh r13
+// normal unrol is 4x, if this is defined unrol is 8x (code size +34 bytes)
+#define UNROL
+
 mp_mod:
 rsa_mod:
 	push	r2
 	push	r3
-
+	push	r4
+	push	r5
 	push	r12
 	push	r13
 
@@ -97,6 +100,8 @@ rsa_mod:
 
 	lds	r24,mod_len
         mov     BYTES,r24
+	mov	BYTES_1,BYTES
+	inc	BYTES_1
 
         mov     LOOP,BYTES
 rsa_mod_init_loop_0:
@@ -113,8 +118,7 @@ rsa_mod_init_loop_1:
         adc     r31,r1
         adiw    r30,1
         movw    HELPER_PTR,r30  // save number end
-        mov     LOOP,BYTES
-        inc     LOOP
+        mov     LOOP,BYTES_1
 
         clc
 rsa_mod_init_loop_2:
@@ -142,6 +146,15 @@ rsa_mod_init_loop_3:
 //          ^                     ^
 //          M_TABLE               HELPER_PTR
 
+// copy low bytes from RESULT to HELPER
+	movw	r26,RESULT_PTR
+	movw	r30,HELPER_PTR
+	mov	LOOP,BYTES
+1:
+	ld	TMP0,X+
+	st	Z+,TMP0
+	dec	LOOP
+	brne	1b
 
 // init variables
 	clr	INDEX
@@ -153,23 +166,19 @@ rsa_mod_init_loop_3:
 // (always subtract, but change result pointer if  subtract generates carry)
 // check details in C version card_os/rsa.c
 	movw	r12,r28
+	mov	r4,BYTES
+	lsr	r4
+	lsr	r4
+#ifdef UNROL
+	lsr	r4
+#endif
+// 1st loop is diferent (one byte skipped)
+// M_TABLE index
+	ldi	r18,1
+	mov	LOOP,r4
+	rjmp	rsa_mod_subtract
+
 rsa_mod_calculate:
-// calculate position in M_TABLE
-	mov	r27,COUNTER
-	neg	r27
-	swap	r27
-	lsr	r27
-	andi	r27,7
-
-	mov	r26,BYTES
-	inc	r26
-
-	mul	r26,r27
-	movw	r28,r0
-	clr	r1
-	add	r28,r12
-	adc	r29,r13
-
 // set pointers
 	movw	r26,RESULT_PTR
 	sbrc	INDEX,0
@@ -179,32 +188,33 @@ rsa_mod_calculate:
 	sbrs	INDEX,0
 	movw	r30,HELPER_PTR
 
-// do not subtract zeros in operand
-	mov	LOOP,COUNTER_H
-	inc	LOOP
-	rjmp	rsa_mod_subtract0_
-rsa_mod_subtract0:
-	ld	TMP0,X+
-	st	Z+,TMP0
-rsa_mod_subtract0_:
-	dec	LOOP
-	brne	rsa_mod_subtract0
+// do not subtract zeros in operand (low part in modulus = zeros)
+	add	r30,COUNTER_H
+	adc	r31,LOOP	// ZERO
+	add	r26,COUNTER_H
+	adc	r27,LOOP	// ZERO
 
-	mov	LOOP,BYTES
-	lsr	LOOP
-	lsr	LOOP
+// calculate position in M_TABLE
+	mul	BYTES_1,r18
+	inc	r18
+	andi	r18,7
+	movw	r28,r0
 
-	cp	BYTES,COUNTER_H
-	clt
-	breq	rsa_mod_subtract
+	add	r28,r12
+	adc	r29,r13
+
+	mov	LOOP,r4
 
         ld      TMP0,X+
         ld      TMP1,Y+
         sbc     TMP0,TMP1
         st      Z+,TMP0
-
 rsa_mod_subtract:
-.rept	4
+#ifdef UNROL
+.rept	8
+#else
+.rept 	4
+#endif
 	ld	TMP0,X+
 	ld	TMP1,Y+
 	sbc	TMP0,TMP1
@@ -215,22 +225,20 @@ rsa_mod_subtract:
 
 // based on carry use new result .. (if not carry, HELPER is new RESULT)
 	sbci	INDEX,1
+	sbiw	COUNTER,32	// COUNTER is BYTES*256, not BYTES*8 -> 256/8=32)
+	brcc	rsa_mod_calculate
 
-	sbiw	COUNTER,32
-	brcs	rsa_mod_calculate_end
-	rjmp	rsa_mod_calculate
-
-rsa_mod_calculate_end:
+//rsa_mod_calculate_end:
 // copy proper result to real result
 	movw	r30,RESULT_PTR
 	sbrc	INDEX,0
 	movw	r30,HELPER_PTR
 	movw	r26,RESULT_PTR
-	mov	LOOP,BYTES
+
 rsa_mod_final_copy:
 	ld	r0,Z+
 	st	X+,r0
-	dec	LOOP
+	dec	BYTES
 	brne	rsa_mod_final_copy
 
 	in	r28,0x3d
@@ -247,9 +255,12 @@ rsa_mod_final_copy:
 
 	pop	r13
 	pop	r12
+	pop	r5
+	pop	r4
 	pop	r3
 	pop	r2
 	ret
+#undef UNROL
 #undef RESULT_PTR
 #undef HELPER_PTR
 #undef HELPER_PTR_H
@@ -266,6 +277,8 @@ rsa_mod_final_copy:
 	.global	rsa_inv_mod_N
 	.type	rsa_inv_mod_N,@function
 	.section .text.rsa_inv_mod_N,"ax",@progbits
+
+//void rsa_inv_mod_N (rsa_num * n_, rsa_num * modulus);
 
 #if RSA_BYTES > 256
 #error This code is designed for RSA_BYTES <=256
@@ -367,9 +380,10 @@ rsa_inv_mod_full_add_loop:
 	st	Z+,r21
 	dec	r1
 	brne	rsa_inv_mod_full_add_loop
+
 	sub	r28,r18
 	sbc	r29,r1
-rsa_inv_mod_full_skip:
+
 	add	r28,r23
 	adc	r29,r1
 // rotate mask
@@ -388,11 +402,12 @@ rsa_inv_mod_full_skip:
 	dec	r22
 	brne	rsa_inv_mod_full_byte_loop
 
-// return stack back
-	in	r28,0x3d
-	in	r29,0x3e
-	subi	r28,lo8(-(ALLOC))
-	sbci	r29,hi8(-(ALLOC))
+// return stack back (r28,r29 is already loaded from SP)
+// but incremented by one
+//	in	r28,0x3d
+//	in	r29,0x3e
+	subi	r28,lo8(-(ALLOC-1))
+	sbci	r29,hi8(-(ALLOC-1))
 	LOAD_SP	r0, r28,r29
 
 	pop	r29
@@ -485,6 +500,7 @@ monPro0_add_loop_b:
 
 // add and sub carry in bit 0 and CY, do XOR
 	adc	r24,r1	// 00 ->0 10 -> 1 01 ->1 11 ->0
+	com	r24
 	andi	r24,1
 
 	pop	r29
@@ -581,7 +597,7 @@ bn_count_bits:
 #define Ul r14
 #define TMP r18
 #define TMPh r19
-
+#include "../../card_os/constants.h"
 prime_gcd:
 	movw	r30,r24	// number position
 	push	r12
@@ -625,7 +641,7 @@ prime_gcd:
 	brne	1b
 // load constant
 	movw	r24,Ul
-	ldi	r22,15	//N_GCD_PRIMES
+	ldi	r22,N_GCD_PRIMES
 	call	get_constant
 
 // TMP variable pointer

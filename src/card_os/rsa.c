@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,23 +21,35 @@
     montgomery modular arithmetics
 
 
-Algorhithm is based on:
+Algorithm is based on:
 http://www.di-mgt.com.au/crt_rsa.html
-(local copy internet_sources/www.di-mgt.com.au/crt_rsa.html)
 and ftp://ftp.rsasecurity.com/pub/pdfs/tr201.pdf
-(local copy internet_sources/tr201.pdf)
 
-It uses Montgomery exponentation and Chinese remainder algorithms.
+WARNING! it is designed for slow 8 bit CPU with minimal RAM.
 
-WARNING! it is designed to slow 8 bit CPU!
+Code uses Montgomery exponentiation and Chinese remainder algorithms (CRT).
 
-Implementation does NOT message blinding, message blinding is only experimental and
-by default disabled, DPA attack is posible.
+There are several side channel protections to generally known attacks to RSA
+cryptosystem:
 
-All operation are designed to run in constant time (only asm version for atmega 128).
-SPA attack is prevented by 5,4 or 2 bits exponentations.
+- RSA operation is running in constant time, fixed size window (2,4 or 5
+  bits) is used in exponentiation.  (Constant time is guaranteed only if code
+  is compiled with AVR ASM routines for BN arithmetics)
 
-There is no code for RSA key generation.
+- Exponent is blinded (24 bit of random data per exponentiation)
+
+- CRT calculation is protected againts Bellcore attack (single error attack)
+   (recombination and modulo operation is not protected, but injecting fault
+   precisely into this point is very difficult)
+
+Implementation does NOT use message blinding, but due constant time of operation
+(no sliding window), it is not possible to use known attacks which could
+work due to the absence of a message blinding.
+
+Public exponent is (for now) limited to value 65537.  The single error
+checking procedure accepts primes in form 2^n + 1, up to n=255, but only n=16
+is hardcoded in code.  Same public exponent 65537 is hardcoded in RSA key
+generation routine.
 
 */
 #ifdef RSA_DEBUG
@@ -54,16 +66,6 @@ There is no code for RSA key generation.
 #include "rnd.h"
 #include "bn_lib.h"
 #include "constants.h"
-// On microcontroler like atmega no dynamic allocation is available (small
-// ram, overhead for allocator etc).  all RSA values are stored in two types
-// of variables (defined in rsa.h) rsa_num and rsa_long_num.  rsa_num must
-// hold same bitlen as RSA modulus (for 2048 bite key 2048 bits = 128 bytes)
-// length is defined in RSA_BYTES (check rsa.h)
-//
-// Arithmetic routines uses only a part of variable, length of actual modulus
-// for arithmetic operation can be detected by function rsa_get_len()
-// Set of this variable is by function rsa_set_len() (size is 128 for 2048 bits)
-//
 
 /////////////////////////////////////////////////////////////////////
 // adaptation layer to bn_lib
@@ -429,7 +431,7 @@ rsa_mul (rsa_long_num * r, rsa_num * a, rsa_num * b)
 //////////////////////////////////////////////////
 
 // montgomery multiplication need n_ to reduce product into range 0 .. n-1
-// For this, variable r is set as 2^w , r>n. (please red details in montgomery
+// For this, variable r is set as 2^w , r>n. (please read details in montgomery
 // multiplication related literature)
 
 // Here calculation of n_ is based on:
@@ -499,7 +501,10 @@ void __attribute__ ((weak)) rsa_inv_mod_N (rsa_num * n_, rsa_num * modulus)
 }
 #endif // table variant
 
+// do montgomery modular reduction on variable 't'
+// n = modulus, n0 = n_ (from  r* r^-1 - n * n_ = 1)
 
+// return 0/1 (index of t/help1, result is in upper part of rsa_long_num)
 uint8_t __attribute__ ((weak))
 monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * help1, rsa_num * n,
 	 rsa_num * n0)
@@ -515,10 +520,12 @@ monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * help1, rsa_num * n,
     rsa_sub ((rsa_num *) & t->value[rsa_get_len ()],
 	     (rsa_num *) & help1->value[rsa_get_len ()], n);
 
-  return carry ? 1 : 0;
+  return carry ? 0 : 1;
 }
 
 ////////////////////////////////////////////////////
+// square A and do reduction into upper part off result1/2
+//                 tmp         result1             result2/A
 static uint8_t
 monPro_square (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp,
 	       rsa_num * n, rsa_num * n0)
@@ -527,7 +534,8 @@ monPro_square (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp,
   return monPro0 (a, t, tmp, n, n0);
 }
 
-// result (reduced), 1st multiplier, 2nd multiplier, tmp (free tmp space) , modulus, modulus^-1^
+// muliply B * upper part A, do reduction into upper part of result1/2
+//             tmp    B           result1           result2/A
 static uint8_t
 monPro (rsa_num * a, rsa_num * b, rsa_long_num * t, rsa_long_num * tmp,
 	rsa_num * n, rsa_num * n0)
@@ -536,16 +544,16 @@ monPro (rsa_num * a, rsa_num * b, rsa_long_num * t, rsa_long_num * tmp,
   return monPro0 (a, t, tmp, n, n0);
 }
 
+// multiply  1*A, do reduction into upper part of result1/2
+//                 tmp    result1        result2/A
 static uint8_t
-monPro_1 (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp, rsa_num * n,
-	  rsa_num * n0)
+monPro_1 (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp,
+	  rsa_num * n, rsa_num * n0)
 {
   // clear upper part of t
   memset (&(t->value[rsa_get_len ()]), 0, rsa_get_len ());
-  // copy a (a*1)
+  // copy A (A*1)
   memcpy (t, &tmp->value[rsa_get_len ()], rsa_get_len ());
-
-  // calculate product
   return monPro0 (a, t, tmp, n, n0);
 }
 
@@ -562,7 +570,7 @@ Key length      CRT exponentation	Ebits 4	   Ebits 5  Ebits 6
 2048             1024                   270/2k     235/4k >>233/8k<<
 
 
-because ATMEGA 128 RAM is small, 5 bits are used only for 1024 keys,(atmega1284 with 8k ram can be used with 5 bits )
+because ATMEGA 128 RAM is small, 5 bits are used only for 1024 keys,(atmega1284 with 16k RAM can be used with 5 bits )
 for 1536 and 2048 only 4 bits..Next code is only for 2 or 4 bites, 5 bits only for devices with 8kB and more ram..
 */
 #ifndef E_BITS
@@ -592,15 +600,28 @@ get_bits5 (rsa_exp_num * exp, uint16_t count)
   return sample & 0x1f;
 }
 #endif
-static void
+
+/* x_ is original input number to exponentiate (not in Montgomery format)
+   in x_ exponentation result is returned
+   test: 0 - no check by public exponent
+         1 - test with pub exponent 2^1 + 1 = 3
+         16 -                       2^16+1  = 65537
+*/
+static uint8_t
 rsaExpMod_montgomery (rsa_num * x_, rsa_exp_num * exp, rsa_num * modulus,
-		      rsa_num * n0, rsa_long_num t[2], uint16_t count)
+		      rsa_num * n0, rsa_long_num t[2], uint16_t count,
+		      uint8_t test)
 {
   rsa_num M_[1 << E_BITS];
-
   uint8_t e, j, k, v;
 #if E_BITS != 5
   int16_t i;
+#endif
+
+#ifdef PREVENT_CRT_SINGLE_ERROR
+// save input into check variable
+  rsa_num check;
+  memcpy (&check, x_, RSA_BYTES);
 #endif
 
 // copy:  1  *  r mod MODULUS   and
@@ -633,57 +654,26 @@ rsaExpMod_montgomery (rsa_num * x_, rsa_exp_num * exp, rsa_num * modulus,
 
   // precompute rest of table
   for (j = 2; j < (1 << E_BITS); j++)
-    memcpy (&M_[j], &M_[1], rsa_get_len ());
-
-  for (j = 2; j < (1 << E_BITS); j++)
     {
-      memcpy (&t[1].value[rsa_get_len ()], &M_[j], rsa_get_len ());
-      v = monPro (&M_[j], &M_[j - 1], &t[0], &t[1], modulus, n0);
-      memcpy (&M_[j], &t[v].value[rsa_get_len ()], rsa_get_len ());
+      memcpy (&t[1].value[rsa_get_len ()], &M_[1], rsa_get_len ());
+      v = monPro (x_, &M_[j - 1], &t[0], &t[1], modulus, n0);
+      memcpy (&M_[j], &t[v ^ 1].value[rsa_get_len ()], rsa_get_len ());
     }
 
-  memset (t, 0, 4 * RSA_BYTES);
   memcpy (&t[1].value[rsa_get_len ()], &M_[0], RSA_BYTES);
-
-#ifdef RSA_DEBUG
-  DPRINT ("t0=");
-  print_rsa_long_num (&t[0]);
-  DPRINT ("\n");
-  DPRINT ("t1=");
-  print_rsa_long_num (&t[1]);
-  DPRINT ("\n");
-  DPRINT ("x_ = ");
-  print_rsa_num (x_);
-  DPRINT ("\n");
-#endif
-
   v = 0;
-
-
+// small speed up can be achieved by skipping 1st multiplication
+// (load M_[x] into t[1]) but code is then bigger
 #if E_BITS == 5
   for (;;)
     {
       count -= E_BITS;
       e = get_bits5 (exp, count);
-      v += monPro (x_, &M_[e], &t[v & 1], &t[(v + 1) & 1], modulus, n0);
-      v++;
+      v ^= monPro (x_, &M_[e], &t[v], &t[v ^ 1], modulus, n0);
       if (count == 0)
-	{
-	  v += monPro_1 (x_, &t[v & 1], &t[(v + 1) & 1], modulus, n0);
-	  memcpy (x_, &t[v & 1].value[rsa_get_len ()], rsa_get_len ());
-
-#ifdef RSA_DEBUG
-	  DPRINT ("exponentation result: ");
-	  print_rsa_num (x_);
-	  DPRINT ("\n");
-#endif
-	  return;
-	}
+	break;
       for (k = 0; k < E_BITS; k++)
-	{
-	  v += monPro_square (x_, &t[v & 1], &t[(v + 1) & 1], modulus, n0);
-	  v++;
-	}
+	v ^= monPro_square (x_, &t[v], &t[v ^ 1], modulus, n0);
     }
 #else
   // exponentation..
@@ -693,33 +683,65 @@ rsaExpMod_montgomery (rsa_num * x_, rsa_exp_num * exp, rsa_num * modulus,
       e = exp->value[--i];
       for (j = 0; j < 8; j += E_BITS)
 	{
-	  v +=
-	    monPro (x_, &M_[e >> (8 - E_BITS)], &t[v & 1],
-		    &t[(v + 1) & 1], modulus, n0);
-	  v++;
+	  v ^=
+	    monPro (x_, &M_[e >> (8 - E_BITS)], &t[v],
+		    &t[v ^ 1], modulus, n0);
 	  count -= E_BITS;
 	  if (count == 0)
-	    {
-	      v += monPro_1 (x_, &t[v & 1], &t[(v + 1) & 1], modulus, n0);
-	      memcpy (x_, &t[v & 1].value[rsa_get_len ()], rsa_get_len ());
+	    goto rsaExpMod_montgomery_ok;
 
-#ifdef RSA_DEBUG
-	      DPRINT ("exponentation result: ");
-	      print_rsa_num (x_);
-	      DPRINT ("\n");
-#endif
-	      return;
-	    }
 	  for (k = 0; k < E_BITS; k++)
-	    {
-	      v +=
-		monPro_square (x_, &t[v & 1], &t[(v + 1) & 1], modulus, n0);
-	      v++;
-	    }
+	    v ^= monPro_square (x_, &t[v], &t[v ^ 1], modulus, n0);
 	  e <<= E_BITS;
 	}
     }
 #endif
+rsaExpMod_montgomery_ok:
+#ifdef PREVENT_CRT_SINGLE_ERROR
+  if (test)
+    {
+// Single error check
+// save result (not final) to exponent
+      memcpy (exp, &t[v ^ 1].value[rsa_get_len ()], RSA_BYTES);
+
+// check result with public exponent
+      for (k = 0; k < test; k++)
+	v ^= monPro_square (x_, &t[v], &t[v ^ 1], modulus, n0);
+      v ^= monPro (x_, (rsa_num *) exp, &t[v], &t[v ^ 1], modulus, n0);
+      v ^= monPro_1 (x_, &t[v], &t[v ^ 1], modulus, n0);
+// compare
+      if (memcmp (&check, &t[v ^ 1].value[rsa_get_len ()], rsa_get_len ()))
+	return 1;
+// last step is calculated 2x
+
+// return (not final) result back
+      memcpy (&t[v ^ 1].value[rsa_get_len ()], exp, RSA_BYTES);
+      v ^= monPro_1 (x_, &t[v], &t[v ^ 1], modulus, n0);
+      memcpy (&check, &t[v ^ 1].value[rsa_get_len ()], rsa_get_len ());
+// repeat this step
+      memcpy (&t[v ^ 1].value[rsa_get_len ()], exp, RSA_BYTES);
+    }
+#endif
+
+  v ^= monPro_1 (x_, &t[v], &t[v ^ 1], modulus, n0);
+  memcpy (x_, &t[v ^ 1].value[rsa_get_len ()], rsa_get_len ());
+
+#ifdef PREVENT_CRT_SINGLE_ERROR
+  if (test)
+    {
+      // final result (multiplication by 1) is calculated 2x,
+      // compare to prevent single error in this step
+      if (memcmp (&check, x_, rsa_get_len ()))
+	return 1;
+    }
+#endif
+
+#ifdef RSA_DEBUG
+  DPRINT ("exponentation result: ");
+  print_rsa_num (x_);
+  DPRINT ("\n");
+#endif
+  return 0;
 }
 
 // for 5 bit window there is one more byte accessed after exponent
@@ -816,13 +838,13 @@ static uint8_t
   // 'R' is in form 2 pow 'k', usualy minimal 'k' is selected to get 'modulus' < 'R'
   // 'modulus' < 'R' < 2*'modulus', 'R' mod 'modulus' = 'R' - 'modulus'
   // but this is true for bigger 'k' too
-  // generally:  2 pow 'k' mod M = 2 pow 'k' - 'M'  mod 'M' - thisis enough to get
+  // generally:  2 pow 'k' mod M = 2 pow 'k' - 'M'  mod 'M' - this is enough to get
   // 1*R mod 'modulus' into rsa_get_len() bytes
   // here negation of modulus is used to get 'R' - 'modulus'
   // (negation uses rsa_get_len() to get 'k')
 #if 1
-  memcpy(&t[0], modulus, RSA_BYTES);
-  bn_neg(&t[0]);
+  memcpy (&t[0], modulus, RSA_BYTES);
+  bn_neg (&t[0]);
 
 #else
   t[0].value[rsa_get_len ()] = 1;
@@ -840,105 +862,10 @@ static uint8_t
 }
 
 /******************************************************************
-Minimalize memory usage:
-
-already allocated (before rsa_calculate() call)
-
-256 byte data
-256 byte result
-
-(RSA_BYTES = 128)
-struct RSA
-  128  p
-  128  q
-  128  dP
-  128  dQ
-  128 qInv
------------------------------------------ 1152 bytes sum = 1152
-
-result = data mod P
-data   = data mod Q
-
-data and result - we need only lower 128 bytes, combine two 128 bytes
-value into one 256 variable ("result") and get "data" free;
-
-Reuse "data" as "t" variable (used as result for rsa_mul in monPro)
-
-Exponentation:
-Input 128 byte, modulus (128 bytes), private exponent (128 bytes)
-Allocate 16*128 table
------------------------------------------ 2048 bytes  sum = 3200
-
-rsa_mul then call rsa_mul_1024 ----------- 128 bytes
-             call rsa_mul_512  -------------64 bytes
-             call rsa_mul_256  -------------58 bytes
-
-new API:
-rsa->data  - input message 		256
-rsa->result                		256
-
-load q  into TMP1
-calculate data mod q to "result_high"
-
-load p  into TMP1                       128
-calculate data mod p to "result_low"
-
-load dP  into "data_low"
-calculate n_  "data_high"
-
-call exponentation with:
-     message       exponent    n_         modulus
-    "result_low", "data_low", "data_high", TMP1
-// output to "result_low"
-{
-allocate 16x 128 bytes                  2048
-
-mul/square message to get temp result    256
-
-in mul/square (1024 bites) max                 300
-
-reduction:
-allocate buffer to get result of monPro multiplication
-                                         256
-mul                                            300
-
-}
-
-load q into  TMP1
-load dP  into "data_low"
-calculate n_  "data_high"
-
-call exponentation with:
-     message       exponent    n_         modulus
-    "result_high", "data_low", "data_high", TMP1
-// output to "result_high"
-{
-
-
-
-}
-
-subtract "result_low" - "result_high" into TMP1
-to get m12
-at this moment "result_low" can be reused
-
-load qInv into "result_low"
-multiply "result_low" * m12 into "data"
-load "p" into "result_low"
-
-reduce data by "result_low" to get "data_low" = "h"
-move "h" into TMP1
-
-load q into "result_low"
-multiply q,h into "data"
-
-add "result_high" to "data"
-
-copy "data" to "result"
-
-
 *******************************************************************/
 /// result = 0 if all ok, or error code
+// Warning, code is designed to run in 4kB RAM in atmega 128, most
+// variables are reused
 
 uint8_t
 rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
@@ -949,17 +876,16 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 
   rsa_long_num t[2];
 
+#define H (&t[0])
 #define TMP1 tmp
 #define TMP2 (rsa_num *)(&result[rsa_get_len()])
 #define TMP3 (rsa_num *)(&data[rsa_get_len()])
 
 #define M_P (rsa_long_num *)(&result[0])
 #define M_Q (rsa_long_num *)(&data[0])
-#define DATA M_Q
-#define M_MOD_P (rsa_num *)(&result[0])
-#define M_MOD_Q (rsa_num *)(&data[0])
-#define M1 M_MOD_P
-#define M2 M_MOD_Q
+
+#define M1 (rsa_num *)(&result[0])
+#define M2 (rsa_num *)(&data[0])
 
 // some safety checks
   if (data == result)
@@ -974,7 +900,6 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
   memcpy (result, data, rsa_get_len () * 2);
 
 // calculate message modulo p
-  memset (TMP1, 0, RSA_BYTES);
   if (size != get_rsa_key_part (TMP1, KEY_RSA_p))
     {
       DPRINT ("ERROR, unable to get (p) part of key\n");
@@ -988,7 +913,6 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
   rsa_mod (M_P, TMP1);
 
 // calculate message modulo q
-  memset (TMP1, 0, RSA_BYTES);
   if (size != get_rsa_key_part (TMP1, KEY_RSA_q))
     {
       DPRINT ("ERROR, unable to get (q) part of key\n");
@@ -996,12 +920,14 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
     }
   if (!(tmp->value[0] & 1))
     {
-      DPRINT ("ERROR, rsa prime (p) not odd\n");
+      DPRINT ("ERROR, rsa prime (q) not odd (%02x)\n", tmp->value[0]);
       return Re_Q_EVEN_1;
     }
   rsa_mod (M_Q, TMP1);
 
+// save Q
   memcpy (TMP3, TMP1, RSA_BYTES);
+
   memset (TMP1, 0, sizeof (rsa_exp_num));
   if (size != get_rsa_key_part (TMP1, KEY_RSA_dQ))
     {
@@ -1012,12 +938,13 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 // calculate msg * R mod modulus,
 // calculate 1 * R mod modulus (or get this from key file),
 // calculate n' (or get this from key file)
+#warning, fixed public exponent
   if (rsaExpMod_montgomery_init (t, TMP3, TMP2, M2, KEY_RSA_q))
     return Re_Q_GET_FAIL_1;
-//                   mesage,exponent,modulus,n'
-  rsaExpMod_montgomery (M2, &exponent, TMP3, TMP2, t, count);
+//                   mesage,exponent,modulus,n', public exponent (2^16+1)
+  if (rsaExpMod_montgomery (M2, &exponent, TMP3, TMP2, t, count, 16))
+    return Re_Q_Single_Error;
 
-  memset (TMP3, 0, RSA_BYTES);
   if (size != get_rsa_key_part (TMP3, KEY_RSA_p))
     {
       DPRINT ("ERROR, unable to get (p) part of key\n");
@@ -1033,66 +960,38 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 
   count = rsaExpMod_montgomery_eblind (t, &exponent, TMP3);
 // calculate msg * R mod modulus,
-// calculate 1 * R mod modulus (or get this from key file),
 // calculate n' (or get this from key file)
   if (rsaExpMod_montgomery_init (t, TMP3, TMP2, M1, KEY_RSA_p))
     return Re_P_GET_FAIL_3;
-//                   mesage,exponent,modulus,n'
-  rsaExpMod_montgomery (M1, &exponent, TMP3, TMP2, t, count);
+#warning, fixed public exponent
+//                   mesage,exponent,modulus,n', public exponent (2^16+1)
+  if (rsaExpMod_montgomery (M1, &exponent, TMP3, TMP2, t, count, 16))
+    return Re_R_Single_Error;
 
-  memset (TMP3, 0, RSA_BYTES);
-  if (size != get_rsa_key_part (TMP3, KEY_RSA_p))
-    {
-      DPRINT ("ERROR, unable to get (p) part of key\n");
-      return Re_P_GET_FAIL_3;
-    }
-  {
-    uint8_t carry;
+// prime P is already loaded in TMP3
+// Garner's recombination
+//  m1 - m2
+  bn_sub_mod (M1, M2, TMP3);
 
-    //keep  constant time
-    carry = rsa_sub (TMP2, M1, M2);
-    rsa_add (TMP3, TMP2);
-    if (carry)
-      memcpy (TMP1, TMP3, RSA_BYTES);
-    else
-      memcpy (TMP1, TMP2, RSA_BYTES);
-  }
-
-// multiply and reduce qInv.(m1 - m2)
-
-  memset (TMP3, 0, RSA_BYTES);
-  if (0 == get_rsa_key_part (TMP3, KEY_RSA_qInv))
+// multiply and reduce h = qInv.(m1 - m2) mod p
+  if (0 == get_rsa_key_part (TMP1, KEY_RSA_qInv))
     {
       DPRINT ("ERROR, unable to get (qInv) part of key\n");
       return Re_qInv_GET_FAIL_1;
     }
-  rsa_mul (M_P, TMP3, TMP1);
+  rsa_mul (H, TMP1, M1);
+  rsa_mod (H, TMP3);
 
-  memset (TMP3, 0, RSA_BYTES);
-  if (size != get_rsa_key_part (TMP3, KEY_RSA_p))
-    {
-      DPRINT ("ERROR, unable to get (p) part of key\n");
-      return Re_P_GET_FAIL_4;
-    }
-  rsa_mod (M_P, TMP3);
-
-  memcpy (TMP3, M1, RSA_BYTES);
-
-  memset (TMP1, 0, RSA_BYTES);
+// calculate M_P= h * q
   if (size != get_rsa_key_part (TMP1, KEY_RSA_q))
     {
       DPRINT ("ERROR, unable to get (q) part of key\n");
       return Re_Q_GET_FAIL_2;
     }
-  rsa_mul (M_P, TMP3, TMP1);
+  rsa_mul (M_P, (rsa_num *) H, TMP1);
 
-// prepare zero for propagating carry
-  memset (TMP1, 0, RSA_BYTES);
-  // calculate final m =  m2 + (h*q)
-  tmp->value[0] = rsa_add (M1, M2);
-
-  // propagate carry to upper bits of 'm'
-  rsa_add (TMP2, TMP1);
+  memset (TMP3, 0, RSA_BYTES);
+  rsa_add_long (M_P, M_Q);
 
 #ifdef RSA_DEBUG
   DPRINT ("final result:\n");
@@ -1100,6 +999,7 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
   DPRINT ("\n");
 #endif
   return 0;
+#undef H
 }
 
 // if some of code is not explained in comments, please check
@@ -1143,7 +1043,7 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
   DPRINT ("\n");
 #endif
 
-// calculate number of loops (baed on bit len of prime)
+// calculate number of loops (based on bit len of prime)
 // 3 runs for 1024 bit, 6 runs for 512, 12 runs for 256 bit ..
 
   i = 0, count = bn_real_bit_len;
@@ -1179,13 +1079,20 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
       // but here t[0] is used in rsaExpMod_montgomery() and
       // no other space is available
       memset (&t[0], 0, RSA_BYTES * 4);
+#if 1
+      memcpy (&t[0], n, RSA_BYTES);
+      bn_neg (&t[0]);
+#else
       t[0].value[rsa_get_len ()] = 1;
       rsa_mod (&t[0], n);
+#endif
+
       memcpy (&t[1].value[rsa_get_len ()], a, rsa_get_len ());
       rsa_mod (&t[1], n);
 
 //    "a" = "a" pow "e" mod "n"  (n_, t=temp space, count=number of exp. bits)
-      rsaExpMod_montgomery (a, &exponent, n, n_, t, count);
+//    do not check exponentation here (public exponent set to 0)
+      rsaExpMod_montgomery (a, &exponent, n, n_, t, count, 0);
 
 // test if "a"==1 invert bit 1 in "a" to use bn_test_zero()
       a->value[0] ^= 1;

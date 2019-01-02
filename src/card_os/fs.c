@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -202,32 +202,102 @@ set_lifecycle (uint8_t lc)
 			    offsetof (struct sec_device, lifecycle), 1);
 }
 
+static uint8_t
+is_DF (struct fs_response *entry)
+{
+  return (0xbf & entry->fs.type) == 0x38;
+}
 
 // search file - parametric function based on "type" - most complicated routine to parse directory
 // For lot of ISO7816 select types is here function to get propper file.
 //
-// functions by TYPE:
+// functions by TYPE: (bits 7,6 reserved for "select" functions!)
 //
 #define S_LIST_ALL 3
 
+/* not used for now
+// search MF
+// entry -
+// id    -
+// data  -
+// type  - S_MF
+#define S_MF	  4
+*/
+
 // search for P1=0, P2=0, LC=2
+// from iso 7816-4/7.1.1:
+// file identifier shall be unique in the following three environments: the
+// immediate children of the current DF, the parent DF and the immediate
+// children of the parent DF.
+
 // (first check children, then parent and then neighborhood of selected file
-#define S_0	  4
+// entry - must be filled with DF data of the current DF
+// id    - searched ID
+// data  -
+// type  - S_0
+#define S_0	  5
 // search for P1=1, P2=0, LC=2
-#define S_DF	  5
+// entry - must be filled with DF data of the current DF
+// id    - searched ID
+// data  -
+// type  - S_DF
+#define S_DF	  6
 // search for P1=2, P2=0, LC=2
-#define S_EF	  6
+// entry - must be filled with DF data of the current DF
+// id    - searched ID
+// data  -
+// type  - S_EF
+#define S_EF	  7
 // search for P1=8/9, P2=0, LC=2..254
-#define S_PATH    7
-// search for P1=3, P2=0, LC=2
-#define S_PARENT  8
+#define S_PATH    8
+
+// SEARCH PARENT (slightly different from SELECT PARENT, parent of EF can be searched too)
+// entry - must be filled with EF or DF data whose parent is searched
+// id    - not relevant
+// data  - not relevant (NULL)
+// type  - S_PARENT
+#define S_PARENT  9
 
 // file create need detect colision of ID under children and need maximal UUID
 // this function return RET_SEARCH_END if no colision is detected (entry then contain correct uuid)
-// or return on colision RET_SEARCH_OK is returned.
-#define S_MAX     9
+// or return on colision RET_SEARCH_OK is returned. Here parent and the immediate children of the parent DF
+// are not tested, because ISO7816 this explicitly does not need (here is formulation "shall be" .. )
+// entry - not relevant (will be filled with data witch colided object (EF/DF) or end of filesystem
+// id    - ID for test, if there is any colision
+// data  - not relevant (NULL)
+// type  - S_MAX
+// RETURN - RET_SEARCH_END or RET_SEARCH_OK = colision
+#define S_MAX     10
 
-#define	S_NAME	  10
+// SEARCH for DF name:
+// entry - not relevant (will be filled with data about searched DF if found)
+// id    - not relevant
+// data  - 1st byte must  match range 1..16 inclusive, rest bytes: filename (caller is responsible for correct values)
+// type  - S_NAME
+// if name is found, function return RET_SEARCH_OK, "entry" is filled.
+#define	S_NAME	  11
+
+// search 1st DF
+// entry - must be filled with DF data of the current DF
+// id    - not relevant
+// data  - not relevant (NULL)
+// type  - S_1stDF
+#define S_1stDF	  12
+
+// search 1st EF
+// entry - must be filled with DF data of the current DF
+// id    - not relevant
+// data  - not relevant (NULL)
+// type  - S_1stDF
+#define S_1stEF	  13
+
+// search deleted space
+// entry - not relevant (id if entry is set ti "offset",  mem_offset is set to end ..)
+// id    - not relevant
+// data  - not relevant (NULL)
+// type  - S_SPACE
+#define S_SPACE   14
+
 
 #define RET_SEARCH_FAIL 2
 #define RET_SEARCH_END  1
@@ -247,6 +317,7 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
   uint8_t data_count = 0;
   uint8_t fname[16];
   uint16_t code = id;
+  uint16_t offset = 0;
 
   DPRINT
     ("%s searched ID %04x, parameters: uuid %04x parent ID %04x type=%d\n",
@@ -277,12 +348,22 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	 __FUNCTION__, id, response.fs.id, response.fs.uuid,
 	 response.fs.parent_uuid, response.fs.active ? "" : "deleted");
 
+      // skip deleted files
       if (!(response.fs.active))
-	goto fs_search_file_cont;
-
+	{
+	  if (offset == 0)
+	    offset = response.mem_offset;
+	  goto fs_search_file_cont;
+	}
+      offset = 0;
       // test for FS end
       if (response.fs.id == 0xffff)
 	{
+	  if (type == S_SPACE)
+	    {
+	      response.fs.id = offset;
+	      goto fs_search_file_ok;
+	    }
 	  // not succesfull search, fill maximal uuid
 	  if (type == S_MAX)
 	    {
@@ -306,20 +387,17 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
       // calculate maximal uuid
       if (max_uuid < response.fs.uuid)
 	max_uuid = response.fs.uuid;
-
+      // test parent (of EF or DF)
       if (type == S_PARENT)
 	{
-	  if (response.fs.uuid == p_uuid)
-	    {
-	      DPRINT ("%s PARENT ok\n", __FUNCTION__);
-	      goto fs_search_file_ok;
-	    }
-	  goto fs_search_file_cont;
+	  if (response.fs.uuid != p_uuid)
+	    goto fs_search_file_cont;
+	  DPRINT ("%s PARENT ok\n", __FUNCTION__);
+	  goto fs_search_file_ok;
 	}
-      // generate list if needed
+      // generate list if needed (assumes search run on DF)
       if (type == S_LIST_ALL)
 	{
-
 	  uint8_t ftype = code >> 8;
 	  uint8_t fmask = code & 255;
 
@@ -349,12 +427,34 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	    }
 	  goto fs_search_file_cont;
 	}
-      // search colision, DF, EF, path search
-      if (response.fs.id == id)
+// check if this ID is child of current DF
+      if (response.fs.parent_uuid == uuid)
 	{
-	  DPRINT ("%s id match %04x\n", __FUNCTION__, id);
-	  if (response.fs.parent_uuid == uuid)
+	  // DF ?
+	  if ((response.fs.type & 0xbf) == 0x38)
 	    {
+	      // search 1st DF in current DF
+	      if (type == S_1stDF)
+		goto fs_search_file_ok;
+	      if (type == S_DF)
+		// check if ID match
+		if (response.fs.id == id)
+		  goto fs_search_file_ok;
+	    }
+	  else
+	    {
+	      // search 1st EF in current EF
+	      if (type == S_1stEF)
+		goto fs_search_file_ok;
+	      if (type == S_EF)
+		// check if ID match
+		if (response.fs.id == id)
+		  goto fs_search_file_ok;
+	    }
+	  // check if ID match
+	  if (response.fs.id == id)
+	    {
+	      DPRINT ("%s id match %04x\n", __FUNCTION__, id);
 	      if (type == S_0)
 		{
 		  DPRINT ("%s S_0 search child found (level 1)\n",
@@ -365,6 +465,7 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	      // colision ?
 	      if (type == S_MAX)
 		goto fs_search_file_ok;
+
 	      if (type == S_PATH)
 		{
 		  DPRINT ("%s rest data count %d\n", __FUNCTION__,
@@ -379,34 +480,25 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 		  uuid = response.fs.uuid;
 		  goto fs_search_file_cont;
 		}
-	      if (response.fs.type == 0x38)
-		{
-		  if (type == S_DF)
-		    goto fs_search_file_ok;
-		}
-	      else
-		{
-		  if (type == S_EF)
-		    goto fs_search_file_ok;
-		}
 	    }
-	  if (type == S_0)
+	}
+
+      if (response.fs.id == id && type == S_0)
+	{
+	  DPRINT ("%s Search S_0 id match %04x\n", __FUNCTION__, id);
+	  if (response.fs.parent_uuid == p_uuid)
 	    {
-	      if (response.fs.parent_uuid == p_uuid)
-		{
-		  DPRINT ("%s S_0 search parent found (level 2)\n",
-			  __FUNCTION__);
-		  memcpy (&r0, &response, sizeof (struct fs_response));
-		  // better candidate
-		  level = 1;
-		}
-	      if (response.fs.uuid == p_uuid)
-		{
-		  DPRINT ("%s S_0 search neighbor (level 3)\n", __FUNCTION__);
-		  // if nothing is found, set this entry as candidate
-		  if (level == 0)
-		    memcpy (&r0, &response, sizeof (struct fs_response));
-		}
+	      DPRINT ("%s S_0 search parent found (level 2)\n", __FUNCTION__);
+	      memcpy (&r0, &response, sizeof (struct fs_response));
+	      // better candidate
+	      level = 1;
+	    }
+	  if (response.fs.uuid == p_uuid)
+	    {
+	      DPRINT ("%s S_0 search neighbor (level 3)\n", __FUNCTION__);
+	      // if nothing is found, set this entry as candidate
+	      if (level == 0)
+		memcpy (&r0, &response, sizeof (struct fs_response));
 	    }
 	}
     fs_search_file_cont:
@@ -949,11 +1041,11 @@ check_DF_security (uint8_t type)
 
 
 static uint16_t
-get_tag (uint8_t * buffer)
+get_tag (uint8_t * buffer, uint8_t size)
 {
-  if (buffer[1] == 1)
-    return buffer[2];
-  return buffer[2] << 8 | buffer[3];
+  if (size == 1)
+    return *buffer;
+  return buffer[0] << 8 | buffer[1];
 }
 
 
@@ -1119,93 +1211,82 @@ fs_get_fci (struct iso7816_response *r)
   return S0x6100;
 }
 
+static uint8_t
+fs_return_selected (struct iso7816_response *r, uint16_t id, uint8_t * data,
+		    uint8_t type)
+{
+  struct fs_response fr;
+
+  memcpy (&fr, &fci_sel, sizeof (struct fs_response));
+  // is already selected file DF ? if not, reselect to parent DF first
+  if (!is_DF (&fr))
+    if (RET_SEARCH_OK != fs_search_file (&fr, 0, NULL, S_PARENT))
+      return S0x6a82;
+  // test if search start from MF
+  if (type & 0x80)
+    fr.fs.uuid = 0;
+  type &= 0x7f;
+  if (RET_SEARCH_OK != fs_search_file (&fr, id, data, type))
+    return S0x6a82;
+  memcpy (&fci_sel, &fr, sizeof (struct fs_response));
+  return fs_get_fci (r);
+}
+
 uint8_t
 fs_select_parent (struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (fs_search_file (&fci_sel, 0, NULL, S_PARENT))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, 0, NULL, S_PARENT);
 }
 
-// WARNING, caller is responsible to set up "buffer" to correct values (len <1..16>, data)
 uint8_t
 fs_select_by_name (uint8_t * buffer, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (RET_SEARCH_OK != fs_search_file (&fci_sel, 0, buffer, S_NAME))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, 0, buffer, S_NAME);
 }
 
-// WARNING, caller is responsible to set up "buffer" to correct values (len>=2, data)
 uint8_t
 fs_select_df (uint16_t id, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (fs_search_file (&fci_sel, id, NULL, S_DF))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, id, NULL, S_DF);
 }
 
-// WARNING, caller is responsible to set up "buffer" to correct values (len>=2, data)
 uint8_t
 fs_select_mf (struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  fci_sel.fs.uuid = 0;
-  return fs_select_df (0x3f00, r);
+  return fs_return_selected (r, 0x3f00, NULL, S_DF | 0x80);
 }
 
 uint8_t
 fs_select_0 (uint16_t id, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  // ISO - if P1,P2 == 00 00 and data field is empty od equal to 3f00 select MF
-  if (fs_search_file (&fci_sel, id, NULL, S_0))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, id, NULL, S_0);
 }
 
 uint8_t
 fs_select_ef (uint16_t id, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (fs_search_file (&fci_sel, id, NULL, S_EF))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, id, NULL, S_EF);
 }
 
 uint8_t
 fs_select_by_path_from_df (uint8_t * buffer, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
-
-  if (RET_SEARCH_OK != fs_search_file (&fci_sel, 0, buffer, S_PATH))
-    return S0x6a82;
-  return fs_get_fci (r);
+  return fs_return_selected (r, 0, buffer, S_PATH);
 }
 
 uint8_t
 fs_select_by_path_from_mf (uint8_t * buffer, struct iso7816_response * r)
 {
-  struct fs_response fr;
-
   DPRINT ("%s\n", __FUNCTION__);
-
-  fr.fs.uuid = 0;
-  if (RET_SEARCH_OK != fs_search_file (&fr, 0, buffer, S_PATH))
-    return S0x6a82;
-  memcpy (&fci_sel, &fr, sizeof (struct fs_response));
-  return fs_get_fci (r);
+  return fs_return_selected (r, 0, buffer, S_PATH | 0x80);
 }
-
 
 // 0xffff if fail, filesize if OK
 uint16_t
@@ -1262,13 +1343,19 @@ fs_key_part (uint16_t * offset, uint8_t part)
 
   if (fci_sel.fs.id == 0xffff)
     return C_KEYp_WRONG;	//file not found
-
-// 0x11 for RSA 0x22 for EC keys, 0x23 for now for secp256k1 ..
-  if (fci_sel.fs.type != 0x11 && fci_sel.fs.type != 0x22
-      && fci_sel.fs.type != 0x23 && fci_sel.fs.type != 0x29
-      && fci_sel.fs.type != 0x19)
+#if 0
+  {
+    uint8_t type = fci_sel.fs.type;
+// 0x11 for RSA 0x22 for EC keys, 0x23 for now for secp256k1, DES, AES 0x19,0x29
+    if (type != 0x11 && type != 0x22 && type != 0x23
+	&& type != 0x29 && type != 0x19)
+      return C_KEYp_WRONG;	//this file is not designed to hold key
+  }
+#else
+// any file except DF can be used as key file
+  if ((fci_sel.fs.type & 0xbf) == 0x38)
     return C_KEYp_WRONG;	//this file is not designed to hold key
-
+#endif
   flen = fci_sel.fs.size;
 
   *offset = fci_sel.mem_offset;
@@ -1413,7 +1500,8 @@ fs_key_write_part (uint8_t * key)
 static uint8_t
 fs_transparent_file ()
 {
-  if (fci_sel.fs.type == 1)
+  // do not test shareable file flag
+  if ((fci_sel.fs.type & 0xbf) == 1)
     return 1;
   DPRINT ("%s fail, file type %02x\n", __FUNCTION__, fci_sel.fs.type);
   return 0;
@@ -1524,42 +1612,67 @@ fs_erase_binary (uint16_t offset)
   return fs_ff (offset, size);
 }
 
-
-static uint16_t
-fs_delete_helper (struct fs_response *response, uint16_t uuid)
+// DF subtree delete is not very efective, because small ram, there is no way to do
+// recursion or mark a path in subtree into RAM.
+// return 1 on mem error
+// delete this ef_df
+static uint8_t
+fs_delete_this_ef_df (struct fs_response *desc)
 {
-  uint16_t offset = 0;
+  DPRINT ("%s DELETING ID %04x\n", __FUNCTION__, desc->fs.id);
+  // mark file as deleted
+  desc->fs.active = 0;
+  if (device_write_block
+      (&desc->fs, desc->mem_offset, sizeof (struct fs_data)))
+    return 1;			//memory fail
+  return 0;
+}
 
-  response->mem_offset = 0;
-  while (0 ==
-	 device_read_block (response, response->mem_offset,
-			    sizeof (struct fs_data)))
+// return 1 on mem error
+// delete all EF in DF
+static uint8_t
+fs_delete_all_ef (struct fs_response *df)
+{
+  struct fs_response next;
+
+  for (;;)
     {
-
-      if (response->fs.id == 0xffff)
-	return offset;
-      if (uuid != 0)
-	if (response->fs.parent_uuid == uuid)
-	  return 0xffff;	// invalid offset
-      if (response->fs.active)
-	offset = 0;
-      else if (offset == 0)
-	offset = response->mem_offset;
-      //skip ..
-      response->mem_offset += sizeof (struct fs_data);
-      response->mem_offset += response->fs.name_size;
-      //file without data ?
-      if (response->fs.no_allocate)
-	continue;
-      response->mem_offset += response->fs.size;
+      memcpy (&next, df, sizeof (struct fs_response));
+      if (RET_SEARCH_OK != fs_search_file (&next, 0, NULL, S_1stEF))
+	break;
+      DPRINT ("%s EF ID %04x\n", __FUNCTION__, next.fs.id);
+      if (fs_delete_this_ef_df (&next))
+	return 1;
     }
+  return 0;
+}
+
+// return 1 on mem error
+// this can be used to delete single EF too
+static uint8_t
+fs_delete_df_subtree (struct fs_response *df)
+{
+  struct fs_response next;
+
+  do
+    {
+      memcpy (&next, df, sizeof (struct fs_response));
+// traverse to end of DF subtree
+      while (RET_SEARCH_OK == fs_search_file (&next, 0, NULL, S_1stDF))
+	DPRINT ("%s traverse subtree Id=%04x\n", __FUNCTION__, next.fs.id);
+      if (fs_delete_all_ef (&next))
+	return 1;
+      if (fs_delete_this_ef_df (&next))
+	return 1;
+    }
+  while (next.fs.uuid != df->fs.uuid);
   return 0;
 }
 
 uint8_t
 fs_delete_file ()
 {
-  struct fs_response response;
+  struct fs_response parent, file;
   uint16_t offset;
   uint16_t size;
 
@@ -1567,39 +1680,41 @@ fs_delete_file ()
 
   if (fci_sel.fs.id == 0xffff)
     return S0x6986;		//Command not allowed,(co current EF)
+// get parent
+  memcpy (&parent, &fci_sel, sizeof (struct fs_response));
+  if (RET_SEARCH_OK != fs_search_file (&parent, 0, NULL, S_PARENT))
+    return S0x6a82;
 
-  if (fci_sel.fs.type == 0x38)
+  memcpy (&file, &fci_sel, sizeof (struct fs_response));
+  if (is_DF (&file))
     {
       DPRINT ("%s, DF delete\n", __FUNCTION__);
       if (fci_sel.fs.prop == 0x0002)
 	return S0x6985;		// condition of use not satisfied
       if (check_DF_security (SEC_DELETE))
 	return S0x6982;		//security status not satisfied
-      // fail for non empty directory
-      if (0xffff == fs_delete_helper (&response, fci_sel.fs.uuid))
-	return S0x6985;		// condition of use not satisfied
+//      fs_delete_df_subtree (&file);
     }
   else
     {
       DPRINT ("%s, EF delete\n", __FUNCTION__);
       if (check_EF_security (SEC_DELETE))
 	return S0x6982;		//security status not satisfied
+//      fs_delete_this_ef_df (&file);
     }
-  memcpy (&response, &fci_sel, sizeof (struct fs_response));
-  // select parent
-  if (fs_search_file (&fci_sel, 0, NULL, S_PARENT))
-    return S0x6a82;
-  // mark file as deleted
-  response.fs.active = 0;
-  if (device_write_block
-      (&response.fs, response.mem_offset, sizeof (struct fs_data)))
+  //  delete subtree or single EF
+  if (fs_delete_df_subtree (&file))
     return S0x6581;		//memory fail
-
+  // select parent
+  memcpy (&fci_sel, &parent, sizeof (struct fs_response));
   // reclaim free space at end of filesystem
-  offset = fs_delete_helper (&response, 0);
+  fs_search_file (&file, 0, NULL, S_SPACE);
+  offset = file.fs.id;
   if (offset != 0)
     {
-      size = response.mem_offset - offset;
+      size = file.mem_offset - offset;
+      DPRINT ("%s reclaiming space from %04x (%d bytes)\n", __FUNCTION__,
+	      offset, size);
       return fs_ff (offset, size);
     }
   return S_RET_OK;
@@ -1612,152 +1727,161 @@ fs_create_file (uint8_t * buffer)
   struct fs_data fs;
   uint8_t xlen;
   uint8_t flag = 0;
+  uint8_t type = 0;
   uint8_t *df_name = NULL;
+  uint8_t tag;
+  uint8_t dlen;
 
   DPRINT ("%s\n", __FUNCTION__);
 
   if (fci_sel.fs.id == 0xffff)
     return S0x6a82;		//file not found
 
-  if (fci_sel.fs.type != 0x38)	//no DF is selected
-    return S0x6a82;
-
-  fs.parent_uuid = fci_sel.fs.uuid;
-
   // FCP too small ?
-  if (buffer[0] < 2)
+  dlen = *(buffer++);
+  if (dlen < 2)
     return S0x6984;		//invalid data
 
   // test if FCP template is in buffer
-  if (buffer[1] != 0x62)
+  tag = *(buffer++);
+  if (tag != 0x62)
     return S0x6984;		//invalid data
 
-  xlen = buffer[2];
-
-  if (buffer[0] + 2 < xlen)
+  // length of FCP template must match LC
+  // TODO this may fail for FCP over 127 bytes (len value in two bytes)
+  xlen = *(buffer++);
+  if (dlen - 2 != xlen)
     return S0x6984;		//invalid data
 
-  buffer += 3;			//at position of first FCP  tag
+  memcpy (&fr1, &fci_sel, sizeof (struct fs_response));
+  // is already selected file DF ? if not, reselect to parent DF first
+  if (!is_DF (&fr1))
+    if (RET_SEARCH_OK != fs_search_file (&fr1, 0, NULL, S_PARENT))
+      return S0x6a82;
 
-  fs.name_size = 0;
-  fs.tag_80_81 = 0;
+  memset (&fs, 0, sizeof (struct fs_data));
+  fs.parent_uuid = fr1.fs.uuid;
   fs.active = 1;
-  fs.prop = 0;			//not required tag
+
   for (;;)
     {
-      {
-	uint8_t dlen;
+      DPRINT ("%s need to parse %d bytes\n", __FUNCTION__, xlen);
+// no more data ?
+      if (!(xlen--))
+	break;
+      tag = *(buffer++);
+// http://cardwerk.com/iso7816-4-annex-d-use-of-basic-encoding-rules-asn-1/
+// ISO/IEC 7816 uses neither 0x00 or 0xff tag value
+// Before, between or after BER-TLV data objects, 0x00 od 0xff bytes without any meaning may occur.
+      if (tag == 0 || tag == 0xff)
+	continue;
 
-	if (xlen == 1)
-	  if (*buffer != 0)
+// read length
+      if (!(xlen--))
+	return S0x6984;		//invalid data
+      dlen = *(buffer++);
+      DPRINT ("%s: tag=%02x len=%d\n", __FUNCTION__, tag, dlen);
+// TLV is too long?
+      if (dlen > 16)
+	return S0x6984;		//maximal tag size is 16 (filename);
+// if there is fewer bytes in buffer as tag size
+      if (xlen < dlen)
+	return S0x6984;		//invalid data
+      switch (tag)
+	{
+// data bytes in file, including struct info
+	case 0x81:
+	  // ISO7816 allow here exact two bytes for length
+	  if (dlen != 2)
 	    return S0x6984;	//invalid data
-
-	if (xlen < 2)		// rest bytes .. no tag, no len or only tag
-	  {
-	    if (flag != 0x0f)
-	      return S0x6984;	//invalid data
-	    break;
-	  }
-
-	dlen = buffer[1];
-
-	if (dlen == 0)
-	  {			//workaround for card-myeid.c bug in opensc, normally this test is not needed, and error is returned
-	    if (flag != 0x0f)
-	      return S0x6984;	//invalid data
-	    break;
-	  }
-	if (dlen > 16)
-	  return S0x6984;	//maximal tag size is 16 (filename);
-
-	//check new tag
-	if (xlen < 2 + dlen)
-	  return S0x6984;	//invalid data (no enough data for this tag in buffer)
-
-	switch (*buffer)
-	  {
-	    //size
-	  case 0x81:
-	    if (dlen != 2)
-	      return S0x6984;	//invalid data
-	    fs.tag_80_81 = 1;	// 1 = DF/EF key  0 = EF size
-	  case 0x80:
-	    if (dlen > 2)
-	      return S0x6984;	//invalid data
-	    if (flag & 1)
-	      return S0x6984;	//invalid data  (duplicate tag 0x80/0x81)
-	    flag |= 1;
-	    fs.size = get_tag (buffer);
-	    // limit filesize
-	    if (fs.size > 32767)
-	      return S0x6984;	//invalid data
-	    break;
-	    //type
-	  case 0x82:
-	    if (dlen > 4)
-	      return S0x6984;	//invalid data
-	    flag |= 2;
-	    fs.type = buffer[2];
-	    // allow only supported file types
-	    if (fs.type != 0x01 && fs.type != 0x38 &&
-		fs.type != 0x11 && fs.type != 0x22 && fs.type != 0x23 &&
-		fs.type != 0x19 && fs.type != 0x29)
-	      return S0x6984;	//invalid data
-	    break;
-	    //ID
-	  case 0x83:
-	    if (dlen != 2)
-	      return S0x6984;	//invalid data
-	    flag |= 4;
-	    fs.id = get_tag (buffer);
-	    if (fs.id == 0x3fff)
-	      return S0x6984;	//invalid data
-	    if (fs.id == 0x3f00)
-	      return S0x6984;	//invalid data
-	    if (fs.id == 0xffff)
-	      return S0x6984;	//invalid data
-	    break;
-	    //prop info
-	  case 0x85:
-	    if (dlen != 2)
-	      return S0x6984;	//invalid data
-	    fs.prop = get_tag (buffer);
-	    break;
-	    //ACL
-	  case 0x86:
-	    // minimum 3 ACL bytes
-	    if (dlen < 3)
-	      return S0x6984;	//invalid data
-	    flag |= 0x08;
-	    fs.acl[0] = buffer[2];
-	    fs.acl[1] = buffer[3];
-	    fs.acl[2] = buffer[4];
-	    break;
-	    //filename
-	  case 0x84:
-	    if (dlen < 1)
-	      return S0x6984;	//invalid data
-	    // maximal tag len (16) is already checked
-	    fs.name_size = dlen;
-	    df_name = buffer + 1;
-	    break;
-	    //lifecycle info (skip this, this is globally replaced by security mechanism)
-	  case 0x8a:
-	    if (dlen != 1)
-	      return S0x6984;	//invalid data
-	  case 0:
-	    break;
-	  default:
+	  fs.tag_80_81 = 1;	// 1 = DF/EF key  0 = EF size
+// data bytes in file (excluding struct. info)
+	case 0x80:
+	  // ISO7816 allow var bytes here
+	  if (dlen > 2)
 	    return S0x6984;	//invalid data
-	  }
-	dlen += 2;
-	xlen -= dlen;
-	buffer += dlen;
-      }
+	  if (flag & 1)
+	    return S0x6984;	//invalid data  (duplicate tag 0x80/0x81)
+	  flag |= 1;
+	  fs.size = get_tag (buffer, dlen);
+// limit filesize
+	  if (fs.size > 32767)
+	    return S0x6984;	//invalid data
+	  break;
+// File descriptor byte (ISO7816 allow here up to 6 bytes, only 1st byte is used in OsEID)
+	case 0x82:
+	  if (dlen > 6)
+	    return S0x6984;	//invalid data
+	  flag |= 2;
+	  type = *buffer;
+	  fs.type = type;
+	  // mask shareable bit
+	  type &= 0xbf;
+	  // allow only supported file types
+	  if (type != 0x01 && type != 0x38 &&
+	      type != 0x11 && type != 0x22 && type != 0x23 &&
+	      type != 0x19 && type != 0x29)
+	    return S0x6984;	//invalid data
+	  break;
+// File identifier
+	case 0x83:
+	  // ISO7816 allow here exact two bytes for length
+	  if (dlen != 2)
+	    return S0x6984;	//invalid data
+	  flag |= 4;
+	  fs.id = get_tag (buffer, dlen);
+	  if (fs.id == 0x3fff)	// current DF (ISO7816-4/5.3.1.1)
+	    return S0x6984;	//invalid data
+	  if (fs.id == 0)
+	    return S0x6984;	//invalid data
+	  if (fs.id == 0x3f00)	// MF
+	    return S0x6984;	//invalid data
+	  if (fs.id == 0xffff)	// RFU
+	    return S0x6984;	//invalid data
+	  break;
+// prop info
+	case 0x85:
+	  // request an exact length of 2 bytes, (ISO7816 allow var bytes here)
+	  if (dlen != 2)
+	    return S0x6984;	//invalid data
+	  fs.prop = get_tag (buffer, dlen);
+	  break;
+// ACL
+	case 0x86:
+	  // request an exact length of 3 bytes, (ISO7816 allow var bytes here)
+	  if (dlen != 3)
+	    return S0x6984;	//invalid data
+	  fs.acl[0] = buffer[0];
+	  fs.acl[1] = buffer[1];
+	  fs.acl[2] = buffer[2];
+	  break;
+// filename
+	case 0x84:
+	  if (dlen < 1)
+	    return S0x6984;	//invalid data
+	  // maximal tag len (16) is already checked
+	  fs.name_size = dlen;
+	  df_name = buffer - 1;
+	  break;
+	  //lifecycle info (skip this, this is globally replaced by security mechanism)
+	case 0x8a:
+	  if (dlen != 1)
+	    return S0x6984;	//invalid data
+	  break;
+	default:
+	  return S0x6984;	//invalid data
+	}
+      xlen -= dlen;
+      buffer += dlen;
     }
-
+  DPRINT ("%s all tags parsed\n", __FUNCTION__);
+  if (flag != 0x07)
+    {
+      DPRINT ("%s missing some of mandatory tag %02x\n", __FUNCTION__, flag);
+      return S0x6984;		//invalid data
+    }
   //DF checks
-  if (fs.type == 0x38)
+  if (type == 0x38)
     {
       // DF does not need allocate space
       fs.no_allocate = 1;
@@ -1767,16 +1891,16 @@ fs_create_file (uint8_t * buffer)
       if (check_DF_security (SEC_CREATE_DF))
 	return S0x6982;		//security status not satisfied
       //all filenames must be different
-      if (RET_SEARCH_OK == fs_search_file (&fr1, 0, df_name, S_NAME))
-	return S0x6a89;		//already exists
+      if (df_name)
+	if (RET_SEARCH_OK == fs_search_file (&fr1, 0, df_name, S_NAME))
+	  return S0x6a89;	//already exists
     }
   else
     {
       fs.no_allocate = 0;
       // clear valid flag for key file (except 0x01 and 0x38 all file types are used for keys for now)
-      if (fs.type != 1 && fs.type != 0x38)
+      if (type != 1)
 	fs.prop &= 0xf0ff;
-
       // EF does not have name
       if (df_name)
 	return S0x6984;		//invalid data
@@ -1784,10 +1908,7 @@ fs_create_file (uint8_t * buffer)
       if (check_DF_security (SEC_CREATE_EF))
 	return S0x6982;		//security status not satisfied
     }
-
   // search new UUID (and colision test)
-
-  memcpy (&fr1, &fci_sel, sizeof (struct fs_response));
   if (RET_SEARCH_END != fs_search_file (&fr1, fs.id, NULL, S_MAX))
     return S0x6a89;		//already exists
 
@@ -1795,31 +1916,27 @@ fs_create_file (uint8_t * buffer)
   fs.uuid = fr1.fs.uuid;
 
   // there must be place for full file (+ 2 bytes for test  - FS end)
-
+  // because fs_search_file read "sizeof (struct fs_data)" bytes, check this value
   if (0 !=
       device_read_block (&flag,
 			 fr1.mem_offset + sizeof (struct fs_data) +
-			 fs.name_size + fs.size + 2, 1))
+			 fs.name_size + fs.size + sizeof (struct fs_data), 1))
     return S0x6985;		//condition not satisfied
 
   // save file header
   if (device_write_block (&fs, fr1.mem_offset, sizeof (struct fs_data)))
     return S0x6985;		//condition not satisfied
   // save filename if needed
-
   if (df_name)
     {
       DPRINT ("%s FCI write OK, writing name\n", __FUNCTION__);
       if (device_write_block
-	  (df_name + 1, fr1.mem_offset + sizeof (struct fs_data),
-	   fs.name_size))
+	  (df_name + 1, fr1.mem_offset + sizeof (struct fs_data), *df_name))
 	return S0x6985;		//condition not satisfied
     }
-
 // select this file
   if (fs_search_file (&fci_sel, fs.id, NULL, S_0))
     return S0x6a82;
-
   return S_RET_OK;		//all ok
 }
 
@@ -1835,28 +1952,25 @@ fs_list_files (uint8_t type, struct iso7816_response * r)
   if (fci_sel.fs.id == 0xffff)
     return S0x6a82;		//file not found
 
-  if ((fci_sel.fs.type & 0x38) != 0x38)	//no DF is selected
-    return S0x6a82;
-
   switch (type)
     {
     case 0xa1:
       code = 0x0000;
       break;
     case 0xa2:			// all, except DF of only working EF ?
-      code = 0x01ff;		// only working EF
+      code = 0x01bf;		// only working EF
       break;
     case 0xa3:			// only DF
-      code = 0x38ff;
+      code = 0x38bf;
       break;
     case 0xa4:			// all EF with RSA key
-      code = 0x11ff;
+      code = 0x11bf;
       break;
     case 0xa5:			// all EF with ECC key (0x22,0x23);
-      code = 0x22fe;
+      code = 0x22be;
       break;
     case 0xa6:
-      code = 0x09cf;		// 09 19 29 39 - only 29 an 19 are correct, but 09 and 39 can not be created
+      code = 0x098f;		// 09 19 29 39 - only 29 an 19 are correct, but 09 and 39 can not be created
       break;
     default:
       return S0x6984;		//invalid data
@@ -1864,6 +1978,11 @@ fs_list_files (uint8_t type, struct iso7816_response * r)
   DPRINT ("Using CODE %04x\n", code);
 
   memcpy (&fr, &fci_sel, sizeof (struct fs_response));
+  // select DF of current EF if needed
+  if (!is_DF (&fr))
+    if (RET_SEARCH_OK != fs_search_file (&fr, 0, NULL, S_PARENT))
+      return S0x6a82;
+
   if (RET_SEARCH_END == fs_search_file (&fr, code, r->data, S_LIST_ALL))
     {
       if (fr.fs.id == 0)

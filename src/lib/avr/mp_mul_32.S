@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 
     Atmega assembler routines for (32 bits and derived) multiplications 
 
-    This file depend on mp_mul_128.S and mp_mul_256.S files.
+    This file depend on mp_mul_256.S files.
 
     depends:
     rsa_mul_256_no_abi:  256 bit multiplication 
@@ -43,11 +43,6 @@
                          r26:27 operand A
 
 multiplication with modulus (mod 128, 256 .. ):
-    depends:
-    rsa_mul_128_no_abi:  128 bit multiplication 
-                         r30:31 result
-                         r28:29 operand B
-                         r26:27 operand A
     public functions:
     rsa_mul_512_mod:    512 bit multiplication (C ABI)    
                         result is only 512 bit long (low bites)
@@ -113,8 +108,8 @@ rsa_mul_256:
 	pop	r2
 	ret
 
-//  .global rsa_mul_512_no_abi
-//  .type rsa_mul_512_no_abi, @function
+  .global rsa_mul_512_no_abi
+  .type rsa_mul_512_no_abi, @function
   .section .text.rsa_mul_512_no_abi,"ax",@progbits
 
 rsa_mul_512_no_abi:
@@ -688,9 +683,7 @@ rsa_mul_512:
 #define UNROLL 1
 #endif
 
-#define OPERAND_B r10
 #define RESULT    r12
-#define OPERAND_A r14
 rsa_mul_1024:
 //save registers
 	push	r2
@@ -721,46 +714,50 @@ rsa_mul_1024:
 
 // save operands position
 	movw	RESULT, r24	// r
-	movw	OPERAND_A, r22	// a
-	movw	OPERAND_B, r20	// b
+
+// save pointers to stack
+	std	Y+1,r20	// B pointer
+	std	Y+2,r21
+	std	Y+3,r24	// Result
+	std	Y+4,r25
+	std	Y+5,r22	// A pointer
+	std	Y+6,r23
 
 // calculate a_low - a_high -> r
-	movw	r30,OPERAND_A	// a, a+64 to Z
-	movw	r26,RESULT	// r to X
+	movw	r30,r22 	// a, a+64 to Z
+	movw	r26,r24		// r to X
 
-	ldi	r21,64/UNROLL	// loop counter
+	ldi	r24,64/UNROLL	// loop counter
 	sub	r16,r16		// initial carry, and clear r16
 rsa_mul_1024_loop1:
 .rept	UNROLL
-	ld	r24,Z+
+	ld	r0,Z+
 	ldd	r25,Z+63
-	sbc	r24,r25
-	st	x+,r24
+	sbc	r0,r25
+	st	x+,r0
 .endr
-	dec	r21
+	dec	r24
 	brne	rsa_mul_1024_loop1
-
+	movw	r10,r26		// save r+64 position
 // negate if needed, sign based on carry
-	adc	r16,r1		//r16=0 or 1 by carry
+	sbc	r16,r16		//r16=0 or 0xff
 
 	movw	r26,RESULT	// r to X
-	ldi	r21,64/UNROLL	// loop counter
+	ldi	r24,64/UNROLL	// loop counter
 
-	mov	r25,r16		//duplicate
-	neg	r25		//create 0 or 0xff into r25, carry is set if r25 !=0
-
+	clc
 rsa_mul_1024_loop2:
 .rept	UNROLL
-	ld	r24,X
-	eor	r24,r25		// xor 0xff
-	adc	r24,r1		// add carry
-	st	x+,r24
+	ld	r0,X
+	eor	r0,r16		// xor 0xff
+	sbc	r0,r16		// add 0/1 (subtract -1)
+	st	x+,r0
 .endr
-	dec	r21
+	dec	r24
 	brne	rsa_mul_1024_loop2
 
 // calculate b_low - b_high -> r + 64
-	movw	r30,OPERAND_B	// b, b+64 to Z
+	movw	r30,r20		// b, b+64 to Z
 	movw	r26,RESULT	// r
 	subi	r26,lo8(-64)
 	sbci	r27,hi8(-64)	//r+64
@@ -778,36 +775,26 @@ rsa_mul_1024_loop3:
 	brne	rsa_mul_1024_loop3
 
 // negate if needed, sign based on carry
-	adc	r17,r1		//r17=0 or 1 by carry
+	sbc	r17,r17		//r17=0 or 0xff by carry
 
-	movw	r26,RESULT	// r to X
-	subi	r26,lo8(-64)
-	sbci	r27,hi8(-64)	//r+64
+	movw	r26,r10		// r+64
 	ldi	r21,64/UNROLL	// loop counter
 
-	mov	r25,r17		//duplicate
-	neg	r25		//create 0 or 0xff into r25, carry is set if r25 !=0
-
+	clc
 rsa_mul_1024_loop4:
 .rept	UNROLL
 	ld	r24,X
-	eor	r24,r25		// xor 0xff
-	adc	r24,r1		// add carry
+	eor	r24,r17		// xor 0xff
+	sbc	r24,r17		// add 0/1 (subtract -1)
 	st	x+,r24
 .endr
 	dec	r21
 	brne	rsa_mul_1024_loop4
 
-// create "sign" xor into R16
+// create "sign" xor into r16
 
 	eor	r16,r17
-// save sign, pointers to stack, rsa_mul_512_no_abi uses _all_ registers
-	std	Y+1,r10	// B pointer
-	std	Y+2,r11
-	std	Y+3,r12	// Result
-	std	Y+4,r13
-	std	Y+5,r14	// A pointer
-	std	Y+6,r15
+// save sign, to stack, rsa_mul_512_no_abi uses _all_ registers
 	std	Y+7,r16	// sign
 
 // multiply |a_low - a_high| * |b_low - b_high| into TMP
@@ -868,7 +855,6 @@ rsa_mul_1024_loop4:
 // if signs are the same, set _EOR to 0xff
 // else                   set _EOR to 0x00
 
-	neg	_EOR
 	com	_EOR
 
 // _CARRY is used as initial carry, _EOR as eor value
@@ -1023,9 +1009,7 @@ rsa_mul_1024_xloop2:
 	pop	r3
 	pop	r2
 	ret
-#undef OPERAND_B
 #undef RESULT
-#undef OPERAND_A
 #undef UNROLL
 #undef L1
 #undef L2
@@ -1035,1152 +1019,3 @@ rsa_mul_1024_xloop2:
 #undef L6
 #undef L7
 
-
-/////////////////////////////////////////////////////////////
-.macro MUL_32_MOD_ADD  RS3 RS2 RS1 RS0  B3 B2 B1 B0   A3 A2 A1 A0 ZERO
-
-	mul	\A0,\B0	// 0 0
-	add	\RS0,r0
-	adc	\RS1,r1
-	adc	\RS2,\ZERO
-	adc	\RS3,\ZERO
-
-	mul	\A0,\B1	 // 0 1
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B0	 //1 0
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B1	 //1 1
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A2,\B0	 //2 0
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A0,\B2	// 0 2
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A0,\B3	// 0 3
-	add	\RS3,r0
-
-	mul	\A1,\B2	// 1 2
-	add	\RS3,r0
-
-	mul	\A2,\B1	// 2 1
-	add	\RS3,r0
-
-	mul	\A3,\B0	// 3 0
-	add	\RS3,r0
-.endm
-/////////////////////////////////////////////////////////////
-.macro MUL_32_MOD_ADDx  RS3 RS2 RS1 RS0  B3 B2 B1 B0   A3 A2 A1 A0 ZERO  CC1 CC0
-
-	mul	\A2,\B0
-	movw	\CC0,r0
-
-	mul	\A0,\B0	// 0 0
-	add	\RS0,r0
-	adc	\RS1,r1
-	adc	\RS2,\CC0
-	adc	\RS3,\CC1
-
-	mul	\A0,\B1	 // 0 1
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B0	 //1 0
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B1	 //1 1
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A0,\B2	// 0 2
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A0,\B3	// 0 3
-	add	\RS3,r0
-
-	mul	\A1,\B2	// 1 2
-	add	\RS3,r0
-
-	mul	\A2,\B1	// 2 1
-	add	\RS3,r0
-
-	mul	\A3,\B0	// 3 0
-	add	\RS3,r0
-.endm
-
-
-//clear ZERO  before call
-.macro MUL_32_mod	RS3 RS2 RS1 RS0   A3 A2 A1 A0   B3 B2 B1 B0  ZERO
-
-	mul	\A0,\B0
-	movw	\RS0,r0
-
-	mul	\A0,\B2
-	movw	\RS2,r0
-
-	mul	\A0,\B1
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B0
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B1
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A2,\B0
-	add	\RS2,r0
-	adc	\RS3,r1
-
-	mul	\A0,\B3
-	add	\RS3,r0
- 
-	mul	\A1,\B2
-	add	\RS3,r0
-
-	mul	\A2,\B1
-	add	\RS3,r0
-
-	mul	\A3,\B0
-	add	\RS3,r0
-
-.endm
-
-//clear RS7,RS6, ZERO  before call!
-.macro MUL_32	RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0   A3 A2 A1 A0   B3 B2 B1 B0  ZERO CC1 CC0
-	mul	\A0, \B2
-	movw	\RS2,r0
-
-	mul	\A0,\B0
-	movw	\RS0,r0
-
-	mul	\A0,\B1
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B3
-	movw	\RS4,r0
-
-	mul	\A0,\B3
-	movw	\CC0,r0
-
-	mul	\A1,\B0
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\CC0
-	adc	\CC1,\ZERO
-
-	mul	\A1,\B1
-	add	\RS2,r0
-	adc	\RS3,r1
-	adc	\CC1,\ZERO
-
-	mul	\A2,\B3
-	add	\RS4,\CC1
-	adc	\RS5,r0
-	adc	\RS6,r1
-
-	mul	\A2,\B2
-	movw	\CC0,r0
-
-	mul	\A2,\B0
-	add	\RS2,r0
-	adc	\RS3,r1
-	adc	\RS4,\CC0
-	adc	\CC1,\ZERO
-
-	mul	\A1,\B2
-	add	\RS3,r0
-	adc	\RS4,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B3
-	add	\RS5,\CC1
-	adc	\RS6,r0
-	adc	\RS7,r1
-
-	mul	\A3,\B1
-	movw	\CC0,r0
-
-	mul	\A2,\B1
-	add	\RS3,r0
-	adc	\CC0,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B0
-	add	\RS3,r0
-	adc	\CC0,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B2
-	add	\RS4,\CC0
-	adc	r0,\CC1
-	adc	r1,\ZERO
-	add	\RS5,r0
-	adc	\RS6,r1
-	adc	\RS7,\ZERO
-.endm
-
-//RS7, RS6 is added to result!
-.macro MUL_32x	RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0   A3 A2 A1 A0   B3 B2 B1 B0  ZERO CC1 CC0
-	mul	\A0,\B2
-	movw	\RS2,r0
-
-	mul	\A0,\B0
-	movw	\RS0,r0
-
-	mul	\A0,\B1
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\ZERO
-
-	mul	\A1,\B3
-	movw	\RS4,r0
-
-	mul	\A0,\B3
-	movw	\CC0,r0
-
-	mul	\A1,\B0
-	add	\RS1,r0
-	adc	\RS2,r1
-	adc	\RS3,\CC0
-	adc	\CC1,\ZERO
-
-	mul	\A1,\B1
-	add	\RS2,r0
-	adc	\RS3,r1
-	adc	\CC1,\ZERO
-
-	mul	\A2,\B3
-	add	\RS4,\CC1
-	adc	\RS5,r0
-	adc	\RS6,r1
-	adc	\RS7,\ZERO
-
-	mul	\A2,\B2
-	movw	\CC0,r0
-
-	mul	\A2,\B0
-	add	\RS2,r0
-	adc	\RS3,r1
-	adc	\RS4,\CC0
-	adc	\CC1,\ZERO
-
-	mul	\A1,\B2
-	add	\RS3,r0
-	adc	\RS4,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B3
-	add	\RS5,\CC1
-	adc	\RS6,r0
-	adc	\RS7,r1
-
-	mul	\A3,\B1
-	movw	\CC0,r0
-
-	mul	\A2,\B1
-	add	\RS3,r0
-	adc	\CC0,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B0
-	add	\RS3,r0
-	adc	\CC0,r1
-	adc	\CC1,\ZERO
-
-	mul	\A3,\B2
-	add	\RS4,\CC0
-	adc	r0,\CC1
-	adc	r1,\ZERO
-	add	\RS5,r0
-	adc	\RS6,r1
-	adc	\RS7,\ZERO
-.endm
-.macro	ADD32	RZ3 RZ2 RZ1 RZ0  A3 A2 A1 A0
-	add	\RZ0,\A0
-	adc	\RZ1,\A1
-	adc	\RZ2,\A2
-	adc	\RZ3,\A3
-.endm
-.macro	SUB32	RZ3 RZ2 RZ1 RZ0  A3 A2 A1 A0
-	sub	\RZ0,\A0
-	sbc	\RZ1,\A1
-	sbc	\RZ2,\A2
-	sbc	\RZ3,\A3
-.endm
-.macro ABS32	RZ3 RZ2 RZ1 RZ0  SIGN ZERO
-	eor	\RZ0,\SIGN
-	eor	\RZ1,\SIGN
-	eor	\RZ2,\SIGN
-	eor	\RZ3,\SIGN
-	neg	\SIGN
-	add	\RZ0,\SIGN
-	adc	\RZ1,\ZERO
-	adc	\RZ2,\ZERO
-	adc	\RZ3,\ZERO
-.endm
-.macro	ADD64	RZ7 RZ6 RZ5 RZ4 RZ3 RZ2 RZ1 RZ0  A7 A6 A5 A4 A3 A2 A1 A0
-	add	\RZ0,\A0
-	adc	\RZ1,\A1
-	adc	\RZ2,\A2
-	adc	\RZ3,\A3
-	adc	\RZ4,\A4
-	adc	\RZ5,\A5
-	adc	\RZ6,\A6
-	adc	\RZ7,\A7
-.endm
-.macro	ADC64	RZ7 RZ6 RZ5 RZ4 RZ3 RZ2 RZ1 RZ0  A7 A6 A5 A4 A3 A2 A1 A0
-	adc	\RZ0,\A0
-	adc	\RZ1,\A1
-	adc	\RZ2,\A2
-	adc	\RZ3,\A3
-	adc	\RZ4,\A4
-	adc	\RZ5,\A5
-	adc	\RZ6,\A6
-	adc	\RZ7,\A7
-.endm
-.macro SUB64	RZ7 RZ6 RZ5 RZ4 RZ3 RZ2 RZ1 RZ0  A7 A6 A5 A4 A3 A2 A1 A0
-	sub	\RZ0,\A0
-	sbc	\RZ1,\A1
-	sbc	\RZ2,\A2
-	sbc	\RZ3,\A3
-	sbc	\RZ4,\A4
-	sbc	\RZ5,\A5
-	sbc	\RZ6,\A6
-	sbc	\RZ7,\A7
-.endm
-// add to  memory (Z+offset)  target = source + register set
-.macro MEM_ADD64 T  S  RG7 RG6 RG5 RG4 RG3 RG2 RG1 RG0 TMP
-	ldd	\TMP,Z+\S+0
-	add	\TMP,\RG0
-	std	Z+\T+0,\TMP
-	ldd	\TMP,Z+\S+1
-	adc	\TMP,\RG1
-	std	Z+\T+1,\TMP
-	ldd	\TMP,Z+\S+2
-	adc	\TMP,\RG2
-	std	Z+\T+2,\TMP
-	ldd	\TMP,Z+\S+3
-	adc	\TMP,\RG3
-	std	Z+\T+3,\TMP
-	ldd	\TMP,Z+\S+4
-	adc	\TMP,\RG4
-	std	Z+\T+4,\TMP
-	ldd	\TMP,Z+\S+5
-	adc	\TMP,\RG5
-	std	Z+\T+5,\TMP
-	ldd	\TMP,Z+\S+6
-	adc	\TMP,\RG6
-	std	Z+\T+6,\TMP
-	ldd	\TMP,Z+\S+7
-	adc	\TMP,\RG7
-	std	Z+\T+7,\TMP
-.endm
-
-        .global rsa_mul_128_mod_no_abi
-        .type   rsa_mul_128_mod_no_abi, @function
-	.section .text.rsa_mul_128_mod_no_abi,"ax",@progbits
-
-rsa_mul_128_mod_no_abi:
-// result is constructed into  part:
-// D  B+C  A (all parts 32 bites)
-
-// do not use reg 26,27,30,31 here ..
-#define  RES_A0		r24
-#define  RES_A1		r25
-#define  RES_A2		r12
-#define  RES_A3		r13
-
-#define  RES_BC0	r14
-#define  RES_BC1	r15
-#define  RES_BC2	r16
-#define  RES_BC3	r17
-
-#define  RES_D0		r10
-#define  RES_D1		r11
-#define  RES_D2		r18
-#define  RES_D3		r19
-
-// MUL_32 need zero in upper two bytes of result
-	clr	RES_BC2
-	clr	RES_BC3
-#define LL_ZERO  RES_D2
-
-	movw	LL_ZERO,RES_BC2
-
-	push	r26
-	push	r27
-// TODO maybe push r28,r29 (and pop) waste 8 ticks, but
-// pair of registers can be used to speed up multiplications
-// and save more ticks
-
-	ld	r2,X+
-	ld	r3,X+
-	ld	r4,X+
-	ld	r5,X+
-	ldd	r6,Y+0
-	ldd	r7,Y+1
-	ldd	r8,Y+2
-	ldd	r9,Y+3
-// calculate A,B from low parts of operands
-	MUL_32  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_A3 RES_A2 RES_A1 RES_A0   r5,r4,r3,r2   r9,r8,r7,r6 LL_ZERO,RES_D1,RES_D0
-// load zero for mult. result...
-	movw	RES_D0,LL_ZERO
-
-// calculate differences high - low
-#define L_ZERO  r20
-#define L2_ZERO r21
-
-#define A0 L_ZERO
-#define A1 L2_ZERO
-#define A2 r22
-#define A3 r23
-	ld	A0,X+
-	ld	A1,X+
-	ld	A2,X+
-	ld	A3,X+
-#define B0 r30
-#define B1 r31 
-#define B2 r26
-#define B3 r27
-	ldd	B0,Y+4
-	ldd	B1,Y+5
-	ldd	B2,Y+6
-	ldd	B3,Y+7
-// differences hi-lo, save final sign into T
-	SUB32	r5 r4 r3 r2  A3 A2 A1 A0
-	sbc	r0,r0
-	ABS32	r5 r4 r3 r2  r0,LL_ZERO
-
-	SUB32	r9 r8 r7 r6  B3 B2 B1 B0
-	sbc	r1,r1
-	ABS32	r9 r8 r7 r6  r1,LL_ZERO
-
-	eor	r0,r1
-	bst	r0,0
-// prevent r9 r8 r7 r6 r5 r4 r3 r2 !!!
-//                        D                                   B+C                         A
-// final result   RES_D3 RES_D2 RES_D1 RES_D0  RES_BC3 RES_BC2 RES_BC1  RES_BC0 RES_A3 RES_A2 RES_A1 RES_A0
-// calculate D,B+C from high parts of operand
-	mul	A0, B0
-	add	RES_BC0, r0
-	adc	RES_BC1, r1
-	adc	RES_BC2, LL_ZERO
-	adc	RES_D3, LL_ZERO  	// reuse RES_D3 as Carry catcher
-
-	mul	A0, B1
-	add	RES_BC1, r0
-	adc	RES_BC2, r1
-	adc	RES_D3, LL_ZERO
-
-	mul	A1, B0
-	add	RES_BC1, r0
-	adc	RES_BC2, r1
-	adc	RES_BC3, RES_D3
-	adc	RES_D0, LL_ZERO
-
-	mul	A0, B2
-	add	RES_BC2, r0 
-	adc	RES_BC3, r1
-	adc	RES_D0, LL_ZERO
-
-	mul	A1, B1
-	add	RES_BC2, r0
-	adc	RES_BC3, r1
-	adc	RES_D0, LL_ZERO
-
-	mul	A2, B0
-	add	RES_BC2, r0
-	adc	RES_BC3, R1
-	adc	RES_D0, LL_ZERO
-
-	mul	A0, B3
-	add	RES_BC3, r0
-	adc	RES_D0, R1
-	adc	RES_D1, LL_ZERO
-
-	mul	A1, B2
-	add	RES_BC3, r0
-	adc	RES_D0, R1
-	adc	RES_D1, LL_ZERO
-
-	mul	A2, B1
-	add	RES_BC3, r0
-	adc	RES_D0, R1
-	adc	RES_D1, LL_ZERO
-
-	mul	A3, B0
-	add	RES_BC3, r0
-	adc	RES_D0, R1
-	adc	RES_D1, LL_ZERO
-
-	mul	A1, B3
-	add	RES_D0, r0
-	adc	RES_D1, r1
-	adc	RES_D2, RES_D2
-
-#undef LL_ZERO
-// move to L_ZERO (LL_ZERO is in result bytes .. D3,D2)
-	clr	L_ZERO
-
-	mul	A2, B2
-	add	RES_D0, r0
-	adc	RES_D1, r1
-	adc	RES_D2, L_ZERO
-
-	mul	A3, B1
-	add	RES_D0, r0
-	adc	RES_D1, r1
-	adc	RES_D2, L_ZERO
-
-	clr	RES_D3
-	mul	A2, B3
-	add	RES_D1, r0
-	adc	RES_D2, r1
-	adc	RES_D3, L_ZERO
-
-	mul	A3, B2
-	add	RES_D1, r0
-	adc	RES_D2, r1
-	adc	RES_D3, L_ZERO
-
-	mul	A3, B3
-	add	RES_D2, r0
-	adc	RES_D3, r1
-
-// new register pair with zero ..
-	mov	L2_ZERO,L_ZERO
-
-#undef A0
-#undef A1
-#undef A2
-#undef A3
-#undef B0
-#undef B1
-#undef B2
-#undef B3
-
-// middle part (prevent result D, BC, A)
-//          result(15..12)               sum (11..8 + 7..4)              result (3..0)
-//       RES_D3 RES_D2 RES_D1 RES_D0  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_A3 RES_A2 RES_A1 RES_A0
-
-
-// multiply  r9,r8,r7,r6  by  r5,r4,r3,r2
-// result in  RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0
-
-
-#define A0 r2
-#define A1 r3
-#define A2 r4
-#define A3 r5
-
-#define B0 r6
-#define B1 r7
-#define B2 r8
-#define B3 r9
-
-#define RS0	r22
-#define RS1	r23
-#define RS2	r30
-#define RS3	r31
-#define RS4	r26
-#define RS5	r27
-
-#define RS6	A0
-#define RS7	A1
-
-	movw	RS2,L_ZERO	// zeros for result
-	movw	RS4,L_ZERO
-
-	mul	A0, B0
-	movw	RS0, r0
-
-	mul	A0, B1
-	add	RS1, r0
-	adc	RS2, r1
-
-	mul	A1, B0
-	add	RS1, r0
-	adc	RS2, r1
-	adc	RS3, L_ZERO
-
-	mul	A0, B2
-	add	RS2, r0
-	adc	RS3, r1
-	adc	RS4, L_ZERO
-
-	mul	A1, B1
-	add	RS2, r0
-	adc	RS3, r1
-	adc	RS4, L_ZERO
-
-	mul	A2, B0
-	add	RS2, r0
-	adc	RS3, r1
-	adc	RS4, L_ZERO
-
-	mul	A0, B3
-	add	RS3, r0
-	adc	RS4, r1
-	adc	RS5, L_ZERO
-
-	mul	A1, B2
-	add	RS3, r0
-	adc	RS4, r1
-	adc	RS5, L_ZERO
-
-	mul	A2, B1
-	add	RS3, r0
-	adc	RS4, r1
-	adc	RS5, L_ZERO
-
-	mul	A3, B0
-	add	RS3, r0
-	adc	RS4, r1
-	adc	RS5, L_ZERO
-
-	mul	A1, B3
-// A1 is not needed anymore, A1 is reused as RS7, do clear RS6,RS7
-	movw	RS6,L_ZERO
-
-	add	RS4, r0
-	adc	RS5, r1
-	adc	RS6, L_ZERO
-
-	mul	A2, B2
-	add	RS4, r0
-	adc	RS5, r1
-	adc	RS6, L_ZERO
-
-	mul	A3, B1
-	add	RS4, r0
-	adc	RS5, r1
-	adc	RS6, L_ZERO
-
-	mul	A2, B3
-	add	RS5, r0
-	adc	RS6, r1
-	adc	RS7, L_ZERO
-
-	mul	A3, B2
-	add	RS5, r0
-	adc	RS6, r1
-	adc	RS7, L_ZERO
-
-	mul	A3, B3
-	add	RS6, r0
-	adc	RS7, r1
-
-// combine
-//          result(15..12)               sum (11..8 + 7..4)              result (3..0)
-//       RES_D3 RES_D2 RES_D1 RES_D0  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_A3 RES_A2 RES_A1 RES_A0
-// middle part       RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0
-
-// save A - result bytes 3..0
-#define RES_B0 r6
-#define RES_B1 r7
-#define RES_B2 r8
-#define RES_B3 r9
-
-	movw	RES_B0,RES_A0
-	movw	RES_B2,RES_A2
-
-	ADD64  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_B3 RES_B2 RES_B1 RES_B0     RES_D3 RES_D2 RES_D1 RES_D0  RES_BC3 RES_BC2 RES_BC1 RES_BC0
-	// save carry
-	adc	L2_ZERO,L2_ZERO
-
-	// sign from (BH-BL)*(AH-AL)
-	brtc	sub_M_L_mod
-
-	ADD64  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_B3 RES_B2 RES_B1 RES_B0   RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0
-	// prepare 0,1, 2 for carry propagation
-	adc	L2_ZERO,L_ZERO
-	rjmp	final_L_mod
-
-sub_M_L_mod:
-	SUB64  RES_BC3 RES_BC2 RES_BC1 RES_BC0  RES_B3 RES_B2 RES_B1 RES_B0   RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0
-	// prepare -1, 0, 1  for carry propagation
-	sbci	L2_ZERO,0
-	sbc	L_ZERO,L_ZERO
-
-final_L_mod:
-
-#undef RS0
-#undef RS1
-#undef RS2
-#undef RS3
-#undef RS4
-#undef RS5
-#undef RS6
-#undef RS7
-	pop	r27
-	pop	r26
-
-	in	r30, 0x3d
-	in	r31, 0x3e
-
-#if __AVR_3_BYTE_PC__ == 1
-//xmega
-#define S_OFF 16+9+4
-#elif __AVR_2_BYTE_PC__ == 1
-//atmega
-#define S_OFF 16+9+2
-#else
-#error unknown PC size
-#endif
-	// add 64 bit value in registers to variables in memory 
-	//        target =  source +  registers                                                 tmp
-	MEM_ADD64 S_OFF     S_OFF   RES_B3 RES_B2 RES_B1 RES_B0 RES_A3 RES_A2 RES_A1 RES_A0     r2
-// save carry
-#define CARRY_SAVE  r13
-	rol	CARRY_SAVE
-// RESULT:
-#define RS0 RES_BC0
-#define RS1 RES_BC1
-#define RS2 RES_BC2
-#define RS3 RES_BC3
-#define RS4 RES_D0
-#define RS5 RES_D1
-#define RS6 RES_D2
-#define RS7 RES_D3
-
-#define ZERO r12
-
-#define TMP_0 r20
-#define TMP_1 r21
-#define TMP_2 r22
-#define TMP_3 r23
-#define TMP_4 r24
-#define TMP_5 r25
-
-// propagate carry to end 
-	ADD32   RES_D3 RES_D2 RES_D1 RES_D0   L_ZERO L_ZERO L_ZERO L2_ZERO
-
-#undef L_ZERO
-#undef L2_ZERO
-
-	ld	r2, X+
-	ld	r3, X+
-	ld	r4, X+
-	ld	r5, X+
-	ldd	r6, Y+8
-	ldd	r7, Y+9
-	ldd	r8, Y+10
-	ldd	r9, Y+11
-
-  	clr	ZERO
-	MUL_32x  RS7,RS6,TMP_5,TMP_4,TMP_3,TMP_2,TMP_1,TMP_0   r5,r4,r3,r2   r9,r8,r7,r6   ZERO,r31,r30
-// renew carry 
-	ror	CARRY_SAVE
-
-	ADC64	RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0   ZERO,ZERO,TMP_5,TMP_4,TMP_3,TMP_2,TMP_1,TMP_0
-
-	ldd	TMP_0,Y+12
-	ldd	TMP_1,Y+13
-	ldd	TMP_2,Y+14
-	ldd	TMP_3,Y+15
-
-	MUL_32_MOD_ADDx RS7 RS6 RS5 RS4   r5,r4,r3,r2   TMP_3,TMP_2,TMP_1,TMP_0   ZERO  r31,r30
-
-	ld	r2,X+
-	ld	r3,X+
-	ld	r4,X+
-	ld	r5,X+
-
-	MUL_32_MOD_ADDx RS7 RS6 RS5 RS4   r5,r4,r3,r2   r9,r8,r7,r6   ZERO  r31 r30
-
-	ld	r2,X+
-	ld	r3,X+
-	ld	r4,X+
-	ld	r5,X+
-	ldd	r6,Y+0
-	ldd	r7,Y+1
-	ldd	r8,Y+2
-	ldd	r9,Y+3
-
-	MUL_32x  RS7,RS6,TMP_5,TMP_4,TMP_3,TMP_2,TMP_1,TMP_0   r5,r4,r3,r2   r9,r8,r7,r6  ZERO,r31,r30
-
-	ADD64    RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0   ZERO,ZERO,TMP_5,TMP_4,TMP_3,TMP_2,TMP_1,TMP_0
-
-	ldd	TMP_0,Y+4
-	ldd	TMP_1,Y+5
-	ldd	TMP_2,Y+6
-	ldd	TMP_3,Y+7
-
-	MUL_32_MOD_ADDx RS7 RS6 RS5 RS4  r5,r4,r3,r2   TMP_3,TMP_2,TMP_1,TMP_0   ZERO  r31 r30
-
-	ld	r2,X+
-	ld	r3,X+
-	ld	r4,X+
-	ld	r5,X+
-
-	MUL_32_MOD_ADDx RS7 RS6 RS5 RS4   r5,r4,r3,r2   r9,r8,r7,r6   ZERO  r31 r30
-
-	in	r30, 0x3d
-	in	r31, 0x3e
-
-	// add 64 bit value in registers to variables in memory (addressed by Z)
-	//        target =  source +  registers                          tmp
-	MEM_ADD64 S_OFF+8   S_OFF+8   RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0     r2
-	ret
-#undef S_OFF
-
-
-        .global rsa_mul_256_mod_no_abi
-        .type   rsa_mul_256_mod_no_abi, @function
-	.section .text.rsa_mul_256_mod_no_abi,"ax",@progbits
-
-// warning, result is in stack, use SP to get result position  
-rsa_mul_256_mod_no_abi:
-// save pointers to stack
-	push	r27
-	push	r26
-	push	r29
-	push	r28
-// get result position	
-	in	r30, 0x3d
-	in	r31, 0x3e
-#if __AVR_3_BYTE_PC__ == 1
-//xmega
-	adiw	r30,9+4+1
-#elif __AVR_2_BYTE_PC__ == 1
-//atmega
-	adiw    r30,9+4
-#else
-#error unknown PC size
-#endif
-	rcall	rsa_mul_128_no_abi
-// load pointers
-	pop	r28
-	pop	r29
-	pop	r26
-	pop	r27
-	adiw	r28,16	// upper part
-	rcall    rsa_mul_128_mod_no_abi
-
-	sbiw	r28,16 // lower part, X is incremented in rsa_mul_128_mod_no_abi
-
-// do not replace this by jmp/rjmp, SP is used as pointer to result ( but this
-// fail if -mrelax and -Wl,--relax is used for compiler/linker, there is )
-// -Wl,--no-call-ret-replacement  needed too, or uncomment "nop" instruction in
-// next code
-	rcall    rsa_mul_128_mod_no_abi
-//	nop
-	ret
-
-#undef RS0
-#undef RS1
-#undef RS2
-#undef RS3
-#undef RS4
-#undef RS5
-#undef RS6
-#undef RS7
-#undef ZERO
-#undef TMPTMP
-#undef TMP_0
-#undef TMP_1
-#undef TMP_2
-#undef TMP_3
-#undef TMP_4
-#undef TMP_5
-
-        .global rsa_mul_512_mod_no_abi
-        .type   rsa_mul_512_mod_no_abi, @function
-	.section .text.rsa_mul_512_mod_no_abi,"ax",@progbits
-
-rsa_mul_512_mod_no_abi:
-
-// create space on stack - 64 bytes TMP variable, 3x pointer
-	in	r28, 0x3d
-	in	r29, 0x3e
-	sbiw	r28,(32+2+2+2)
-	LOAD_SP r0, r28,r29
-
-// save  pointers to stack
-	std	Y+1,r22	// A pointer
-	std	Y+2,r23
-	std	Y+3,r30	// Result
-	std	Y+4,r31
-	std	Y+5,r26	// B pointer
-	std	Y+6,r27
-
-	movw	r28,r22
-	call	rsa_mul_256_no_abi
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+1	// OPERAND_B
-	ldd	r29,Z+2
-	adiw	r28,32	// upper part
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6
-
-	rcall 	rsa_mul_256_mod_no_abi
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,32	// upper part
-	adiw	r30,7
-
-//	clc			// R31:r30 + 7 is always below 64kB - carry is cleared
-	ldi	r24,4
-rsa_mul_512_mod_loop1:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_512_mod_loop1
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+1	// OPERAND_B
-	ldd	r29,Z+2
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6
-	adiw	r26,32	//upper part
-
-	rcall 	rsa_mul_256_mod_no_abi
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,32	// upper part
-	adiw	r30,7
-
-	ldi	r24,4
-	sub	r1,r1	// clear carry and r1
-rsa_mul_512_mod_loop2:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_512_mod_loop2
-// return stack position
-	sbiw	r30,1
-	LOAD_SP	r0, r30,r31
-	ret
-
-
-        .global rsa_mul_512_mod
-        .type   rsa_mul_512_mod, @function
-	.section .text.rsa_mul_512_mod,"ax",@progbits
-
-rsa_mul_512_mod:
-//save registers
-	push	r2
-	push	r3
-	push	r4
-	push	r5
-	push	r6
-	push	r7
-	push	r8
-	push	r9
-	push	r10
-	push	r11
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	push	r16
-	push	r17
-	push	r28
-	push	r29
-	
-	movw	r30,r24
-	movw	r26,r20
-	rcall	rsa_mul_512_mod_no_abi
-
-// return registers
-	pop	r29
-	pop	r28
-	pop	r17
-	pop	r16
-	pop	r15
-	pop	r14
-	pop	r13
-	pop	r12
-	pop	r11
-	pop	r10
-	pop	r9
-	pop	r8
-	pop	r7
-	pop	r6
-	pop	r5
-	pop	r4
-	pop	r3
-	pop	r2
-// r1 is already cleared
-	ret
-
-
-        .global rsa_mul_1024_mod
-        .type   rsa_mul_1024_mod, @function
-	.section .text.rsa_mul_1024_mod,"ax",@progbits
-
-
-rsa_mul_1024_mod:
-//save registers
-	push	r2
-	push	r3
-	push	r4
-	push	r5
-	push	r6
-	push	r7
-	push	r8
-	push	r9
-	push	r10
-	push	r11
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	push	r16
-	push	r17
-	push	r28
-	push	r29
-
-	movw	r28,r24
-	movw	r26,r20
-	
-// create space on stack - 64 bytes TMP variable, 3x pointer
-	in	r30, 0x3d
-	in	r31, 0x3e
-	subi	r30,lo8(64+2+2+2)
-	sbci	r31,hi8(64+2+2+2)
-	LOAD_SP r0, r30,r31
-
-// save  pointers to stack
-	std	Z+1,r22	// A pointer
-	std	Z+2,r23
-	std	Z+3,r28	// Result
-	std	Z+4,r29
-	std	Z+5,r26	// B pointer
-	std	Z+6,r27
-
-	call	rsa_mul_512_no_abi		//
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r22,Z+1	// OPERAND_A
-	ldd	r23,Z+2
-	ldd	r26,Z+5	// OPERAND_B
-	ldd	r27,Z+6
-
-	rcall	rsa_mul_helper_1024
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r22,Z+5	// OPERAND_B
-	ldd	r23,Z+6
-	ldd	r26,Z+1	// OPERAND_A
-	ldd	r27,Z+2
-
-	rcall	rsa_mul_helper_1024
-
-// return stack position
-	sbiw	r30,1
-	LOAD_SP	r0, r30,r31
-
-// return registers
-	pop	r29
-	pop	r28
-	pop	r17
-	pop	r16
-	pop	r15
-	pop	r14
-	pop	r13
-	pop	r12
-	pop	r11
-	pop	r10
-	pop	r9
-	pop	r8
-	pop	r7
-	pop	r6
-	pop	r5
-	pop	r4
-	pop	r3
-	pop	r2
-// r1 is already cleared
-	ret
-
-#if __AVR_3_BYTE_PC__ == 1
-//xmega
-#define S_OFF 3
-#elif __AVR_2_BYTE_PC__ == 1
-//atmega
-#define S_OFF 2
-#else
-#error unknown PC size
-#endif
-
-
-rsa_mul_helper_1024:
-	subi	r22,lo8(-64)	// upper part
-	sbci	r23,hi8(-64)
-	adiw	r30,7	// temp result
-
-	rcall 	rsa_mul_512_mod_no_abi
-
-// load values back
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldi	r24,64		// count
-
-rsa_mul_helper:
-	ldd	r28,Z+3+S_OFF	// result
-	ldd	r29,Z+4+S_OFF
-// move pointer to upper part of number
-	add	r28,r24
-	adc	r29,r1
-// calculate end position of number into r24
-	add	r24,r28
-// tmp number (to be add)
-	adiw	r30,7+S_OFF
-	sub	r1,r1
-rsa_mul_helper_loop:
-.rept	16
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	cpse	r24,r28
-	rjmp	rsa_mul_helper_loop
-
-	ret
-#undef S_OFF

@@ -2,6 +2,9 @@
 # apt-get install avrdude srecord avr-libc gcc-avr
 CC=avr-gcc
 OBJCOPY=avr-objcopy
+# Select atmega1284 CPU for testing 5 bits window (OsEID patch for simulavr
+# support 16kB RAM), to check memory usage, select atmega128
+#CPU=atmega1284
 CPU=atmega128
 
 CFLAGS=  -Wall -Os -mmcu=$(CPU) -g -ffunction-sections
@@ -18,8 +21,7 @@ CFLAGS+= -DOsEID
 BUILD= build/simulavr/
 TARGET= targets/simulavr/
 TARGET_LIB = lib/avr/
-TARGET_TEST_LIB = targets/simulavr/
-TARGET_SPEC= $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)avr.o	
+TARGET_SPEC  = $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)avr.o
 TARGET_SPEC += $(BUILD)des_arch.o $(BUILD)aes_arch.o $(BUILD)bn_lib_arch.o
 
 # disable both for environment where interrupt flag must be restored after stack pointer change
@@ -34,6 +36,9 @@ CFLAGS += -DUSE_P_Q_INV
 # enable exponent blinding
 CFLAGS += -DRSA_EXP_BLINDING
 
+# enable protection for single error in CRT
+CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
+
 all:	$(BUILD)card.hex
 
 builddir:
@@ -46,16 +51,20 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=4
 
+# ECC size (in bytes 24,32,48,72)
+CFLAGS += -DMP_BYTES=48
+
 #for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
 HAVE +=         -DRAM_LE32
 
 
 
-TARGET_SPEC +=	$(BUILD)mp_mul_192.o
-TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_24.o
+TARGET_SPEC +=	$(BUILD)mp_mul_192.o
+#TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
-TARGET_SPEC +=  $(BUILD)mp_mul_128.o
+TARGET_SPEC +=	$(BUILD)mp_mul_256.o
+TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -98,20 +107,23 @@ $(BUILD)aes_arch.o:	$(TARGET_LIB)/aes.S  card_os/aes.h
 $(BUILD)rsa_S.o:	$(TARGET_LIB)rsa.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rsa_S.o $(TARGET_LIB)rsa.S
 
-$(BUILD)mp_mul_128.o:	$(TARGET_LIB)mp_mul_128.S
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_128.o $(TARGET_LIB)mp_mul_128.S
-
 $(BUILD)mp_mul_192.o:	$(TARGET_LIB)mp_mul_192.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_192.o $(TARGET_LIB)mp_mul_192.S
 
 $(BUILD)mp_mul_256.o:	$(TARGET_LIB)mp_mul_256.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_256.o $(TARGET_LIB)mp_mul_256.S
 
+$(BUILD)mp_mul_521.o:	$(TARGET_LIB)mp_mul_521.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_521.o $(TARGET_LIB)mp_mul_521.S
+
 $(BUILD)mp_mul_24.o:	$(TARGET_LIB)mp_mul_24.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_24.o $(TARGET_LIB)mp_mul_24.S
 
 $(BUILD)mp_mul_32.o:	$(TARGET_LIB)mp_mul_32.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32.o $(TARGET_LIB)mp_mul_32.S
+
+$(BUILD)mp_mul_32_trunc.o:	$(TARGET_LIB)mp_mul_32_trunc.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32_trunc.o $(TARGET_LIB)mp_mul_32_trunc.S
 
 $(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S

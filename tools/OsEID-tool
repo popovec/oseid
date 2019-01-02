@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -56,7 +56,8 @@ else
 	echo "RSA-SIGN-TEST - sign sample text with token RSA operation and test this signature"
 	echo "RSA-DECRYPT-TEST - decrypt test data"
 	echo "PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys"
-	echo "RSA-CSR [key] [subject] - generate certificate signing request from key"
+	echo "CSR [key] [subject] - generate certificate signing request"
+	echo "CRT [key] [subject] - generate self signed certificate"
 	echo "RND-TEST - test random generator entropy"
 	exit 0
 fi
@@ -133,22 +134,36 @@ fi
 
 # Card is needed for rest of operations
 
-VERSION_CHECK=0
-OPENSC_VER=`opensc-tool -i|awk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}'`
+X_ver=`opensc-tool -i`
 if [ $? -ne 0 ]; then
 	failecho "unable to determine opensc version"
 	exit 1
 fi
+OPENSC_VER=`echo $X_ver|awk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}'`
+OPENSC_VERSION=`echo $X_ver|awk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+1000*V[2]+V[3]}'`
 
-[ $OPENSC_VER == "0.15" ] && VERSION_CHECK=1
-[ $OPENSC_VER == "0.16" ] && VERSION_CHECK=1
-[ $OPENSC_VER == "0.17" ] && VERSION_CHECK=1
+ECDH=0
+RAWSIGN2048=0
 
-if [ $VERSION_CHECK -eq 0 ]; then
+if [ $OPENSC_VERSION -lt 15000 ]; then
+	failecho "Your OPENSC version is:"
 	opensc-tool -i
-	failecho "please check opensc version, use opensc 0.15 0.16 or 0.17 only"
+	failecho "please check opensc version, use opensc 0.15 - 0.19 only"
 	exit 1
 fi
+if [ $OPENSC_VERSION -ge 17000 ]; then
+	ECDH=1
+fi
+if [ $OPENSC_VERSION -ge 18000 ]; then
+	RAWSIGN2048=1
+fi
+if [ $OPENSC_VERSION -gt 19000 ]; then
+	warnecho "not tested opensc version detected"
+	opensc-tool -i
+	warnecho "this code is tested in opensc versions 0.15 .. 0.19"
+	sleep 5
+fi
+
 # search card
 CARD_TYPE=""
 CARD_INIT=0
@@ -343,19 +358,25 @@ fi
 #***************************************************************************************************************************
 
 if [ $mode == "EC-UPLOAD-KEYS" ]; then
+secp256k1_OK=0
+
+ECC_SIZE_TEST=`pkcs11-tool -M 2>/dev/null`
+ECC_SIZE_MAX=256
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
+
 echo storing EC key
 (
-# not enabled in myeid driver (0.15, 0.16, 0.17)
+# not enabled in opensc myeid driver (0.15 .. 0.19)
 #secp224r1  1.3.132.0.33
-# not supported by OsEID
-#secp521r1  1.3.132.0.35
+# not supported by opensc myeid driver (0.15 .. 0.19)
 #secp256k1 1.3.132.0.10
 cat <<EOP
 prime192v1 1.2.840.10045.3.1.1
 prime256v1 1.2.840.10045.3.1.7
-secp256k1 1.3.132.0.10
 EOP
-pkcs11-tool -M 2>/dev/null|grep -q -F  -e 'ECDSA-SHA1, keySize={192,521}' -e 'ECDSA-SHA1, keySize={192,384}' && echo "secp384r1  1.3.132.0.34"
+if [ $ECC_SIZE_MAX -ge 384 ]; then echo "secp384r1  1.3.132.0.34"; fi
+if [ $ECC_SIZE_MAX -ge 521 ]; then echo "secp521r1  1.3.132.0.35"; fi
 )|
 while read curve oid ;do
 	if [ $curve == "secp256k1" ]; then
@@ -365,19 +386,30 @@ while read curve oid ;do
 	fi
 	echo "uploading key ${curve}"
 	pkcs15-init  --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --so-pin 00000000 --label "${curve}" --key-usage sign
+	E=$?
+	if [ z${curve} == "zsecp256k1" ]; then
+		if [ $E -eq 0 ]; then
+			secp256k1_OK=1
+			echo "fixing secp256k1 key file"
+			P=`pkcs15-tool -D|\
+			gawk '{if($1 == "Private" && $2=="EC" && $4=="[secp256k1]"){OK=1};if(OK==1 && $1 == "Path"){print substr($3,5,2)" "substr($3,7,2)" "substr($3,9,2)" "substr($3,11,2);exit}}'`
+			(
+			echo "00 a4 08 00 04 $P"
+			echo "00 20 00 01 08 31 31 31 31 31 31 31 31"
+			echo "80 da 00 00 00"
+			)|scriptor -p ${PROTO}
+		else
+			E=0
+		fi
+	fi
 	if [ $? -ne 0 ]; then
 	        failecho "fail"
 	        exit 1
 	fi
 	if [ z${curve} == "zsecp256k1" ]; then
-		echo "fixing secp256k1 key file"
-		P=`pkcs15-tool -D|\
-		gawk '{if($1 == "Private" && $2=="EC" && $4=="[secp256k1]"){OK=1};if(OK==1 && $1 == "Path"){print substr($3,5,2)" "substr($3,7,2)" "substr($3,9,2)" "substr($3,11,2);exit}}'`
-		(
-		echo "00 a4 08 00 04 $P"
-		echo "00 20 00 01 08 31 31 31 31 31 31 31 31"
-		echo "80 da 00 00 00"
-		)|scriptor -p ${PROTO}
+	 if [ $secp256k1_OK -eq 0 ]; then
+		continue
+	 fi
 	fi
 	echo "uploading self signed cert for key/curve ${curve}"
 	pkcs15-init -X keys/${curve}-cert.pem --pin 11111111 --auth-id=1 --so-pin 00000000 --label "${curve}"
@@ -396,13 +428,14 @@ fi
 
 if [ $mode == "EC-SIGN-TEST" ]; then
 mkdir -p tmp
-#check long EC keys
-SIZE=256
-pkcs11-tool -M 2>/dev/null|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' -e 'ECDSA-SHA1, keySize={192,384}' && SIZE=384
+
+ECC_SIZE_TEST=`pkcs11-tool -M 2>/dev/null`
+ECC_SIZE_MAX=256
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
 
 pkcs15-tool --list-public-keys|tee /dev/tty |\
-#gawk -F: '{if($1 ~ "ModLength" || $1 ~ "FieldLength"){if(strtonum($2)<=521)OK=1;else OK=0}if($1~"ID" && OK==1)print $2 }'|\
-gawk -v SIZE=SIZE -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE)OK=1;else OK=0}if($1~"ID" && OK==1){print $2;OK=0}}'|\
+gawk -v SIZE=$ECC_SIZE_MAX -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE)OK=1;else OK=0}if($1~"ID" && OK==1){print $2;OK=0}}'|\
 while read keyID ; do
   echo "Reading public key "$keyID
   pkcs15-tool --read-public-key $keyID |tee tmp/exported_ec_key.pub
@@ -410,9 +443,16 @@ while read keyID ; do
   echo "test" > tmp/testfile.txt
   echo  "create sha1 hash of testing file in binary form:"
   sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
-  echo "generating signature"
+  echo "generating signature by pkcs15-crypt"
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
   pkcs15-crypt --pin 11111111 -k $keyID --signature-format "openssl" -s -i tmp/testfile.txt.sha1 -o tmp/testfile.txt.pkcs11.sha1.sig
+  echo "testing signature.."
+  openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
+  if [ $?	-ne 0 ]; then
+	failecho "openssl signature test fail"
+  fi
+  echo "generating signature by pkcs11-tool"
+  pkcs11-tool --pin 11111111 --sign --signature-format "openssl" --slot 0 -m ECDSA --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
   echo "testing signature.."
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
   if [ $?	-ne 0 ]; then
@@ -426,12 +466,6 @@ fi
 # pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA --input-file sign.this.txt --output-file sign.this.txt.signature
 # pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA-SHA1 --input-file sign.this.txt --output-file sign.this.txt.signature
 
-# verify:
-# prepare data to sign, do sign, do test
-# sha1sum sign.this.txt|cut -d ' ' -f 1|xxd -p -r > sign.this.txt.sha1
-# pkcs11-tool --sign ...
-# openssl dgst -sha1 -verify keys/prime256v1-pub.pem  -signature sign.this.txt.signature sign.this.txt
-
 #***************************************************************************************************************************
 
 
@@ -439,12 +473,19 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "EC-ECDH-TEST" ]; then
 mkdir -p tmp
-  warnecho "Experimental!"
-  if [ $OPENSC_VER != "0.17" ]; then
-	failecho "Tested with opensc ver. 0.17 only!"
+ECC_SIZE_TEST=`pkcs11-tool -M 2>/dev/null`
+ECC_SIZE_MAX=256
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
+warnecho "Experimental!"
+  if [ $ECDH -ne 1 ]; then
+	failecho "ECDH support is working in opensc version 0.17 and above"
 	exit 1
   fi
   while read curve id ;do
+	# skip curve if not supported by card
+	if [ $id -eq 14 ] && [ $ECC_SIZE_MAX -lt 384 ]; then continue;fi
+	if [ $id -eq 15 ] && [ $ECC_SIZE_MAX -lt 521 ]; then continue;fi
         #Alice: key on card
         rm -f tmp/ecdh-${curve}-alice-pub.pem
         rm -f tmp/ecdh-${curve}-alice-pub.der
@@ -478,6 +519,7 @@ mkdir -p tmp
 prime192v1 12
 prime256v1 13
 secp384r1 14
+secp521r1 15
 EOP
 #secp256k1 - there is no easy way generate this key with opensc
 fi
@@ -489,6 +531,11 @@ fi
 
 # Test for EC keys:
 if [ $mode == "EC-GENERATE-KEYS" ]; then
+ECC_SIZE_TEST=`pkcs11-tool -M 2>/dev/null`
+ECC_SIZE_MAX=256
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
+
 echo "generating 192 bits EC key"
 pkcs15-init --generate-key ec-prime192v1  --auth-id 1 --pin 11111111 --label gen_prime192v1
 if [ $? -ne 0 ]; then
@@ -501,13 +548,20 @@ if [ $? -ne 0 ]; then
         failecho "fail"
 	exit 2
 fi
-pkcs11-tool -M 2>/dev/null|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' -e 'ECDSA-SHA1, keySize={192,384}'
-if [ $? -eq 0 ]; then
+if [ $ECC_SIZE_MAX -ge 384 ]; then
 	echo "generating 384 bits EC key"
 	pkcs15-init --generate-key ec-secp384r1 --auth-id 1 --pin 11111111 --label gen_secp384r1
 	if [ $? -ne 0 ]; then
 		failecho "fail"
 		exit 3
+	fi
+fi
+if [ $ECC_SIZE_MAX -ge 521 ]; then
+echo "generating 521 bits EC key"
+	pkcs15-init --generate-key ec-secp521r1  --auth-id 1 --pin 11111111 --label gen_secp521r1
+	if [ $? -ne 0 ]; then
+		failecho "fail"
+		exit 4
 	fi
 fi
 fi
@@ -589,7 +643,7 @@ dd if=tmp/rsa_sign_testfile.txt bs=$LEN count=1 of=tmp/rsa_sign_testfile_${LEN}.
 # maximum 250 bytes of data (APDU max 255, 5 bytes for CLA, CMD, P1, P1 LEN)
 # raw 2048 bit signature is supported in OpenSC git version
 # (https://github.com/OpenSC/OpenSC/commit/deab9cce73377f973d2020ab5ab7adc302018bf6)
-if [ $LEN -lt 249 ] || [ $OPENSC_VER == "0.18" ] ; then
+if [ $LEN -lt 249 ] || [ $RAWSIGN2048 -eq 1 ] ; then
 	echo "using pkcs15-crypt to sign RAW message, message length $LEN"
 	pkcs15-crypt --pin 11111111 -k $keyID  -s \
 	   -i tmp/rsa_sign_testfile_${LEN}.txt \
@@ -612,7 +666,8 @@ if [ $LEN -lt 249 ] || [ $OPENSC_VER == "0.18" ] ; then
 		err=$[$err + 1 ]
 	fi
 else
-	echo "message over 248 bytes, skipping RAW sign operation"
+	warnecho "message over 248 bytes, skipping RAW sign operation"
+	warnecho "support for RAW 2048 RSA signature is available from opensc 0.18"
 fi
 
 echo "using pkcs11 interface to sign message"
@@ -683,7 +738,11 @@ if [ $mode == "PKCS11-RSA-TEST" ]; then
 	exit 0
 fi
 #***************************************************************************************************************************
+# compatibility with old version ...
 if [ $mode == "RSA-CSR" ]; then
+	mode="CSR"
+fi
+if [ $mode == "CSR" ] || [ $mode == "CRT" ]; then
 V=0
 openssl version -v | fgrep -q 'OpenSSL 1.1' && V=11
 openssl version -v | fgrep -q 'OpenSSL 1.0' && V=10
@@ -691,28 +750,33 @@ if [ $V -eq 0 ]; then
 	echo "Unable to determine openssl version"
 	exit 1
 fi
+
 if [ $# -lt  2 ]; then
 	echo "Please specify key ID (use pkcs15-tool -k to read keys)"
 	exit 1
 fi
+keyReq=$2
+
 if [ $# -gt  2 ]; then
-	SUBJ=$3
+	SUBJ="${3}"
 else
-	echo "Using CN=$2"
+	SUBJ="/C=EX/ST=Example/L=Example/O=example/CN=Joe Random\/emailAddress=joe.random@example.example/"
 	echo "You can specify subj into csr for example:"
 	echo "   $0 $1 $2 \"/O=EX/ST=Example/L=Example/O=example/CN=Joe Random\/emailAddress=joe.random@example.example/\""
-	SUBJ="/CN=$2"
 fi
-echo "searching key $2"
+echo "Using ${SUBJ}"
+
+
+echo "searching key ${keyReq}"
 mkdir -p tmp
 
 #get slot
 slot=`pkcs11-tool -I 2>&1|gawk '{if($0 ~ "present token")print $3}'`
 #list all RSA keys 
 pkcs15-tool --list-public-keys|\
-gawk -F: '{if($1 ~ "ModLength" || $1 ~ "FieldLength"){if(strtonum($2)>=512)OK=1;else OK=0}if($1~"ID" && OK==1)print $2 }'|\
+gawk -F: '{if($1~"ID")print $2 }'|\
 while read keyID; do
- if [ "$2" == "$keyID" ];then
+ if [ "${keyReq}" == "${keyID}" ];then
 	echo "Key found"
 	echo "creating openssl config"
 
@@ -745,25 +809,54 @@ distinguished_name = req_distinguished_name
 [req_distinguished_name]
 EOP
 
-echo "generating csr for key ID ${keyID} into file ${keyID}.csr with ${SUBJ}"
+
+if [ $mode == "CSR" ]; then
+echo "generating CSR for key ID ${keyID} into file ${keyID}.csr with subject ${SUBJ}"
 rm -f ${keyID}.csr
-openssl req -config tmp/openssl.conf -engine pkcs11 -new \
+warnecho "Please ignore message 'No private keys found.'"
+openssl req -config tmp/openssl.conf -new \
+-engine pkcs11 \
 -key slot_${slot}-id_${keyID} \
--keyform engine -out ${keyID}.csr -text \
+-keyform engine \
+-out ${keyID}.csr -text \
 -multivalue-rdn \
 -subj "${SUBJ}"
 if [ $? -ne 0 ];then
 	failecho "CSR generation fail"
 	exit 1
 fi
+
 echo ".........................................................." 
 openssl req -in ${keyID}.csr -text  -noout
 echo " "
-echo "you can copy ${keyID}.csr into easy-rsa/keys directory and do sign with pkki-tool --sign ${keyID}"
+echo "you can copy ${keyID}.csr into easy-rsa/keys directory and do sign with pkitool --sign ${keyID}"
 echo "(easy rsa may generate error/warning about missing key, this can be ignored)"
 echo "Then import certificate into card from easy-rsa/keys/${keyID}.crt by command:"
 echo "pkcs15-init --store-certificate ${keyID}.crt"
 echo ".........................................................." 
- fi
-done
+
+else
+echo "generating self signed CRT for key ID ${keyID} into file ${keyID}.crt with subject ${SUBJ}"
+rm -f ${keyID}.crt
+warnecho "Please ignore message 'No private keys found.'"
+openssl req -config tmp/openssl.conf -new \
+-x509 \
+-engine pkcs11 \
+-key slot_${slot}-id_${keyID} \
+-keyform engine \
+-out ${keyID}.crt -text \
+-multivalue-rdn \
+-subj "${SUBJ}"
+
+echo ".........................................................."
+openssl x509 -in ${keyID}.crt -text  -noout
+echo " "
+echo "You can import self signed certificate into card by command:"
+echo "pkcs15-init --store-certificate ${keyID}.crt"
+echo ".........................................................."
 fi
+
+fi
+done
+fi # CRT, CSR
+#***************************************************************************************************************************

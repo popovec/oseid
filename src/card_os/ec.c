@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -20,16 +20,21 @@
 
     elliptic curve cryptography routines
 
+    Code is optimized for 8 bit CPU with small RAM (atmega128..)
+
     WARNING:
 
-    tested curves (with fast reduction algo)
-    nistp192/prime192v1/secp192r1
-    nistp256/secp256r1/prime256v1
+    tested curves (with fast reduction algo):
+
+    secp192r1/nistp192/prime192v1
+    secp256r1/nistp256/prime256v1
     secp384r1
+    secp521r1
     secp256k1
 
     All curves in format Y^2 = X^3 -a * X + b
 */
+
 
 /*
     There is support for blinding in scalar * point multiplication (ec_mul).
@@ -41,12 +46,21 @@
 
 //    number of bytes for blinding key in ec_mul, (tested for 0 and 4 only)
 #define EC_BLIND 4
+
 #include <string.h>
 #include <stdint.h>
 #include "rnd.h"
 #include "ec.h"
 #include "bn_lib.h"
-#include <stdio.h>
+
+#ifndef EC_BLIND
+#define EC_BLIND 0
+#endif
+
+#ifndef EC_MUL_WINDOW
+#define  EC_MUL_WINDOW 4
+#endif
+
 
 uint8_t
 mp_get_len ()
@@ -60,9 +74,11 @@ mp_set_len (uint8_t a)
   mod_len = a;
 }
 
+//extern void mp_mul_521 (uint8_t * r, uint8_t * a, uint8_t * b);
 extern void rsa_mul_384 (uint8_t * r, uint8_t * a, uint8_t * b);
 extern void rsa_mul_256 (uint8_t * r, uint8_t * a, uint8_t * b);
 extern void rsa_mul_192 (uint8_t * r, uint8_t * a, uint8_t * b);
+extern void mp_square_521 (uint8_t * r, uint8_t * a);
 extern void rsa_square_384 (uint8_t * r, uint8_t * a);
 extern void rsa_square_256 (uint8_t * r, uint8_t * a);
 extern void rsa_square_192 (uint8_t * r, uint8_t * a);
@@ -94,20 +110,18 @@ typedef struct
 //
 
 // ec mathematics (point in projective representation!)
-static uint8_t ecisinf (ec_point_t * point);
 static void ec_double (ec_point_t * a);
-static uint8_t ec_add_ (ec_point_t * a, ec_point_t * b);
+static void ec_add (ec_point_t * a, ec_point_t * b);
 static void ec_mul (ec_point_t * point, uint8_t * f);
 static void ec_projectify (ec_point_t * r);
 
 //return projective representation to affinite
 static uint8_t ec_affinify (ec_point_t * point, struct ec_param *ec);
 /**************************************************************************
-*                   field mathematics (mod p192)                          *
+*                   field mathematics                                     *
 ***************************************************************************/
 static void field_sqr (bignum_t * r, bignum_t * a);
 static void field_mul (bignum_t * r, bignum_t * a, bignum_t * b);
-static void fast192reduction (bignum_t * result, bigbignum_t * bn);
 /**************************************************************************
 *                       modular arithmetic                               *
 ***************************************************************************/
@@ -154,6 +168,18 @@ uint8_t __attribute__ ((weak)) mp_shiftl (bignum_t * r)
   return bn_shiftl (r);
 }
 
+void __attribute__ ((weak)) mp_shiftl2 (bignum_t * r)
+{
+  mp_shiftl (r);
+  mp_shiftl (r);
+}
+
+void __attribute__ ((weak)) mp_shiftl4 (bignum_t * r)
+{
+  mp_shiftl2 (r);
+  mp_shiftl2 (r);
+}
+
 uint8_t __attribute__ ((weak)) mp_shiftr (bignum_t * r)
 {
   return bn_shiftr (r);
@@ -169,9 +195,19 @@ void __attribute__ ((weak)) mp_mod (bigbignum_t * result, bignum_t * mod)
   bn_mod (result, mod);
 }
 
-uint8_t __attribute__ ((weak)) mp_inv_mod (bignum_t * result, bignum_t * a, bignum_t * mod)
+uint8_t
+  __attribute__ ((weak)) mp_inv_mod (bignum_t * result, bignum_t * a,
+				     bignum_t * mod)
 {
-  return bn_inv_mod (result, a, mod);
+  uint8_t ret;
+
+// TODO fix this in bn_inv_mod ?
+#if MP_BYTES >= 66
+  memset (&(result->value[66]), 0, MP_BYTES - 66);
+  result->value[65] &= 1;
+#endif
+  ret = bn_inv_mod (result, a, mod);
+  return ret;
 }
 
 void __attribute__ ((weak))
@@ -192,6 +228,11 @@ mp_mul_384 (bigbignum_t * r, bignum_t * a, bignum_t * b)
   bn_mul_v (r, a, b, 48);
 }
 
+void __attribute__ ((weak))
+mp_mul_521 (bigbignum_t * r, bignum_t * a, bignum_t * b)
+{
+  bn_mul_v (r, a, b, 72);
+}
 
 static void mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a);
 
@@ -206,6 +247,7 @@ static void mp_square (bigbignum_t * r, bignum_t * a);
 bignum_t *field_prime __attribute__ ((section (".noinit")));
 static bignum_t *param_a __attribute__ ((section (".noinit")));
 static uint8_t curve_type __attribute__ ((section (".noinit")));
+static bigbignum_t bn_tmp __attribute__ ((section (".noinit")));
 
 //Change point from affine to projective
 static void
@@ -213,46 +255,36 @@ ec_projectify (ec_point_t * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
 
-  memset (&(r->Z), 0, mp_get_len ());
+  memset (&(r->Z), 0, MP_BYTES);
   r->Z.value[0] = 1;
 }
 
 static void
 field_add (bignum_t * r, bignum_t * a)
 {
-  DPRINT ("%s\n", __FUNCTION__);
-
   add_mod (r, a, field_prime);
 }
 
 static void
 field_sub (bignum_t * r, bignum_t * a)
 {
-  DPRINT ("%s\n", __FUNCTION__);
-
   sub_mod (r, a, field_prime);
 }
 
 static void
 mul_mod (bignum_t * c, bignum_t * a, bignum_t * b, bignum_t * mod)
 {
-  bigbignum_t bn;
-
   DPRINT ("%s\n", __FUNCTION__);
 
-  mp_mul (&bn, a, b);
-  mp_mod (&bn, mod);
-  memset (c, 0, mp_get_len ());
-  memcpy (c, &bn, mp_get_len ());
+  mp_mul (&bn_tmp, a, b);
+  mp_mod (&bn_tmp, mod);
+  memset (c, 0, MP_BYTES);
+  memcpy (c, &bn_tmp, mp_get_len ());
 }
 
-static uint8_t
-ecisinf (ec_point_t * point)
-{
-  return mp_is_zero (&point->Y);
-}
 
 #ifndef NIST_ONLY
+#if MP_BYTES >= 32
 /*
 FAST REDUCTION for secp256k1 curve
 p = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE FFFFFC2F
@@ -304,14 +336,10 @@ secp256k1reduction (bignum_t * result, bigbignum_t * bn)
   field_add (result, (bignum_t *) a);
 
   memcpy (&w1, a + 32, 32);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
+  mp_shiftl4 (&w1);
   field_add (result, &w1);
 
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
+  mp_shiftl2 (&w1);
   field_add (result, &w1);
 
   mp_shiftl (&w1);
@@ -341,13 +369,9 @@ secp256k1reduction (bignum_t * result, bigbignum_t * bn)
   memset (&k, 0, 2);
   memcpy (&k.value[4], &w1, 28);	//32
   mp_add (&k, &w1);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
+  mp_shiftl4 (&w1);
   mp_add (&k, &w1);		//4
-  mp_shiftl (&w1);
-  mp_shiftl (&w1);
+  mp_shiftl2 (&w1);
   mp_add (&k, &w1);		//6
   mp_shiftl (&w1);
   mp_add (&k, &w1);		//7
@@ -359,15 +383,12 @@ secp256k1reduction (bignum_t * result, bigbignum_t * bn)
   mp_set_len (32);		// secp256k1 uses always 32 bytes for number
   field_add (result, &k);
 }
-
+#endif
 #endif
 
-#ifdef HAVE_secp384r1_REDUCTION
-extern void fast384reduction (bignum_t * result, bigbignum_t * bn);
-#else
+
+#if MP_BYTES >= 48
 static void fast384reduction (bignum_t * result, bigbignum_t * bn);
-#endif
-#ifndef HAVE_secp384r1_REDUCTION
 /*
 FAST REDUCTION for secp384r1 curve
 P384 = 39402006196394479212279040100143613805079739270465446667948293404245721771496870329047266088258938001861606973112319
@@ -482,6 +503,7 @@ result=t+s2+s3+s4 -d1
   return;
 }
 #endif
+
 /*
 FAST REDUCTION for nistp256/secp256r1/prime256v1 OID 1.2.840.10045.3.1.7 curve
 
@@ -526,6 +548,7 @@ move some part of S4 to S2, from S3 to S1, then use field_sub/add
 
 : r = t + s1 + s1x + 2 s2 + s3 + s4 - d1 - d2 - d3 - d4
 */
+#if MP_BYTES >= 32
 
 static void
 fast256reduction (bignum_t * result, bigbignum_t * bn)
@@ -609,7 +632,7 @@ fast256reduction (bignum_t * result, bigbignum_t * bn)
   mp_sub ((bignum_t *) ptr_l, (bignum_t *) ptr_l, (bignum_t *) (ptr_l + 32));
   field_add (result, (bignum_t *) ptr_l);
 }
-
+#endif
 /*
  FAST REDUCTION for nistp192/prime192v1/secp192r1 OID 1.2.840.10045.3.1.1 curve
 
@@ -631,7 +654,7 @@ fast256reduction (bignum_t * result, bigbignum_t * bn)
 static void
 fast192reduction (bignum_t * result, bigbignum_t * bn)
 {
-  DPRINT ("%s\n", __FUNCTION__);
+//  DPRINT ("%s\n", __FUNCTION__);
 
 // use field_add - code is small but fast enough
 
@@ -649,63 +672,63 @@ fast192reduction (bignum_t * result, bigbignum_t * bn)
 
 }
 
+#if MP_BYTES >= 66
+static void
+fast521reduction (bignum_t * result, bigbignum_t * bn)
+{
+  memcpy (result, 65 + (uint8_t *) bn, MP_BYTES);
+  bn->value[65] &= 1;
+  memset (66 + (uint8_t *) bn, 0, MP_BYTES - 66);
+  mp_shiftr (result);
+  field_add (result, (bignum_t *) bn);
+}
+#endif
+
+// do not set this static, this generates smaller code
+// with __attribute__ ((noinline)) code is bigger
+void
+field_reduction (bignum_t * r, bigbignum_t * bn)
+{
+// known curves/primes:
+#if MP_BYTES >= 66
+  if (curve_type == (C_SECP521R1 | C_SECP521R1_MASK))
+    return fast521reduction (r, bn);
+#endif
+#if MP_BYTES >= 48
+  if (curve_type == (C_SECP384R1 | C_SECP384R1_MASK))
+    return fast384reduction (r, bn);
+#endif
+#if MP_BYTES >= 32
+  if (curve_type == (C_P256V1 | C_P256V1_MASK))
+    return fast256reduction (r, bn);
+#endif
+#if MP_BYTES >= 32
+  if (curve_type == (C_SECP256K1 | C_SECP256K1_MASK))
+    return secp256k1reduction (r, bn);
+#endif
+  if (curve_type == (C_P192V1 | C_P192V1_MASK))
+    return fast192reduction (r, bn);
+
+// for tests only - real run without fast reduction is too long
+#if 0
+  mp_mod (bn, field_prime);
+  memset (r, 0, MP_BYTES);
+  memcpy (r, bn, mp_get_len ());
+#endif
+}
+
 static void
 field_mul (bignum_t * r, bignum_t * a, bignum_t * b)
 {
-  bigbignum_t bn;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  mp_mul (&bn, a, b);
-
-// known curves/primes:
-  if (curve_type == C_PRIME192V1)
-    return fast192reduction (r, &bn);
-  if (curve_type == C_PRIME256V1)
-    return fast256reduction (r, &bn);
-#ifdef NIST_ONLY
-  return fast384reduction (r, &bn);
-#else
-
-  if (curve_type == C_secp384r1)
-    return fast384reduction (r, &bn);
-
-  if (curve_type == C_secp256k1)
-    return secp256k1reduction (r, &bn);
-
-  mp_mod (&bn, field_prime);
-  memcpy (r, &bn, mp_get_len ());
-
-#endif
+  mp_mul (&bn_tmp, a, b);
+  return field_reduction (r, &bn_tmp);
 }
 
 static void
 field_sqr (bignum_t * r, bignum_t * a)
 {
-  bigbignum_t bn;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  mp_square (&bn, a);
-
-// known curves/primes:
-  if (curve_type == C_PRIME192V1)
-    return fast192reduction (r, &bn);
-  if (curve_type == C_PRIME256V1)
-    return fast256reduction (r, &bn);
-#ifdef NIST_ONLY
-  return fast384reduction (r, &bn);
-#else
-  if (curve_type == C_secp384r1)
-    return fast384reduction (r, &bn);
-
-  if (curve_type == C_secp256k1)
-    return secp256k1reduction (r, &bn);
-
-// any other curves ..
-  mp_mod (&bn, field_prime);
-  memcpy (r, &bn, mp_get_len ());
-#endif
+  mp_square (&bn_tmp, a);
+  return field_reduction (r, &bn_tmp);
 }
 
 //#define field_sqr(r,a) field_mul(r,a,a)
@@ -756,82 +779,30 @@ ec_affinify (ec_point_t * point, struct ec_param *ec)
   field_mul (&point->X, &point->X, &n1);	// X*=n1
   field_mul (&n0, &n0, &n1);	// n0=Z^-3
   field_mul (&point->Y, &point->Y, &n0);
-  memset (&point->Z, 0, mp_get_len ());
+  memset (&point->Z, 0, MP_BYTES);
+//  memset (&point->Z, 0, mp_get_len ());
   point->Z.value[0] = 1;
+
   return 0;
 }
 
-//NIST reference implementation .. not working for secp256k1!
-//#define NIST_DOUBLE
-#ifdef NIST_DOUBLE
-#ifndef NIST_ONLY
-#error NIST ec_double routine fail for secp256k1
-#endif
-static __attribute__ ((unused))
-     void ec_double (ec_point_t * a)
+static void
+ec_point_1_1_0 (ec_point_t * a)
 {
-  bignum_t t1, t2, t3, t4, t5;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  mp_set (&t1, a->X.value);	//1
-  mp_set (&t2, a->Y.value);	//2
-  mp_set (&t3, a->Z.value);	//3
-
-  if (mp_is_zero (&(a->Z)))	//4
-    {
-      mp_set_to_1 (&(a->X));	//5
-      mp_set_to_1 (&(a->Y));
-      DPRINT ("Not projective point ?\n");
-      return;
-    }				//6
-  field_sqr (&t4, &t3);		//7  t4 = t3^2
-  memcpy (&t5, &t1, sizeof (bignum_t));
-  field_sub (&t5, &t4);		//8  t5 = t1 - t4
-  field_add (&t4, &t1);		//9  t4 = t1 + t4
-  field_mul (&t5, &t4, &t5);	//10 t5 = t4 + t5
-  //                            //11 t4 = 3*t5
-  memcpy (&t4, &t5, sizeof (bignum_t));
-  field_add (&t4, &t5);		//   2*t5
-  field_add (&t4, &t5);		//   3*t5
-  //
-  field_mul (&t3, &t3, &t2);	//12 t3 = t3 * t2
-  field_add (&t3, &t3);		//13 t3 = t3*2
-  field_sqr (&t2, &t2);		//14 t2 = t2^2
-  field_mul (&t5, &t1, &t2);	//15 t5 = t1 * &t2
-  //                            //16 t5 = 4*t5;
-  field_add (&t5, &t5);		//   2x
-  field_add (&t5, &t5);		//   4x
-  field_sqr (&t1, &t4);		//17 t1 = t4^2
-  //                            //18 t1 = t1 - 2*t5
-  field_sub (&t1, &t5);
-  field_sub (&t1, &t5);
-  //
-  field_sqr (&t2, &t2);		//19 t2=t2^2
-  //                            //20 t2=8*t2
-  field_add (&t2, &t2);		//   2x
-  field_add (&t2, &t2);		//   4x
-  field_add (&t2, &t2);		//   8x
-  //
-  field_sub (&t5, &t1);		//21 t5 = t5 - t1
-  field_mul (&t5, &t4, &t5);	//22
-  field_sub (&t5, &t2);		//23
-
-  mp_set (a->X.value, &t1);	//24
-  mp_set (a->Y.value, &t5);	//25
-  mp_set (a->Z.value, &t3);	//26
+  memset (a, 0, sizeof (ec_point_t));
+  a->X.value[0] = 1;
+  a->Y.value[0] = 1;
 }
-#else //NIST_DOUBLE
 
 static void
 ec_double (ec_point_t * a)
 {
   bignum_t S, M, YY, T;
+//  DPRINT ("%s\n", __FUNCTION__);
 
-  DPRINT ("%s\n", __FUNCTION__);
+  if (mp_is_zero (&(a->Z)))
+    return ec_point_1_1_0 (a);
 
-  if (ecisinf (a))
-    return;
   field_sqr (&YY, &a->Y);
 
 #ifdef NIST_ONLY
@@ -865,14 +836,12 @@ ec_double (ec_point_t * a)
     }
   else
     {
-
       field_sqr (&M, &a->X);	// M=3* X^2
       memcpy (&T, &M, sizeof (bignum_t));
       field_sqr (&S, &a->Z);
       field_sqr (&S, &S);
       field_mul (&S, param_a, &S);	// T=a*Z^4
       field_add (&M, &S);
-
     }
 #endif
   field_add (&T, &T);
@@ -899,95 +868,26 @@ ec_double (ec_point_t * a)
   field_mul (&a->Y, &M, &a->Y);
   field_sub (&a->Y, &T);	//Y'=M*(S-X') - 8*Y^4
 }
-#endif //!NIST_DOUBLE
 
 /**************************************************/
-#if 0				// NIST ADD
-// NIST reference implementation
-static uint8_t
-ec_add_ (ec_point_t * s, ec_point_t * t)
-{
-  bignum_t XX, YY, tX, tY, tZZ;
 
-  if (!mp_is_1 (&t->Z))
-    {
-      field_sqr (&tZZ, &(t->Z));
-      field_mul (&(s->X), &(s->X), &tZZ);
-      field_mul (&tZZ, &(t->Z), &tZZ);
-      field_mul (&(s->Y), &(s->Y), &tZZ);
-    }
-  else
-    field_sqr (&tZZ, &(s->Z));
-
-  field_mul (&tX, &(t->X), &tZZ);
-  field_mul (&tZZ, &(s->Z), &tZZ);	// Z^3
-  field_mul (&tY, &(t->Y), &tZZ);
-
-// 13
-  memcpy (&XX, &(s->X), sizeof (bignum_t));
-  field_sub (&XX, &tX);
-// 14
-  memcpy (&YY, &(s->Y), sizeof (bignum_t));
-  field_sub (&(s->Y), &tY);
-
-  if (mp_is_zero (&XX))
-    {
-      if (mp_is_zero (&(s->Y)))
-	return 1;		//signalize double(a) is needed
-      else
-	{
-	  memset (s, 0, sizeof (*s));
-	  a->X.value[0] = 1;
-	  a->Y.value[0] = 1;
-	  return 0;
-	}
-    }
-//22
-  field_add (&(s->X), &(s->X));
-  field_sub (&(s->X), &XX);
-//23
-  field_add (&YY, &YY);
-  field_sub (&YY, &(s->Y));
-//24,25,26
-  if (!mp_is_1 (&t->Z))
-    field_mul (&(s->Z), &(s->Z), &(t->Z));
-  field_mul (&(s->Z), &(s->Z), &XX);	// 27 - final Z
-
-// reuse tZZ ..
-  field_sqr (&tZZ, &XX);	// 28
-  field_mul (&XX, &XX, &tZZ);	// 29
-  field_mul (&tZZ, &(s->X), &tZZ);	// 30
-  field_sqr (&(s->X), &(s->Y));	// 31
-  field_sub (&(s->X), &tZZ);	// 32   - final X
-
-  field_sub (&tZZ, &(s->X));	// 33
-  field_sub (&tZZ, &(s->X));	// 33
-  field_mul (&(s->Y), &(s->Y), &tZZ);	// 34
-  field_mul (&XX, &YY, &XX);	// 35
-  field_sub (&(s->Y), &XX);	// 36
-// 37
-  if (mp_test_even (&(s->Y)))
-    mp_shiftr (&(s->Y));	// Y = Y / 2
-  else
-    // Y = (Y + p)/2 {do not reduce sum modulo p}
-    mp_shiftr_c (&(s->Y), mp_add (&(s->Y), field_prime));
-  return 0;
-}
-#else // NIST ADD
-static uint8_t
-ec_add_ (ec_point_t * a, ec_point_t * b)
+static void
+ec_add (ec_point_t * a, ec_point_t * b)
 {
   bignum_t u1, u2, s1, s2, t1, t2;
 
-  DPRINT ("%s\n", __FUNCTION__);
+//  DPRINT ("%s\n", __FUNCTION__);
 
-  if (ecisinf (b))
-    return 0;
-  if (ecisinf (a))
+// NIST tests in ec_full_add:
+  if (mp_is_zero (&(a->Z)))
     {
-      *a = *b;
-      return 0;
+      memcpy (a, b, sizeof (ec_point_t));
+      return;
     }
+  if (mp_is_zero (&(b->Z)))
+    return;
+
+// continue with normal ec_add, check if double is needed
 
   field_sqr (&t1, &b->Z);
   field_mul (&u1, &a->X, &t1);	//u1 = X1*Z2^2
@@ -1004,17 +904,12 @@ ec_add_ (ec_point_t * a, ec_point_t * b)
   field_sub (&u2, &u1);
   field_sub (&s2, &s1);
 
-  if (mp_is_zero (&u2))
+  if (mp_is_zero (&u2))		// NIST t4 == zero
     {
-      if (mp_is_zero (&s2))
-	return 1;		//signalize double(a) is needed
+      if (mp_is_zero (&s2))	// NIST t5 == zero
+	return ec_double (a);
       else
-	{
-	  memset (a, 0, sizeof (*a));
-	  a->X.value[0] = 1;
-	  a->Y.value[0] = 1;
-	  return 0;
-	}
+	return ec_point_1_1_0 (a);
     }
 #define	H u2
 #define R s2
@@ -1037,119 +932,22 @@ ec_add_ (ec_point_t * a, ec_point_t * b)
 
   field_mul (&a->Z, &a->Z, &b->Z);
   field_mul (&a->Z, &a->Z, &H);
-  return 0;
+  return;
 }
 
 #undef H
 #undef R
-#endif //!NIST ADD
 
 //ec_full_add (R, S, T ): Set R to S+T . All points projective
 static void
 ec_full_add (ec_point_t * result, ec_point_t * s, ec_point_t * t)
 {
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  if (mp_is_zero (&(s->Z)))
-    {
-      memcpy (result, t, sizeof (ec_point_t));
-      return;
-    }
+  // this is only wrapper for ec_add, all tests for valid 's'/'t' or
+  // doubling of 's' can be found inside ec_add...
   memcpy (result, s, sizeof (ec_point_t));
-  if (mp_is_zero (&(t->Z)))
-    {
-      return;
-    }
-  if (ec_add_ (result, t))
-    {
-      memcpy (result, s, sizeof (ec_point_t));
-      ec_double (result);
-    }
+  ec_add (result, t);
 }
 
-#if 0
-
-//this is needed by ec_mul by nist ..  do not compile it if not needed
-static __attribute__ ((unused))
-     void ec_full_sub (ec_point_t * result, ec_point_t * s, ec_point_t * t)
-{
-  ec_point_t u;
-
-  DPRINT ("%s\n", __FUNCTION__);
-
-  memcpy (&u, t, sizeof (ec_point_t));
-
-  mp_sub (&(u.Y), field_prime, &(u.Y));
-  ec_full_add (result, s, &u);
-}
-
-#error Do not use this, not working code!
-static void
-ec_mul_nist (ec_point_t * result, bignum_t * num, ec_point_t * s)
-{
-  int i, flag;
-  bignum_t d3;
-  bignum_t d;
-  ec_point_t u;
-
-  mp_set (&d, num);
-  mp_set (&d3, num);
-  mp_add (&d3, &d3);		//2x d
-  mp_add (&d3, num);
-
-  if (mp_is_zero (num))
-    {
-      memset (result, 0, sizeof (*result));
-      mp_set_to_1 (&(result->X));
-      mp_set_to_1 (&(result->Y));
-      return;
-    }
-  if (mp_is_1 (num))
-    {
-      mp_set (result, s);
-      return;
-    }
-  if (mp_is_zero (&(s->Z)))
-    {
-      memset (result, 0, sizeof (*result));
-      mp_set_to_1 (&(result->X));
-      mp_set_to_1 (&(result->Y));
-      return;
-    }
-  memcpy (result, s, sizeof (ec_point_t));
-
-  for (i = mp_get_len () * 8 - 1; i >= 1; i--)
-    {
-      ec_double (result);
-      flag = 0;
-      if ((d3.value[mp_get_len () - 1] & 0x80) == 0x80
-	  && ((d.value[mp_get_len () - 1] & 0x80) == 0))
-	{
-	  ec_full_add (&u, result, s);
-	  flag = 1;
-	}
-      if ((d3.value[mp_get_len () - 1] & 0x80) == 0
-	  && ((d.value[mp_get_len () - 1] & 0x80) == 0x80))
-	{
-	  ec_full_sub (&u, result, s);
-	  flag = 1;
-	}
-      if (flag)
-	memcpy (result, &u, sizeof (ec_point_t));
-      mp_shiftl (&d);
-      mp_shiftl (&d3);
-    }
-}
-#endif
-
-#ifndef EC_BLIND
-#define EC_BLIND 0
-#endif
-
-#ifndef EC_MUL_WINDOW
-#define  EC_MUL_WINDOW 4
-#endif
 
 #if EC_MUL_WINDOW == 2
 // constant time - do ec_add into false result for zero bit(s) in k
@@ -1160,7 +958,7 @@ ec_mul (ec_point_t * point, uint8_t * k)
   uint8_t b, b2, j;
   uint8_t index;
 
-  DPRINT ("%s\n", __FUNCTION__);
+//  DPRINT ("%s\n", __FUNCTION__);
 
   ec_point_t r[2];
   ec_point_t table[4];
@@ -1173,7 +971,12 @@ ec_mul (ec_point_t * point, uint8_t * k)
   memcpy (&r[1], &table[2], sizeof (ec_point_t));
   memset (&r[0], 0, sizeof (ec_point_t));
 
-  for (i = mp_get_len () - 1 + EC_BLIND; i >= 0; i--)
+  i = mp_get_len () - 1 + EC_BLIND;
+#if MP_BYTES >= 66
+  if (curve_type == (C_SEPC521R1 | C_SEPC521R1_MASK))
+    i = 66 + EC_BLIND - 1;
+#endif
+  for (; i >= 0; i--)
     {
       b = k[i];
       for (j = 0; j < 4; j++)
@@ -1183,7 +986,8 @@ ec_mul (ec_point_t * point, uint8_t * k)
 	  b2 = b >> 6;
 	  index = (b2 == 0);
 	  b2 |= index;
-	  ec_full_add (&r[index], &r[index], &table[b2]);
+	  //ec_full_add (&r[index], &r[index], &table[b2]);
+	  ec_add (&r[index], &table[b2]);
 	  b <<= 2;
 	}
     }
@@ -1200,7 +1004,7 @@ ec_mul (ec_point_t * point, uint8_t * k)
   uint8_t b;
   uint8_t index;
 
-  DPRINT ("%s\n", __FUNCTION__);
+//  DPRINT ("%s\n", __FUNCTION__);
   bignum_t kk;
   memcpy (&kk, k, sizeof (bignum_t));
   ec_point_t data[9];		// 0,1 used as result, 2..17 as precomputed table
@@ -1245,7 +1049,8 @@ ec_mul (ec_point_t * point, uint8_t * k)
       b |= mp_shiftl (&kk);
       index = (b == 0);
       b |= index;
-      ec_full_add (&r[index], &r[index], &table[b]);
+      //ec_full_add (&r[index], &r[index], &table[b]);
+      ec_add (&r[index], &table[b]);
       if (!(--i))
 	break;
       ec_double (&r[0]);
@@ -1279,11 +1084,14 @@ ec_mul (ec_point_t * point, uint8_t * k)
       ec_full_add (&table[index + 1], &table[index], &table[1]);
     }
 
-
   memcpy (&r[1], &table[2], sizeof (ec_point_t));
   memset (&r[0], 0, sizeof (ec_point_t));
-
-  for (i = mp_get_len () - 1 + EC_BLIND; i >= 0; i--)
+  i = mp_get_len () - 1 + EC_BLIND;
+#if MP_BYTES >= 66
+  if (curve_type == (C_SECP521R1 | C_SECP521R1_MASK))
+    i = 66 + EC_BLIND - 1;
+#endif
+  for (; i >= 0; i--)
     {
       b = k[i];
       for (j = 0; j < 2; j++)
@@ -1293,7 +1101,8 @@ ec_mul (ec_point_t * point, uint8_t * k)
 	  ec_double (&r[0]);
 	  ec_double (&r[0]);
 	  index = (b & 0xf0) == 0;
-	  ec_full_add (&r[index], &r[index], &table[(b >> 4) | index]);
+	  //ec_full_add (&r[index], &r[index], &table[(b >> 4) | index]);
+	  ec_add (&r[index], &table[(b >> 4) | index]);
 	  b <<= 4;
 	}
     }
@@ -1303,10 +1112,25 @@ ec_mul (ec_point_t * point, uint8_t * k)
 #error Unknown EC_MUL_WINDOW
 #endif
 
+/*
+a=2048 b=7  mask=80              b = a[i] & 255;
+a=1536 b=5  mask=20              b |= (b & 0xC0) >> 5;
+a=1024 b=3  mask=08              b |= (b & 0x40) >> 6;
+a=768 b=2  mask=04               b |= a[i] >> 8;
+a=512 b=1  mask=02               b &= 0xf;
+a=384 b=4  mask=10               b--;
+a=256 b=0  mask=01               d = 1 << b;
+a=192 b=6  mask=40
+*/
 static void
 ec_set_param (struct ec_param *ec)
 {
+
   mp_set_len (ec->mp_size);
+#if MP_BYTES >= 66
+  if (ec->mp_size == 66)
+    mp_set_len (72);
+#endif
   field_prime = &ec->prime;
   param_a = &ec->a;
   curve_type = ec->curve_type;
@@ -1363,7 +1187,7 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
   DPRINT ("multiplication\n");
 
   ec_projectify (point);
-  ec_mul (point, (uint8_t *) k);
+  ec_mul (point, blind_key);
 
   if (ec_affinify (point, ec))
     return 1;
@@ -1372,7 +1196,6 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
     return 1;
   if (mp_cmpGE (&(point->X), &ec->order))
     return 1;
-
   DPRINT ("point ok\n");
   return 0;
 }
@@ -1394,7 +1217,8 @@ ec_derive_key (ec_point_t * pub_key, struct ec_param * ec)
 uint8_t
 ec_key_gener (ec_point_t * pub_key, struct ec_param * ec)
 {
-  uint8_t i;
+  uint8_t i, *key;
+  key = (uint8_t *) & (ec->working_key);
 
   DPRINT ("%s\n", __FUNCTION__);
   // ec_set_param (ec); - called in ec_calc_key()
@@ -1402,9 +1226,13 @@ ec_key_gener (ec_point_t * pub_key, struct ec_param * ec)
 
   for (i = 0; i < 5; i++)
     {
+      memset (key, 0, MP_BYTES);
       // load key bytes from rnd
-      rnd_get ((uint8_t *) & (ec->working_key), ec->mp_size);
-
+      rnd_get (key, ec->mp_size);
+#if MP_BYTES >= 66
+      if (ec->mp_size > 48)
+	key[65] &= 1;
+#endif
       if (0 == ec_calc_key (&(ec->working_key), pub_key, ec))
 	return 0;
     }
@@ -1418,11 +1246,12 @@ ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param * ec)
   uint8_t i;
   ec_point_t *R = &(ecsig->signature);
 
+  DPRINT ("%s\n", __FUNCTION__);
+
 // move private key into ecdsa_sig_t structure
   bignum_t *k = &(ec->working_key);
   memcpy (&(ecsig->priv_key), k, sizeof (bignum_t));
 
-  DPRINT ("%s\n", __FUNCTION__);
   ec_set_param (ec);
 
   for (i = 0; i < 5; i++)
@@ -1456,7 +1285,15 @@ ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param * ec)
 static void
 mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a)
 {
-  if (mp_get_len () > 32)
+  if
+#if MP_BYTES > 48
+    (mp_get_len () > 48)
+    {
+      mp_mul_521 (r, a, b);
+    }
+  else if
+#endif
+    (mp_get_len () > 32)
     {
       mp_mul_384 (r, a, b);
     }
@@ -1475,7 +1312,15 @@ mp_mul (bigbignum_t * r, bignum_t * b, bignum_t * a)
 static void
 mp_square (bigbignum_t * r, bignum_t * a)
 {
-  if (mp_get_len () > 32)
+  if
+#if MP_BYTES > 48
+    (mp_get_len () > 48)
+    {
+      mp_square_521 (&r->value[0], &a->value[0]);
+    }
+  else if
+#endif
+    (mp_get_len () > 32)
     {
       rsa_square_384 (&r->value[0], &a->value[0]);
     }
@@ -1493,7 +1338,15 @@ mp_square (bigbignum_t * r, bignum_t * a)
 static void
 mp_square (bigbignum_t * r, bignum_t * a)
 {
-  if (mp_get_len () > 32)
+  if
+#if MP_BYTES > 48
+    (mp_get_len () > 48)
+    {
+      mp_mul_521 (&r->value[0], &a->value[0], &a->value[0]);
+    }
+  else if
+#endif
+    (mp_get_len () > 32)
     {
       rsa_mul_384 (&r->value[0], &a->value[0], &a->value[0]);
     }

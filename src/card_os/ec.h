@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,10 +23,15 @@
 */
 #ifndef CS_EC_H
 #define CS_EC_H
+#ifndef  MP_BYTES
 #define MP_BYTES 48
-
+#endif
 #ifndef __ASSEMBLER__
 
+#if MP_BYTES < 24
+#error minimal MP_BYTES must be set to 24
+#endif
+#include "constants.h"
 typedef struct
 {
   uint8_t value[MP_BYTES];
@@ -57,10 +62,11 @@ typedef struct
 // for A=0  set bit 7
 // for A=-3 set bit 6
 
-#define C_PRIME192V1 (1 | 0x40)
-#define C_PRIME256V1 (2 | 0x40)
-#define C_secp384r1  (3 | 0x40)
-#define C_secp256k1  (4 | 0x80)
+#define C_P192V1_MASK    0x40
+#define C_P256V1_MASK    0x40
+#define C_SECP384R1_MASK 0x40
+#define C_SECP521R1_MASK 0x40
+#define C_SECP256K1_MASK 0x80
 
 struct ec_param
 {

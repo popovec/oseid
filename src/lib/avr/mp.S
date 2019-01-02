@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -53,11 +53,15 @@ mp_is_zero_loop:
 /////////////////////////////////////////////////////////////
         .global add_mod
         .type   add_mod, @function
+        .global	bn_add_mod
+        .type   bn_add_mod, @function
+
 	.section .text.add_mod,"ax",@progbits
 #if  1
 // big, fast, constant time
 // add_mod (Result, Operand, Modulus), Result = (Result + Operand) mod Modulus
 add_mod:
+bn_add_mod:
 .irp    Reg,2,3,4,5,6,7,28,29
 	push	r\Reg
 .endr
@@ -196,10 +200,13 @@ add_mod_loop2:
 #endif
         .global sub_mod
         .type   sub_mod, @function
+        .global bn_sub_mod
+        .type   bn_sub_mod, @function
 	.section .text.sub_mod,"ax",@progbits
 
 // sub mod(r,a,modulus); r = (r-a) mod modulus
 sub_mod:
+bn_sub_mod:
 	movw	r30,r24
 	movw	r26,r22
 
@@ -466,13 +473,27 @@ mp_sub1:
 
 /////////////////////////////////////////////////////////////
 
+	.section .text.rsa_shiftl,"ax",@progbits
+
+	.global	mp_shiftl4
+	.type	mp_shiftl4, @function
+mp_shiftl4:
+	rcall	mp_shiftl2
+	movw	r24,r22
+
+	.global	mp_shiftl2
+	.type	mp_shiftl2, @function
+mp_shiftl2:
+	movw	r22,r24
+	rcall	mp_shiftl
+	movw	r24,r22
+
         .global mp_shiftl
         .type   mp_shiftl, @function
         .global bn_shiftl
         .type   bn_shiftl, @function
         .global rsa_shiftl
         .type   rsa_shiftl, @function
-	.section .text.rsa_shiftl,"ax",@progbits
 
 mp_shiftl:
 rsa_shiftl:
