@@ -3,7 +3,7 @@
 
     256 bit (interrupt safe) multiplication routine for AVR
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -35,7 +35,7 @@
   orig code                                            4797 clock cycles
   size: 8020 bytes
 
-  this code (MEM pointers 15 bit)                      4551 clock cycles
+  this code (MEM pointers 15 bit)                      4552 clock cycles
   size: 7478 bytes
 
   this code (MEM pointers 16 bit)                      4562 clock cycles
@@ -2211,8 +2211,8 @@ final:
 	ldd	r\Reg,Z+Off
 .set Off, Off+1
 .endr
-	ADC64	r19,r20,r17,r16,r15,r14,r13 r12,	r3,r3,r3,r3,r3,r3,r3,r23
-	ADC64	r27,r26,r25,r24,r5,r4,r21,r18		r3,r3,r3,r3,r3,r3,r3,r3
+	ADC64	r19,r18,r17,r16,r15,r14,r13,r12,	r3,r3,r3,r3,r3,r3,r3,r23
+	ADC64	r27,r26,r25,r24,r5,r4,r21,r20		r3,r3,r3,r3,r3,r3,r3,r3
 .set Off, 48
 .irp	Reg,12,13,14,15,16,17,18,19,20,21,4,5,24,25,26,27
 	std	Z+Off,r\Reg
