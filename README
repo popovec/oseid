@@ -2,7 +2,7 @@ Description
 
 Atmega 128 microcontroller based open source EID smartcard with RSA
 (512-2048) and ECC - ECDSA and ECDH operations on prime192v1, prime256v1,
-secp384r1 and secp256k1.  Compatible with MyEID card from Aventra. 
+secp384r1, secp256k1 and secp521r1. Compatible with MyEID card from Aventra.
 Supported in windows and linux by opensc package.  Allow about 64KiB space
 for keys/certificates. PKCS#15 structure supported.
 
