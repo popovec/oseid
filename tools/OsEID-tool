@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -191,10 +191,19 @@ if [ $? -eq 0 ]; then
 	CARD_TYPE="MyEID"
 fi
 
-echo "00 a4 08 0c 02 2f 00"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing." && CARD_INIT=1
+echo "00 a4 08 00 02 2f 00"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing." && CARD_INIT=1
 if [ -z ${CARD_TYPE} ]; then
 	warnecho "No OsEID/MyEID card found"
 	exit 0
+fi
+
+echo "00 a4 08 00 04 3f 00 50 15"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing."
+if [ $? -ne 0 ];then
+        warnecho "OsEID without DF 5015, creating DF 5015"
+        #this is code that generates same security attributes as in originam MyEID card
+        #echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 33 FF FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor
+        # this is used in OsEID
+        echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 11 1F FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor
 fi
 
 #***************************************************************************************************************************
@@ -303,14 +312,9 @@ else
 	warnecho "Your card is already initialized!"
 	exit 0
   fi
-  echo "00 a4 08 0c 04 3f 00 50 15"|scriptor -p ${PROTO} 2>/dev/null|grep -q "Normal processing."
-#  if [ $? -ne 0 ];then
-#	echo "OsEID without DF 5015, creating DF 5015"
-#	echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 33 FF FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor
-#  fi
   echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
   if [ ! -f /usr/share/opensc/oseid_$OPENSC_VER.profile ]; then
-	warnecho "Using myeid profile into OsEID card, please install /usr/share/opensc/oseid_$OPENSC_VER.profile "
+	warnecho "Using myeid profile for OsEID card, please install /usr/share/opensc/oseid_$OPENSC_VER.profile "
 	warnecho "Press ENTER continue, or CTRL-C to abort"
 	read a
 	pkcs15-init -C --so-pin 00000000 --so-puk 00000000 --pin 11111111
@@ -633,8 +637,7 @@ while read keyID; do
 err=$[$err +  0 ]
 echo "Reading public key "$keyID
 pkcs15-tool --read-public-key $keyID |tee tmp/exported_rsa_key.pub
-LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |
-gawk '{if ($0 ~ "Public-Key:") print strtonum(substr($0,14))}'`
+LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
 LEN=$[$LEN / 8 ]
 dd if=tmp/rsa_sign_testfile.txt bs=$LEN count=1 of=tmp/rsa_sign_testfile_${LEN}.txt 2>/dev/null
 
