@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -354,11 +354,7 @@ iso7816_read_binary (uint8_t * message)
       return_status (S0x6a86);	//Incorrect parameters P1-P2    -better alt  function not supported ?
       return;
     }
-  if (!M_LC)
-    {
-      return_status (S0x6700);	//Incorrect length
-      return;
-    }
+  // M_LC = 0 -> return 256 bytes
   return_status (fs_read_binary ((M_P1 << 8) | M_P2, M_LC, &iso_response));
 }
 

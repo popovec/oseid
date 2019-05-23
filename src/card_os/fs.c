@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -1512,6 +1512,9 @@ fs_read_binary (uint16_t offset, uint16_t dlen, struct iso7816_response * r)
 {
   DPRINT ("%s\n", __FUNCTION__);
 
+  if (dlen == 0)
+    dlen = 256;
+
   if (fci_sel.fs.id == 0xffff)
 //    return S0x6a82;            //file or application not found
     return S0x6986;		//Command not allowed,(co current EF)
@@ -1531,7 +1534,7 @@ fs_read_binary (uint16_t offset, uint16_t dlen, struct iso7816_response * r)
 
   memset (r->data, 0xff, dlen);	//prepare initialized data if device_read_block fail return
   //fail data not old buffer (may be with security data)
-  r->len = dlen;
+  r->len = dlen & 0xff;
   r->flag = R_RESP_READY;
   if (1 == device_read_block (r->data, offset, dlen))
     return S0x6281;		//part of data is corrupted
