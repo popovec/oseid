@@ -33,7 +33,8 @@ trueecho (){
 warnecho (){
 	tput setaf 3;echo $@;tput sgr0
 }
-which gawk pkcs15-init pkcs15-tool sha1sum pkcs15-crypt openssl opensc-tool scriptor 2>/dev/null 1>/dev/null
+
+which gawk pkcs15-init pkcs15-tool sha1sum pkcs15-crypt openssl opensc-tool scriptor tr 2>/dev/null 1>/dev/null
 if [ $? -ne 0 ]; then
 	echo "unable to found all tools on this system"
 	exit 1
@@ -139,8 +140,8 @@ if [ $? -ne 0 ]; then
 	failecho "unable to determine opensc version"
 	exit 1
 fi
-OPENSC_VER=`echo $X_ver|awk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}'`
-OPENSC_VERSION=`echo $X_ver|awk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+1000*V[2]+V[3]}'`
+OPENSC_VER=`echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}'`
+OPENSC_VERSION=`echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+1000*V[2]+V[3]}'`
 
 ECDH=0
 RAWSIGN2048=0
@@ -167,7 +168,11 @@ fi
 # search card
 CARD_TYPE=""
 CARD_INIT=0
-CARD_ATR=`opensc-tool -a`
+# not working with new opensc ..
+#CARD_ATR=`opensc-tool -a`
+ # simulate card ATR read by scriptor
+CARD_ATR=`echo reset|scriptor|tr '[[:upper:]]' '[[:lower:]]' |gawk '{if($2=="ok:"){for(i=3;i<=NF;i++){printf $i;if(i!=NF)printf":";else print""}}}'`
+
 if [ $? -ne 0 ]; then
 	warnecho "No card found"
 	exit 0
@@ -248,9 +253,9 @@ if [ $mode == "INFO" ]; then
 		RESP=`echo "00 CA 01 A0 00"| scriptor -p T=1  2>/dev/null`
 	fi
 	echo -n "Card serial number: "
-	echo $RESP|awk '{for(i=19;i<29;i++) printf $i" ";print""}'
+	echo $RESP|gawk '{for(i=19;i<29;i++) printf $i" ";print""}'
 	echo -n "Card version number: "
-	echo $RESP|awk '{for(i=16;i<19;i++) printf $i" ";print""}'
+	echo $RESP|gawk '{for(i=16;i<19;i++) printf $i" ";print""}'
 exit 0
 fi
 
@@ -389,7 +394,7 @@ while read curve oid ;do
 		fi
 	fi
 	echo "uploading key ${curve}"
-	pkcs15-init  --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --so-pin 00000000 --label "${curve}" --key-usage sign
+	pkcs15-init  --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --label "${curve}" --key-usage sign
 	E=$?
 	if [ z${curve} == "zsecp256k1" ]; then
 		if [ $E -eq 0 ]; then
@@ -454,6 +459,7 @@ while read keyID ; do
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
   if [ $?	-ne 0 ]; then
 	failecho "openssl signature test fail"
+	exit 1
   fi
   echo "generating signature by pkcs11-tool"
   pkcs11-tool --pin 11111111 --sign --signature-format "openssl" --slot 0 -m ECDSA --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
@@ -461,6 +467,7 @@ while read keyID ; do
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
   if [ $?	-ne 0 ]; then
 	failecho "openssl signature test fail"
+	exit 1
   fi
 done
 fi
@@ -493,7 +500,7 @@ warnecho "Experimental!"
         #Alice: key on card
         rm -f tmp/ecdh-${curve}-alice-pub.pem
         rm -f tmp/ecdh-${curve}-alice-pub.der
-        pkcs11-tool  --so-pin 00000000 --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
+        pkcs11-tool --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
         #extract pub key
         pkcs15-tool --read-public-key  ${id} > tmp/ecdh-${curve}-alice-pub.pem
         openssl ec -in tmp/ecdh-${curve}-alice-pub.pem -out tmp/ecdh-${curve}-alice-pub.der -pubin -pubout -outform der 2>/dev/null
@@ -580,15 +587,20 @@ fi
 
 if [ $mode == "RSA-UPLOAD-KEYS" ]; then
 echo "storing RSA keys"
+err=0
 for key in `ls keys/rsa*-key.pem`; do
 	echo "${key}"
 	L=`echo "${key}"|gawk -F'-' '{print "key_"strtonum(substr($1,9))}'`
 	pkcs15-init  --store-private-key "${key}" --auth-id=1 --pin 11111111 --so-pin 00000000 --key-usage sign,decrypt --label "${L}"
 	if [ $? -ne 0 ]; then
-	        err=$[$err + 1 ]
-		failecho "RSA-UPLOAD-KEYS: ${err} errors!"
+		err=$[$err + 1 ]
+		failecho "Unable to upload RSA key ${key}"
 	fi
 done
+if [ $err -gt 0 ]; then
+	failecho "RSA-UPLOAD-KEYS: ${err} errors!"
+	exit 1
+fi
 fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-GENERATE-KEYS" ]; then
@@ -631,10 +643,9 @@ echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/r
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 #list all RSA keys 
-pkcs15-tool --list-public-keys|tee /dev/tty |\
-gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'|\
-while read keyID; do
-err=$[$err +  0 ]
+
+err=0
+for keyID in `pkcs15-tool --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
 echo "Reading public key "$keyID
 pkcs15-tool --read-public-key $keyID |tee tmp/exported_rsa_key.pub
 LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
@@ -690,12 +701,12 @@ if [ $? -eq 0 ]; then
 else
 	failecho "pkcs11 fail"
 	err=$[$err + 1 ]
-
-fi
-if [ $err -gt 0 ]; then
-	failecho "RSA-SIGN-TEST: ${err} errors!"
 fi
 done
+if [ $err -gt 0 ]; then
+	failecho "RSA-SIGN-TEST: ${err} errors!"
+	exit 1
+fi
 fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-DECRYPT-TEST" ]; then
@@ -704,13 +715,10 @@ mkdir -p tmp
 
 #get slot
 slot=`pkcs11-tool -I 2>&1|gawk '{if($0 ~ "present token")print $3}'`
-
 echo "testtesttesttesttest" > tmp/rsa_decrypt_testfile.txt
-#list all RSA keys 
-pkcs15-tool --list-public-keys|tee /dev/tty |\
-gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'|\
-while read keyID; do
-err=$[$err +  0 ]
+
+err=0
+for keyID in `pkcs15-tool --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
 echo "Reading public key "$keyID
 pkcs15-tool --read-public-key $keyID |tee tmp/exported_rsa_key.pub
 openssl rsa -pubin -in tmp/exported_rsa_key.pub -text -noout|grep bit
@@ -730,10 +738,11 @@ else
 	failecho "error in decrypt"
 	err=$[$err + 1 ]
 fi
+done
 if [ $err -gt 0 ]; then
 	failecho "RSA-DECRYPT-TEST: ${err} errors!"
+	exit 1
 fi
-done
 fi
 #***************************************************************************************************************************
 if [ $mode == "PKCS11-RSA-TEST" ]; then
