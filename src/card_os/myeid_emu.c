@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
  Function are based on documentation from:
  http://aventra.fi/pdf/MyEID%20PKI%20JavaCard%20Applet%20Reference%20Manual%201-7-7.pdf
  (local copy internet_sources/MyEID PKI JavaCard Applet Reference Manual 1-7-7.pdf)
+ https://webservices.aventra.fi/wordpress/wp-content/downloads/MyEID_PKI_JavaCard_Applet_Reference_Manual_2-1-4.pdf
 
  Some functions are derived from opensc sources https://github.com/OpenSC/OpenSC - card-myeid.c
 
@@ -274,7 +275,13 @@ prepare_ec_param (struct ec_param *c, ec_point_t * p, uint8_t size)
   // 192/256/384 key algo
 
   if (size == 0)
-    ret = fs_key_read_part ((uint8_t *) & c->working_key, KEY_EC_PRIVATE);
+    {
+      ret = fs_key_read_part (NULL, KEY_EC_PRIVATE);
+      if (ret > MP_BYTES)
+	return 0;
+      if (ret != fs_key_read_part ((uint8_t *) & c->working_key, KEY_EC_PRIVATE))
+	return 0;
+    }
   else
     ret = size;
 
@@ -506,7 +513,7 @@ security_env_set_reset (uint8_t * message, struct iso7816_response * r)
 	  DPRINT ("%s lc/le not 0 ? \n", __FUNCTION__);
 	  return S0x6a87;	// len inconsistent with P1
 	}
-      return (S_RET_OK);	//Function not supported
+      return (S_RET_OK);
     }
 // MyEID manual 2.1.4: P1 must be set to 0xA4 for ECDH, but opensc 0.17 set
 // this to 0x41 and P2 is set to 0xA4 ..  allow A4 here too
@@ -707,6 +714,12 @@ des_aes_cipher (uint16_t size, uint8_t * data, struct iso7816_response *r,
     {
       uint8_t flag;
 
+// allow use 7 or 8 bytes as DES key
+      if (ksize == 7)
+	{
+	  des_56to64 (r->data);
+	  ksize = 8;
+	}
       if (ksize == 16)
 	{
 	  memcpy (r->data, r->data + 16, 8);
@@ -1790,7 +1803,7 @@ myeid_upload_keys (uint8_t * message)
 // DES, AES key
   if (type == 0x19)
     {
-      if (k_size != 64 && k_size != 128 && k_size != 192)
+      if (k_size != 56 && k_size != 64 && k_size != 128 && k_size != 192)
 	return S0x6700;		//Incorrect length
       return fs_key_write_part (message + 3);
     }
@@ -1824,9 +1837,10 @@ myeid_put_data (uint8_t * message, struct iso7816_response * r)
       if (read_command_data (message))
 	return S0x6984;		//invalid data
     }
-
   if (M_P1 != 1)
     return S0x6a88;		//Referenced data (data objects) not found
+
+  //initialize applet
   if (M_P2 == 0xe0)
     {				//initialize applet
       if (M_LC != 8)
@@ -1840,6 +1854,7 @@ myeid_put_data (uint8_t * message, struct iso7816_response * r)
 
       return fs_erase_card (message + 7);
     }
+  //initialize PIN
   if (M_P2 > 0 && M_P2 < 15)
     {
       if (M_LC < 0x10 || M_LC > (16 + 7 + 24))

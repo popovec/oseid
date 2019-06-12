@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2016 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2016,2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -72,7 +72,8 @@ FlushPort ()
       i = select (fd + 1, &fdset, NULL, NULL, &t);
       if (i < 1)
 	break;
-      read (fd, &byte, 1);
+      if (1 != read (fd, &byte, 1))
+	break;
     }
 }
 
@@ -97,29 +98,25 @@ WritePort (DWORD lun, DWORD length, PUCHAR buffer)
 
 //=======================================================================================
 
+
 RESPONSECODE
 ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 {
   uint8_t r_buffer[261 * 3];
   uint8_t byte, flag = 0;
-  int rv, len, already_read;
+  int rv, already_read;
   int i;
 
   fd_set fdset;
   int fd = reader_fd;
   struct timeval t;
 
-  len = 261 * 3;
-
   // error by default */
   *length = 0;
 
-  already_read = 0;
-
   // Read loop */
-  while (already_read < 261 * 3)
+  for (already_read = 0; already_read < 261 * 3;)
     {
-      // use select() to, eventually, timeout */
       FD_ZERO (&fdset);
       FD_SET (fd, &fdset);
       t.tv_sec = COMM_TIMEOUT;
@@ -147,25 +144,22 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 	}
       if (rv == 0)
 	continue;
-      fprintf(stderr,"%c",byte);
+//      fprintf(stderr,"%c",byte);
 
+      // start parsing input after '<' ...
       if (byte == '<')
-	flag = 1;
+	{
+	  flag = 1;
+	  continue;
+	}
       if (flag)
 	{
-	  r_buffer[already_read - 1] = byte;
-
-	  already_read += rv;
-	  len -= rv;
+	  r_buffer[already_read++] = byte;
 	  if (byte == 0x0d)
 	    break;
 	  if (byte == 0x0a)
 	    break;
-	  // no more space in buffer ..
-	  if (len == 0)
-	    break;
 	}
-
     }
 // very tolerant hex to binary  converter
 //(max 256 bytes)

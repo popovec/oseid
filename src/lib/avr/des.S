@@ -6,7 +6,7 @@
     This is designed to be a part of OsEID (Open source Electronic ID)
     https:/oseid.sourceforge.io
 
-    Copyright (C) 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017,2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -59,6 +59,9 @@
     permutation more times. This adds about 1820 clock cycles. Define
     DES3FAST to eliminate this, code size is then 838 bytes.
 
+    If you need conversion from 56 to 64 bit DES key, 28 more bytes is used
+    in flash
+
 */
 
 // undef this to save 6 bytes of FLASH, code is ten slower (about 59000
@@ -71,7 +74,7 @@
 /*
  data = 8 bytes, this data is to be decrypt/encrypt, result comes here too
 
- key  = DES:  8 bytes
+ key  = DES:  8 bytes (bit 0 is parity bit, same format as for openssl)
         3DES: 24 bytes (EDE mode)
 
  mode:  (plase use values from des.h)
@@ -82,6 +85,65 @@
 
  void des_run (uint8_t *data, uint8_t *key, uint8_t mode);
 */
+
+	.global des_56to64
+	.type	des_56to64, @function
+
+// convert 56 bit key to 64 bit key (insert fake parity bits)
+#if 0
+// long version ..
+des_56to64:
+	movw	r26,r24
+	ld	r24,X+
+	ld	r23,X+
+	ld	r22,X+
+	ld	r21,X+
+	ld	r20,X+
+	ld	r19,X+
+	ld	r18,X+
+	ldi	r25,pm_lo8(des_l+14)
+	ldi	r30,pm_lo8(des_l)
+	ldi	r31,pm_hi8(des_l)
+des_l:	rol	r18
+	rol	r19
+	rol	r20
+	rol	r21
+	rol	r22
+	rol	r23
+	rol	r24
+	adiw	r30,1
+	cpse	r30,r25
+	ijmp
+
+	st	x,r18
+	st	-x,r19
+	st	-x,r20
+	st	-x,r21
+	st	-x,r22
+	st	-x,r23
+	st	-x,r24
+	ret
+#else
+// short version
+des_56to64:
+	movw	r30,r24
+	adiw	r30,7
+	ldi	r24,7
+1:
+	ld	r22,-Z
+	ldd	r23,Z+1
+	mov	r25,r24
+2:
+	ror	r22
+	ror	r23
+	dec	r25
+	brne	2b
+
+	std	Z+1,r23
+	dec	r24
+	brne	1b
+	ret
+#endif
 
         .global des_run
         .type   des_run, @function
@@ -191,7 +253,7 @@ des_run:
 // data position
 	movw	r26,r24	// from
 #ifdef DES3
-// correct key position for 3des
+// adjust key position for 3des
 	cpi	r20,15
 	brne	des3_loop
 	adiw	r30,16
@@ -201,7 +263,7 @@ des3_loop:
 	push	r26
 	push	r27
 #ifdef DES3FAST
-// correct key position for 3des
+// adjust key position for 3des
 	cpi	r20,15
 	brne	.+2
 	adiw	r30,16
@@ -255,7 +317,7 @@ des_key_perm1:
 	push	r30
 	push	r31
 #endif
-// correct key to get one 56 bit key for simple
+// convert key to get one 56 bit key for simple
 // rotate operation
 
 // first swap r1,r3, then swap nibbles in r4
@@ -392,7 +454,7 @@ get_sbox_le0:
 // renew key
 	pop	r31
 	pop	r30
-// correct key position for 3DES decrypt
+// adjust key position for 3DES decrypt
 	sbrc	r0,0
 	sbiw	r30,16
 #endif
@@ -400,7 +462,7 @@ get_sbox_le0:
 	ldi	r24,6
 	sub	r0,r24
 	brcs	des3_end
-// correct result for next 3des loop
+// convert result for next 3des loop
 // (because not standard inverse initial permutation)
 	movw	r2,r12
 	movw	r12,r16

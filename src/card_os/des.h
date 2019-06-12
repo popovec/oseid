@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017,2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -29,5 +29,6 @@
 #define DES_3DES            0x0c
 
 void des_run (uint8_t * data,  uint8_t *key, uint8_t mode);
-
+// transform 7 bytes of key to 8 bytes (with parity bits)
+void des_56to64 (uint8_t * key);
 #endif

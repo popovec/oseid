@@ -6,7 +6,8 @@ BUILD= build/console/
 #debug EC function
 #CFLAGS= -Wall -O2 -DDEBUG -DEC_DEBUG -g -Wfatal-errors
 #debug RSA function
-CFLAGS= -Wall -O2 -DDEBUG -DRSA_DEBUG -g -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
+#CFLAGS= -Wall -O2 -DDEBUG -DRSA_DEBUG -g -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
+CFLAGS= -Wall -O2 -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
 CC= gcc
 
 all:	$(BUILD)console $(BUILD)libOsEIDsim.so
