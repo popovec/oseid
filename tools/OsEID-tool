@@ -533,6 +533,9 @@ while read curve oid ;do
 	        exit 2
 	fi
 done
+# do not return error here (until OpenSC issue #1701 / pull request #1702 is not fixed)
+#exit $?
+exit 0
 fi
 
 #***************************************************************************************************************************
@@ -573,6 +576,7 @@ while read keyID ; do
 	exit 1
   fi
 done
+exit $?
 fi
 
 # pkcs11-tool:

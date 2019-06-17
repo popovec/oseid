@@ -1698,18 +1698,25 @@ myeid_get_data (uint8_t * message, struct iso7816_response * r)
 }
 
 static uint8_t
-myeid_upload_ec_key (uint8_t * message)
+myeid_upload_ec_key (uint8_t * message, uint16_t size)
 {
   DPRINT ("%s %02x %02x %02x\n", __FUNCTION__, M_P1, M_P2, M_LC);
+  uint8_t key_bytes = (size + 7) / 8;
 
-//  message[5] = message[4];
   // EC key private key upload
   if (M_P2 == 0x87)
     message[3] = KEY_EC_PRIVATE;
   else if (M_P2 == 0x86)
-    message[3] = KEY_EC_PUBLIC;
+    {
+  // public key - two numbers and uncompressed indicator
+      key_bytes = 2 * key_bytes + 1;
+      message[3] = KEY_EC_PUBLIC;
+    }
   else
-    return S0x6985;		//    Conditions not satisfied
+    return S0x6a86;		// Incorrect parameters P1-P2
+
+  if (key_bytes != M_LC)
+    return S0x6700;		// Incorrect length
 
   card_io_start_null ();
   return fs_key_write_part (message + 3);
@@ -1814,9 +1821,12 @@ myeid_upload_keys (uint8_t * message)
       return fs_key_write_part (message + 3);
     }
 
+  // file type is checked in check_ec_key_file(),
+  // size and key part type is checked in myeid_upload_ec_key()
   if (0 == check_ec_key_file (k_size, type))
-    return myeid_upload_ec_key (message);
+    return myeid_upload_ec_key (message, k_size);
 
+  // size and key part type is checked in myeid_upload_rsa_key()
   if (type == 0x11)
     {
       if (0 == check_rsa_key_size (k_size))
