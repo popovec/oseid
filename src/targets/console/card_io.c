@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
     
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -94,12 +94,16 @@ card_io_rx (uint8_t * data, uint8_t len)
   return count;
 }
 
+// for len = 0 transmit 256 bytes
 uint8_t
 card_io_tx (uint8_t * data, uint8_t len)
 {
   printf ("< ");
-  while (len--)
-    printf ("%02x ", *data++);
+  do
+    {
+      printf ("%02x ", *data++);
+    }
+  while (--len);
   printf ("\n");
 
   return 0;

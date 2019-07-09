@@ -460,13 +460,16 @@ if [ $CARD_TYPE == "OsEID" ]; then
 fi
 #***************************************************************************************************************************
 if [ $mode == "ERASE-CARD" ]; then
-	echo "00000000"|PKCS15-INIT -E
-	if [ $? -eq 0 ];then
-		trueecho "Card is erased"
-	else
-		failecho "unable to erase card"
-		exit 1
-	fi
+	read_card "00 20 00 03 08 30 30 30 30 30 30 30 30" "${SCReaderFlag}" "${SCReader}" >/dev/null
+	read_card "00 DA 01 E0 08 FF FF 11 3F FF 11 1F FF" "${SCReaderFlag}" "${SCReader}" >/dev/null
+# TODO this is not working if stdout is redirected
+#	echo "00000000"|PKCS15-INIT -E
+#	if [ $? -eq 0 ];then
+#		trueecho "Card is erased"
+#	else
+#		failecho "unable to erase card"
+#		exit 1
+#	fi
 	exit 0
 fi
 
@@ -533,9 +536,7 @@ while read curve oid ;do
 	        exit 2
 	fi
 done
-# do not return error here (until OpenSC issue #1701 / pull request #1702 is not fixed)
-#exit $?
-exit 0
+exit $?
 fi
 
 #***************************************************************************************************************************
@@ -563,7 +564,7 @@ while read keyID ; do
   PKCS15-CRYPT --pin 11111111 -k $keyID --signature-format "openssl" -s -i tmp/testfile.txt.sha1 -o tmp/testfile.txt.pkcs11.sha1.sig
   echo "testing signature.."
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
-  if [ $?	-ne 0 ]; then
+  if [ $? -ne 0 ]; then
 	failecho "openssl signature test fail"
 	exit 1
   fi
@@ -598,7 +599,7 @@ if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";e
 
 echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
 echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
-warnecho "Experimental!"
+
   if [ $ECDH -ne 1 ]; then
 	failecho "ECDH support is working in opensc version 0.17 and above"
 	exit 1
@@ -759,6 +760,9 @@ for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(
 echo "Reading public key "$keyID
 PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
 LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
+if [ "x${LEN}" == "x" ]; then
+	exit 1
+fi
 LEN=$[$LEN / 8 ]
 dd if=tmp/rsa_sign_testfile.txt bs=$LEN count=1 of=tmp/rsa_sign_testfile_${LEN}.txt 2>/dev/null
 

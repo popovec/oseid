@@ -167,33 +167,20 @@ iso7816_get_response (uint8_t * message)
   card_io_tx ((uint8_t *) & iso_response.data, s1 & 255);
   // calculate how many data is now in buffer
   s2 -= s1;
+  DPRINT ("%d bytes remains in buffer\n", s2);
+  iso_response.len = s2;
   if (s2 == 0)
     {
       //mark data already sended
       iso_response.flag = R_NO_DATA;
+      return_status (S_RET_OK);
     }
   else
     {
-      uint8_t *start;
-      uint8_t *rest;
-      start = iso_response.data;
-      rest = start + s1;
-      while (s1)
-	{
-	  *start = *rest;
-	  start++;
-	  rest++;
-	  s1--;
-	}
+      memcpy (iso_response.data, iso_response.data + s1, s2);
+      return_status (S0x6100);
     }
-  iso_response.len = s2 & 255;
-  if (iso_response.len)
-    return_status (S0x6100);
-  else
-    return_status (S_RET_OK);
 }
-
-
 
 static void
 iso7816_verify (uint8_t * message)
