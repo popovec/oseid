@@ -1,0 +1,57 @@
+OsEID  20190102 (this release)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:   Wed Jan  2 07:30:32 CET 2019
+
+	OsEID token fix: response over 248 bytes was truncated
+	ECC: secp521r1 curve added (ECDH, ECDSA)
+	filesystem: subtree delete operation
+	allow use of shareable file flag in file descriptor byte
+	opensc 0.18, 0.19 profile file for OsEID card
+	OsEID-tool: support for generating self signed certificate
+	Security improvements:
+		- RSA: Bellcore attack prevention
+		- RSA: conditional addition in Garner's recombination
+		       replaced by bn_sub_mod
+
+OsEID  20180123 (released as 'branch errata_20171231' on github)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:	Tue Jan 23 10:22:15 2018 +0100
+	Fixes (to version 20171231):
+		- fixed ECC blinding - blinding was not used
+		- fixed wrong calculation for secp384r1 (due wrong blinding code)
+
+OsEID  20171231 (released)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:   Sun Dec 31 10:42:01 CET 2017
+
+	AES (128/192/256) support
+	DES and 3DES  support
+	Gemalto USB reader for USB token (tested in W10)
+	T1 protocol support (only in USB token)
+	Security improvements:
+		- RSA exponent blinding
+		- ECC point multiplication blinding
+		- random number generator improved
+	RSA key generation
+	More MyEID compatibility fixes:
+		- Admin state
+		- Global unblocker
+
+OsEID  20170630 (released)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:   Fri Jun 30 08:00:00 CEST 2017
+
+	OsEID-tool
+	ECDH support
+
+OsEID  20161231	(released)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:   Sat Dec 31 08:00:00 CET 2016
+
+	Initial public release.
+	RSA sign/decrypt 512-2048 bits
+	ECC only ECDSA
+		- prime192v1
+		- prime256v1
+		- secp384r1
+		- secp256k1
