@@ -1,0 +1,3340 @@
+
+OsEID smart card & OsEID token
+==============================
+Peter Popovec <popovec.peter@gmail.com>
+
+// Web page meta data.
+:keywords:    OsEID, smartcard, cryptography, ISO7816, PKCS#11, PKCS#15, RSA, ECC, ATmega, xmega, opensc, EID, PKI
+:description: OsEID is amateur/hobby smart card with RSA and ECC +
+              cryptography support. It is designed on low cost   +
+              easily accessible microcontroller Atmel ATmega 128 +
+              Card is supported by opensc with myeid driver.
+
+
+Copyright (C) 2015-2018 Peter Popovec <popovec.peter@gmail.com>
+
+Introduction
+------------
+
+OsEID is amateur/hobby smart card with RSA and EC cryptography support. It
+is designed on low cost and easily accessible microcontroller Atmel ATmega
+128 or ATmega 128A. Alternative hardware uses atmega 1284 microcontroller.
+
+image:images/card_3x.png[OsEID]
+
+
+OsEID token is amateur/hobby USB token based on Atmel xmega128a4u
+microcontroller.  This projects implements USB reader (CCID class) with
+built in OsEID card. 
+
+[%autofit]
+image::images/token2.png[OeEID-token]
+
+Project website
+---------------
+
+OsEID projects releases can be found at  at https://oseid.sourceforge.io or https://sourceforge.net/projects/oseid/
+
+
+Features
+~~~~~~~~
+
+* Open source code (ASM and C)
+* OsEID card  - simple mechanical construction, only one integrated circuit!
+* OsEID token - single sided PCB, only 15 components
+* Based on easily accessible microcontroller Atmel ATmega 128A / xmega128A4U
+* ISO 7816 compatible 
+  note:[Not all ISO specifications are respected, for example, card thickness cannot be accomplished.]
+* Support for pkcs#15 structure
+* RSA cryptography with side channel attack protection (key size 512 up to 2048 bits)
+   ** onboard key generation
+* Elliptic cryptography with side channel attack protection
+   ** ECDSA operation
+   ** ECDH operation
+   ** onboard key generation
+   ** nistp192/prime192v1/secp192r1 OID 1.2.840.10045.3.1.1
+   ** nistp256/prime256v1/secp256r1 OID 1.2.840.10045.3.1.7
+   ** secp384r1 OID 1.3.132.0.34
+   ** secp521r1 OID 1.3.132.0.35
+   ** secp256k1 OID1.3.132.0.10, experimental support, opensc patch required
+* symmetric cryptography: DES, 3DES, AES128, AES192, AES256
+* Onboard random number generator
+* PIN / PUK controlled access to files on card
+* 64 kbyte file space (for keys /certificates etc.)
+* auto size DF
+* Supported in Linux/Windows by opensc package - MyEID driver
+* OsEID card: Communication speed 161290 bits/s for 5MHz readers
+* OsEID token: no special card reader driver needed for Linux/WIN/MAC
+
+Drawbacks
+~~~~~~~~~
+
+* No Warranty, use at your own risk.
+* Insufficient doc (only this html/pdf file and comments in sources)
+* It is not possible to buy it, you have to make it.
+* card - only T0 protocol, T1 available only in token/simulator
+* RSA operations slow (depends on ATmega RC oscillator, usually max about 13.5MHz)
+  ** about 26.4 seconds for 2048 bit key / token about 12 seconds,
+  ** about 12.7 seconds for 1536 bit key / token about 6 seconds,
+  ** about 4.2  seconds for 1024 bit key / token about 2 seconds,
+  ** about 2.5  seconds for 768 and 512 bit keys / token about 1 second
+* EC operations slow ECDSA operation timing:
+  ** secp521r1  11 seconds  / token about 5 seconds
+  ** secp384r1  5.9 seconds / token about 2.5 seconds
+  ** prime256v1 2.7 seconds / token about 1.5 seconds
+  ** prime192v1 1.1 second / token about 0.5 seconds
+  ** secp256k1  3.6 seconds / token about 2 seconds
+* not perfect constant time EC operations
+* OsEID card - ESD (electrostatic discharge) protection implemented only on token
+
+
+OsEID - MyEID differences
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OsEID tries to support all features which are available in commercial card
+<<MyEID>>.  Thanks to that, no special software/drivers is needed for
+commonly used operating systems.  For Windows, Linux and Mac OS opensource
+project <<OpenSC>> can be used as driver for OsEID card.
+
+OsEID disadvantages to MyEID card (mechanical)
+
+- no SIM version of card
+- mechanical construction - big, not compact as one plastic card
+
+OsEID disadvantages to MyEID card applet version 4.X:
+
+(These functionalities are not supported by MyEID driver in opensc up to
+0.18, perhaps OsEID will support these functions in future)
+
+- RSA - only value 65537 is allowed as public exponent
+- experimental support for symmetric encrypt/decrypt - DES and AES
+- experimental challenge response PIN
+- experimental Admin state and Global unblocker state
+- no PIV/CIV emulation
+- no Auto size files (only auto size DF)
+- no 224 bit NIST curve
+- slow RSA
+- slow ECC
+
+(experimental = feature is supported by OsEID card, but original MyEID
+card function can work differently. There is no enough information in 
+MyEID applet reference manual 2.1.4 and no opensc implementation to test
+all functions.
+
+OsEID disadvantages to MyEID card, applet version below 3.5:
+
+(MyEID in version below 3.5 does not support EC cryptography)
+
+- slow RSA
+
+For a comparison, here is table showing the execution time of RSA decrypt
+operation (time in seconds) for MyEID (3.3.3), OsEID and OsEID with exponent
+blinding turned on:
+
+....
+pkcs11-tool --decrypt --slot 1 -m RSA-PKCS ..
+....
+[cols="3,1,1,1,1,1",width="80%",options="header"]
+|=========================================================
+|  key size               | 512 | 768 | 1024 | 1536 | 2048
+|MyEID (3.3.3)            | 3.4 | 3.4 |  3.4 |  3.6 |  3.8
+|OsEID card               | 2.8 | 3.4 |  5.3 | 13.3 | 25.9
+|OsEID card (blinding on) | 3   | 3.7 |  5.7 | 13.8 | 26.7
+|OsEID token              | 1.8 | 1.8 |  2.5 |  6.0 | 11.8
+|OsEID token (blinding on)| 1.8 | 1.8 |  2.5 |  6.2 | 12.1
+|=========================================================
+
+Times in this table are higher then times given in Features section, because
+here the time of all operations that opensc runs on card is indicated, e.g. card
+identification, reading PKCS#15 files, reading public key.
+
+MyEID card seems to be slower in filesystem operations, listing all card
+objects by *pkcs15-tool -D* command run in 2.8 second for 5 RSA keys on card.
+OsEID runs the same command, the same set of keys in 1.9 second.
+
+Time depends on card reader too.  Both cards allow the same communication speed -
+161290 bits/s for 5MHz readers, for tests 3.7MHz reader was used (about
+120kbit/s).
+
+
+OsEID benefits to MyEID card:
+
+- secp256k1 curve
+- open source - can be reprogrammed for different usage
+- for people who don't trust commercial solutions because of backdoors
+- for people who are happy to make a card by themselves
+- card and reader simulation (without real card/reader)
+- AES192 (MyEID reference manual 2.1.4 documents only AES128 and AES256)
+
+
+Disclaimer
+~~~~~~~~~~
+
+Whole project is published in good faith and is to be used for educational
+purposes only, however, amateur/hobby usage is also possible.  When you
+decide to use this project in other way, keep in mind all drawbacks.
+Particularly take care that the card may be damaged and you may lose access
+to devices, that need authentication with card.  Please, consider creating
+backup card/backup access for this situation.  AUTHOR IS NOT RESPONSIBLE FOR
+ANY DAMAGE OF CARD READERS, COMPUTER EQUIPMENTS OR DATA LOSS/DATA LEAKAGE!
+USE AT YOUR OWN RISK ONLY! Please read information about RSA and ECC
+security in this manual.
+
+
+
+Code LICENSE
+~~~~~~~~~~~
+
+Code is licensed by GNU GENERAL PUBLIC LICENSE Version 3, 29 June 2007.
+Please read Licence.txt in code root directory. <<GPL>>
+
+128,192 and 256 bit multiplication source files were originally public
+domain (Authors: Michael Hutter and Peter Schwabe, Version: 2014-07-25,
+downloaded from http://mhutter.org/research/avr/ ), but have been modified
+for OsEID project (to allow run this code in interrupt enabled environment,
+and to improve speed). I decided to release this modified version under the
+GPL.
+
+<<<
+
+Making OsEID card
+-----------------
+
+Mechanical construction
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Card components
+^^^^^^^^^^^^^^^
+
+Card is a composition of two components. First component is ATmega 128
+microcontroller or ATmega 128A microcontroller.
+
+image:images/atmega128A_small.png[Atmega128A]
+
+ATmega 128A microcontroller is available with a number of vendors.  You can
+buy ATMEGA128A-AU in TQFP64 package from http://www.farnell.com by sale code
+1773397 (about 4.8E / Dec 31 2017).  Alternatively you can buy ATMEGA128A-AU from
+https://www.tme.eu/en/details/atmega128a-au/8-bit-avr-family/microchip-atmel/
+(price about 5.5E / Dec 31 2017).
+
+The second component is single sided printed circuit board (PCB) in the form of plastic
+payment card.
+
+image:images/pcb_scan.png[PCB]
+
+This board is designed to match card dimensions and card contact pads positions
+defined by ISO 7816-1.  PCB also connects microcontroller leads to card
+contact pads.  There is no vendor for this PCB, but you can produce this PCB at
+your local PCB producer.  Your producer needs gerber file or PDF file or
+simple image as a manufacturing data for PCB production.  Please check
+download section for these files.  Thickness of PCB must be about 0.8mm to
+meet dimensions of card recommended by ISO 7816-1. Picture of PCB is also
+included in <<appendixA,appendix A>>.
+
+Soldering microcontroller to PCB
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+PCB and microcontroller together form final smartcard. The components are
+connected by soldering.  ATmega128A microcontroller is available in TQFP or
+QFN/MLF package.  Thickness of QFN/MLF packages is in range 0.8 to 1mm but
+soldering this package in amateur condition is very difficult.  Because of
+soldering difficulty TQFP package was preferred.
+
+Unfortunately, ATmega128A microcontroller in TQFP64 package thickness is
+slightly below 1.2mm precisely in range 0.95 to 1.05mm + lead thickness
+about 0.05 to 0.15mm.
+
+If we solder TQFP package directly on PCB board, we can achieve thickness
+slightly below 2mm.  That is not good.  To get minimal thickness of card,
+microcontroller is imbedded into printed circuit board.  In the position of
+microcontroller there is a rectangular hole created in PCB with dimensions about 15.3x15.3mm.
+The body of microcontroller is inserted into this hole.  Then
+microcontroller leads are slightly bent upwards and soldered to PCB copper
+contacts from opposite side as normally.  This mounting can achieve final
+thickness of card about 1.1mm.  Most of card readers deal with this
+thickness without problems.
+
+NOTE: Be aware that final thickness about 1.1mm violates ISO7816-1
+specification, which defines thickness of card to 0.76mm with tolerance
++0.08mm.
+
+PCB dimensions must also match ISO 7816-1 specification: width 85.47mm -
+85.72mm and height 53.92mm - 54.03mm, and corner radiuses in range 2.88 to
+3.48mm.
+
+It is assumed that you have plenty of mechanical skills and experience with
+soldering surface mounted integrated circuit. Further details
+of the mechanical installation are therefore not listed here.
+ 
+image:images/imbedding.png[Imbedding TQFP package into PCB]
+
+PCB plating / coating
+^^^^^^^^^^^^^^^^^^^^^
+
+For amateur use, a common printed circuit board without special surface finish will be sufficient.  
+Because copper on PCB corrodes on air, sooner or
+later, problems arise when using the card.  If you plan to use the card
+frequently, it is advisable to use circuit board with gold-plated contact
+pads.  An alternative to gold plating is silver plating or nickel plating. 
+Consult your local printed circuit board producer what plating he offers and
+at what price.
+
+<<<
+
+Programming microcontroller
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before using the card, microprocessor must be programmed with card operation
+system.  You need hex file _card.hex_ that is available in download section.  To
+load hex file into ATmega128 microcontroller, you need atmel programmer tool
+with programmer software.  For example, free software can be found at
+http://www.nongnu.org/avrdude/. Programmer hardware overview can be found at
+http://www.ladyada.net/learn/avr/programmers.html. You can learn more about
+programming AVR microcontrollers on internet, a good website to start is 
+https://learn.adafruit.com/introducing-trinket/programming-with-avrdude.
+
+At this point the familiarity with programming AVR
+microcontrollers through ISP is assumed. Your card already includes ISP connector but in
+different format as normal Atmel ISP6 or ISP10 connectors. Mapping
+microcontroller pins to card contact pads and to standard Atmel ISP6 can be
+found in the table below.
+
+.Mapping card / microcontroller / ISP contacts
+[width="80%",options="header"]
+|===========================================
+| CPU pin name|ISO pad name| Atmel ISP name
+| GND         |  GND  C5   |  GND    6     
+| Vcc         |  Vcc  C1   |  VCC    2     
+| RESET       |  Vpp  C6   |  RESET  5     
+| PE0/PDI 2   |  RST  C2   |  MOSI   4     
+| PE1/PDO     |  CLK  C3   |  MISO   1     
+| PB1/SCK     |  I/O  C7   |  SCK    3     
+|===========================================
+
+It is recommended to make simple adapter from AVR ISP6 connector to CARD
+contact pads.  You need a smart card connector and a ribbon cable with
+IDC connector with 6 pins. Alternatively, if your programmer already
+contains ribbon cable with 6 pin female IDC connector, you need 6 pin male
+IDC connector.
+
+image::images/adapter1.jpg[programming adapter]
+
+You can buy it from here:
+ 
+http://www.tme.eu/en/details/116b-dboa-r/card-connectors/attend/116b-dbo0-r02/
+http://www.tme.eu/en/details/fc06150-s/ribbon-cables-with-idc-connectors/amphenol/
+http://www.tme.eu/en/details/09185066324/idc-connectors/harting/
+
+Carefully connect the cable to the relevant contact pads of smart card
+connector.  Connect this adapter to AVR programmer, insert new card into
+smart card connector and you can upload firmware into your card.
+
+It is recommended to program microcontroller fuses first:
+
+Extended fuses:  0xFF +
+High fuses:      0xD9 +
+Low fuses:       0x04 +
+
+Then upload card.hex and at last step is programming lock bits:
+
+Lock bits:       0xFC +
+
+Example for *avrdude* and *avrispmkII* programmer:
+
+----
+$ avrdude -p m128 -c avrispmkII -v -U efuse:w:0xFF:m
+$ avrdude -p m128 -c avrispmkII -v -U hfuse:w:0xD9:m
+$ avrdude -p m128 -c avrispmkII -v -U lfuse:w:0x04:m
+$ avrdude -p m128 -c avrispmkII -v -U flash:w:download/OsEID_card.hex
+$ avrdude -p m128 -c avrispmkII -v -U lock:w:0xFC:m
+----
+
+Your card is ready for use now.
+
+Compiling from sources
+~~~~~~~~~~~~~~~~~~~~~~
+
+You can use source files to build card.hex.  Development is tested on DEBIAN
+9.1.  You need *gcc-avr*, *binutils-avr*, *avr-libc*, *make*, *srecord* and
+*avrdude* package.  You need to unpack OsEID tarball.  Makefiles located in *src* subdirectory
+are used to compile and program the card.  Card serial number
+is automatically generated from actual time/date.
+
+----
+make -f Makefile.atmega128
+make -f Makefile.atmega128 fuses
+make -f Makefile.atmega128 program
+make -f Makefile.atmega128 lock
+----
+
+
+Vpp pad
+~~~~~~~
+
+In year 2006, the standard ISO 7816 changed the definition of *Vpp* pad. 
+This pad is no longer used for programming voltage.  If you use newer reader
+(produced after 2006), card may work, or fail in this reader.  If your OsEID
+card does not working in your card reader, Vpp pad of card pad must be isolated
+from reader.  This can be done by stick self-adhesive tape on Vpp pad.
+
+Building OsEID-token
+~~~~~~~~~~~~~~~~~~~~
+
+Only partial information here, schematics, PCB and list of components is in
+Appendix D.  It is assumed that only a skilled technician will try to
+build this device.
+
+<<<
+
+Using OsEID card
+-----------------
+
+For linux users: download and install *opensc* package.  Please use opensc
+version 0.16, 0.17, 0.18 or 0.19.  Debian (stretch) already contains the
+*opensc* version 0.16.  If you need ECC, please use version 0.19 from Debian
+Buster, or compile version 0.19 from sources.  For other distros, please
+follow distro specific installation of opensc package.  Download and install
+*pcscd* package.  According to your card reader, you will need to install
+specific driver for your reader (for example *libccid* or *libacr38u*
+package, ..  )
+
+Windows users: download and install opensc 0.17.  (version 0.18,0.19 is only
+partially tested, please read comments about minidriver configuration below)
+
+
+Base functionality
+~~~~~~~~~~~~~~~~~~
+
+The fastest way to test the functionality of the card is by launching program 
+*pcsc_scan* :
+
+....
+$ pcsc_scan 
+PC/SC device scanner
+V 1.4.23 (c) 2001-2011, Ludovic Rousseau <ludovic.rousseau@free.fr>
+Compiled with PC/SC lite version: 1.8.11
+Using reader plug'n play mechanism
+Scanning present readers...
+0: Alcor Micro AU9540 00 00
+
+Thu Dec 29 09:22:26 2016
+Reader 0: Alcor Micro AU9540 00 00
+  Card state: Card removed, 
+....
+
+
+Insert card into reader. If the card is recognized, similar message is
+displayed:
+
+....
+Wed Jan  4 14:21:01 2017
+Reader 0: Alcor Micro AU9540 00 00
+  Card state: Card inserted,
+  ATR: 3B F5 18 00 02 10 80 4F 73 45 49 44
+
+ATR: 3B F5 18 00 02 10 80 4F 73 45 49 44
++ TS = 3B --> Direct Convention
++ T0 = F5, Y(1): 1111, K: 5 (historical bytes)
+  TA(1) = 18 --> Fi=372, Di=12, 31 cycles/ETU
+    129032 bits/s at 4 MHz, fMax for Fi = 5 MHz => 161290 bits/s
+  TB(1) = 00 --> VPP is not electrically connected
+  TC(1) = 02 --> Extra guard time: 2
+  TD(1) = 10 --> Y(i+1) = 0001, Protocol T = 0 
+-----
+  TA(2) = 80 --> Protocol to be used in spec mode: T=0 - Unable to change -
+defined by interface bytes
++ Historical bytes: 4F 73 45 49 44
+  Category indicator byte: 4F (proprietary format)
+
+....
+
+
+Press CTRL-C break *pcsc_scan* and you can go to configure *opensc* package.
+
+<<<
+Opensc package configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Configure opensc package: edit */etc/opensc/opensc.conf* 
+
+or if you use windows *C:\Program Files\OpenSC Project\OpenSC\opensc.conf* 
+
+add new ATR for OsEID card and OsEID token:
+
+----
+        # OsEID card is handled by myeid driver
+        card_atr 3b:f5:00:00:02:10:80:4f:73:45:49:44 {
+		atrmask = "ff:ff:00:ff:ff:ff:ff:ff:ff:ff:ff:ff";
+                driver = "myeid";
+        }
+        # OsEID token, T0/T1 protocol
+        card_atr 3b:f5:00:00:02:80:01:4f:73:45:49:44:00 {
+                atrmask = "ff:ff:00:ff:ff:ff:ff:ff:ff:ff:ff:ff:00"
+                driver = "myeid";
+        }
+----
+
+
+It is recommended that you install oseid profile files into opensc profile
+directory (usually /usr/share/opensc/). Profile files for different versions
+of opensc can be found in download directory.
+
+After this configuration step, you can use *opensc-explorer*, *pkcs15-init*,
+*pkcs15-tool*, *pkcs11-tool* and other software to personalize your OsEID card.
+
+Windows minidriver configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you plan to use OsEID card in Win 10 (for example in EDGE browser etc.) you
+need install *opensc* package (0.17).
+
+Opensc version 0.17.0 functionality with OsEID card has been tested in WIN
+10 (both 64 and 32 bit versions).  *certutil* command is fully functional
+and TLS client auth in *EDGE* browser is working.  Opensc 0.18.0 and 0.19 fails
+in EDGE, there is missing PIN dialog.
+
+To use OsEID card, You need configure opensc package (add OsEID ATR to
+opensc.conf file) and you need update your registry file.  Please use
+OsEID.reg file from download section.
+
+----
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID]
+"80000001"="opensc-minidriver.dll"
+"ATR"=hex:3b,f5,00,00,02,10,80,4f,73,45,49,44
+"ATRmask"=hex:ff,ff,00,ff,ff,ff,ff,ff,ff,ff,ff,ff
+"Smart Card Key Storage Provider"="Microsoft Smart Card Key Storage Provider"
+"Crypto Provider"="OpenSC CSP"
+
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID-token]
+"80000001"="opensc-minidriver.dll"
+"ATR"=hex:3b,f5,00,00,02,80,01,4f,73,45,49,44,00
+"ATRmask"=hex:ff,ff,00,ff,ff,ff,ff,ff,ff,ff,ff,ff,00
+"Smart Card Key Storage Provider"="Microsoft Smart Card Key Storage Provider"
+"Crypto Provider"="OpenSC CSP"
+----
+
+Opensc from version 0.18.0 uses different location of file
+opensc-minidriver.dll.  Please correct this in your register file:
+
+----
+"80000001"="C:\Program Files\OpenSC Project\OpenSC\minidriver\opensc-minidriver.dll"
+----
+
+For 32 bit opensc version on 64 bit system:
+----
+"80000001"="C:\Program Files (x86)\OpenSC Project\OpenSC\minidriver\opensc-minidriver.dll"
+----
+
+
+After personalizing your card, you need to use *certutil -scinfo* command in
+windows command prompt to import certificates from card into windows
+certificate store. After successful import of certificates, you can browse
+personal certificates by *certmgr* and/or *certlm* command.
+
+<<<
+
+Explore files on card:
+~~~~~~~~~~~~~~~~~~~~~~
+
+On linux/windows with installed opensc package You can use *opensc-explorer*
+to browse files on Your new card:
+
+....
+$ opensc-explorer 
+OpenSC Explorer version 0.14.0
+Using reader with a card: ACS ACR38U 00 00
+OpenSC [3F00]> info
+
+Dedicated File  ID 3F00
+
+File path:     3F00
+File size:     32767 bytes
+ACL for SELECT:       N/A
+ACL for LOCK:         N/A
+ACL for DELETE:       CHV3
+ACL for CREATE:       CHV3
+ACL for REHABILITATE: N/A
+ACL for INVALIDATE:   N/A
+ACL for LIST FILES:   N/A
+ACL for CRYPTO:       N/A
+ACL for DELETE SELF:  N/A
+Proprietary attributes:  00 02
+Security attributes:     33 3F FF
+....
+
+There exists only one file on card. This is file with ID 3F00 - master file
+(MF). Card security system (PIN/PUK codes) are inactive for now.
+
+
+Card initialization (creation of pkcs15 structure)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+....
+pkcs15-init -C --so-pin 00000000 --so-puk 00000000 --pin 1111111
+....
+or better way, determine opensc version by running 
+....
+opensc-tool -i
+....
+Then use oseid profile with the same version as opensc (for example 0.17):
+....
+pkcs15-init -C -c oseid_0.17 --so-pin 00000000 --so-puk 00000000 --pin 1111111
+....
+
+
+Init user pin/puk
+~~~~~~~~~~~~~~~~~~
+....
+pkcs15-init --store-pin --id 01 --pin 11111111 --puk 11111111 --so-pin 00000000
+....
+
+
+Finalize card (activate card security mechanism)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+....
+pkcs15-init -F
+....
+
+Generate RSA key
+~~~~~~~~~~~~~~~~~
+(Warning, this operation is really slow, may run about 4 minutes but in some
+cases over 30 minutes for 1024 bit key, generating 2048 bit key take about
+45 minutes but in some cases several hours.)
+....
+pkcs15-init --generate-key rsa/1024 --auth-id 1 --pin 11111111 \
+  --label gen_rsa_1024 --key-usage sign,decrypt
+....
+
+Generate RSA key with openssl and upload RSA key
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+....
+openssl genrsa -out 1024-key.pem 1024
+pkcs15-init  --store-private-key 1024-key.pem --auth-id=1 --pin 11111111 \ 
+  --key-usage sign,decrypt --id 1234
+....
+
+Sign message with RSA key
+~~~~~~~~~~~~~~~~~~~~~~~~~
+....
+pkcs11-tool  --sign --slot 0 -m SHA1-RSA-PKCS --id 1234 -pin 11111111 \ 
+  --input-file rsa_sign_testfile.txt --output-file rsa_sign_testfile.txt.sign
+....
+
+
+Generate EC key on card
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+NOTE: For EC operations you need an opensc version 0.17 or newer version, or
+check appendixes for opensc0.16 patch.
+
+....
+pkcs15-init --generate-key ec-prime256v1 --auth-id 1 --pin 11111111
+....
+
+
+Generate key with openssl and upload EC key/certificate to card
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+....
+openssl ecparam -name prime256v1 -genkey -noout -out prime256v1-key.pem
+pkcs15-init --store-private-key prime256v1-key.pem  --auth-id=1 --pin 11111111
+
+pkcs15-init -X prime256v1-cert.pem --pin 11111111 --auth-id=1
+....
+
+
+Sign with EC key
+~~~~~~~~~~~~~~~~
+First read possible keys, select proper key id for sign (in example 121212)
+....
+pkcs15-tool --list-public-keys
+pkcs15-crypt --pin 11111111 -k 121212 --signature-format "openssl" -s \ 
+  -i testfile.txt.sha1 -o testfile.txt.pkcs11.sha1.sig
+....
+
+Another example for sign with EC key:
+....
+pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA \ 
+  --input-file sign.this.txt --output-file sign.this.txt.signature
+....
+
+<<<
+OsEID-tool
+~~~~~~~~~~
+
+You can use *OsEID-tool* software (available in tools section, only linux
+version).  This software is designed to simplify some tasks on OsEID card
+(can be used with MyEID card too).  Implemented functions:
+
+----
+INFO - print info about card
+INIT - do initialization of token by pkcs15-init
+EC-CREATE-KEYS - use openssl to generate EC keys
+EC-UPLOAD-KEYS - upload EC keys into initialized token
+EC-GENERATE-KEYS  - generate keys on card
+EC-SIGN-TEST - sign sample text by ECDSA operation and test this signature
+EC-ECDH-TEST - generate shared secrets and test shared secrets
+RSA-CREATE-KEYS -  use openssl to generate RSA keys
+RSA-UPLOAD-KEYS - upload RSA keys into initialized token
+RSA-GENERATE-KEYS - generate RSA key on card
+RSA-SIGN-TEST - sign sample text with token RSA operation and test this signature
+RSA-DECRYPT-TEST - decrypt test data
+PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys
+CSR [key] [subject] - generate certificate signing request
+CRT [key] [subject] - generate self signed certificate
+RND-TEST - test random generator entropy
+----
+
+<<<
+FAQ
+---
+
+What is OsEID ?
+~~~~~~~~~~~~~~~
+
+OsEID is smart card with cryptography support, realized in amateur
+conditions.  It consist of one integrated circuit (microcontroller atmel
+ATmega 128) and PCB (printed circuit board).  No more components are needed.
+
+What can OsEID handle ?
+~~~~~~~~~~~~~~~~~~~~~~~
+
+OsEID smart card supports both RSA cryptography and Elliptic curve
+cryptography.  DES and AES ciphers are supported too.  It is (partially *)
+compatible with ISO 7816 specifications.  Card support PKCS15 structure, RSA
+up to 2048 bits and NIST elliptic curves (192,256 and 384 bits).
+
+It is designed to emulate Aventra MyEID card in universal microcontroller.
+No special driver is needed for use in Linux/Windows.
+
+What difference is between MyEID and OsEID card?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OsEID is hobby/amateur smart card, MyEID is professional card.  OsEID come
+with open source firmware in well known, easily accessible and inexpensive
+microcontroller. 
+
+Where do I buy a card ?
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The card can not be bought, You have to make it. (Read documentation chapter
+Making OsEID card)
+
+Where can I find the latest firmware version ?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+New versions are published on  https://sourceforge.net/projects/oseid
+This is a primary site, code is available in tarball (all sources, firmware
+files compiled from sources in HEX format, and PDF version of doc). Same
+site can be reached at https://oseid.sourceforge.io
+
+Some time later, code is available on github https://github.com/popovec/oseid
+HTTP online doc is available on https://popovec.github.io/OsEID
+
+In what application I can use this smart card ?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+* openssh - private rsa key can be stored on card
+* Firefox - secure login into web pages
+* windows Edge - secure login into web pages (tested with opensc 0.17)
+* Thunderbird - sign and decrypt emails
+* openvpn - secure login to openvpn server
+* easy-rsa - sign certificates by private key on card
+
+Why RSA calculation is so slow?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ATmega128 is 8 bit CPU and runs at  low frequency (about 13.5Mhz).
+The chip has only 8x8 bit multiplier, no special acceleration units for
+RSA and ECC, as it is in the world of commercial cards.
+
+Is there a faster alternative to OsEID card?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Yes, you can make OsEID token, but it is more complicated to make it. 
+A lot of skill with soldering of SMD components is needed. The token is about two
+times faster than OsEID card.  Token can run 2048 RSA operation in about 12
+seconds.  Overclocked version can run 2048 bit RSA operation in about 8 sec.
+
+Why OsEID is denoted as BETA software?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OsEID card software is in extensive development.  New features are added,
+and lot of old code is optimized.  Lot of internal interfaces are changed
+from version to version.  Finally, card behavior is tested using (partial)
+regression tests.  Through this, nobody can guarantee the flawless function
+of such a large system.  It is advisable to leave the BETA tag (for now) on
+this project.
+
+I found a bug in OsEID card, where can I report it ?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+You can contact me (author) by email <popovec.peter@gmail.com>
+
+
+
+<<<
+Filesystem
+----------
+
+Card uses a simple filesystem compatible with ISO7816.  However, the
+functions of filesystem do not meet all the requirements defined in ISO7816. 
+Please, follow the comments on these inconsistencies in the following text.
+
+Filesystem is in ATMEGA FLASH.  Security data (PINs, PUKs) are stored in
+ATMEGA EEPROM.  Filesystem is organized as simple linear structure, header,
+file, header, file....  header, file.  Simplicity of filesystem limits file
+delete operation.  Delete operation only marks file as deleted. 
+Deallocation of file space is available only for files at end of filesystem. 
+There does not exist any CRC data checks or other consistency check in
+filesystem.  (Already a BETA version of FLASH friendly COW filesystem
+exists, with CRC and other features, but not open source for now.  Because
+of the code size it may not be available at all.  The development is
+currently frozen.)
+
+File size is limited to max 32767 bytes, DF files are always auto sized.  If
+DF file is created, only the space for file header is allocated in card.  DF
+file does not contain information about children, but children know what DF
+is their parent.  There is no limit on number of files on card.  Filesystem
+limit is 65536 bytes.  (MyEID uses PUT DATA: INITIALIZE APPLET to set
+maximum number of files, this operation is supported, but value is ignored.)
+
+The file with ID=3F00 (MF) already exists on a new blank card.  There is no
+other file on card.  This is different to MyEID card.  New MyEID card comes
+with MF file 3F00 and with DF file 5015. DF 5015 in OsEID card is created
+by *opensc* package (pkcs15-init).
+
+----
+MyEID (ver 3.3.3)                       OsEID:
+
+OpenSC [3F00]> info                     OpenSC [3F00]> info
+
+Dedicated File  ID 3F00                 Dedicated File  ID 3F00
+
+File path:     3F00                     File path:     3F00
+File size:     32767 bytes              File size:     32767 bytes
+ACL for SELECT:       N/A               ACL for SELECT:       N/A
+ACL for LOCK:         N/A               ACL for LOCK:         N/A
+ACL for DELETE:       CHV3              ACL for DELETE:       CHV3
+ACL for CREATE:       CHV3              ACL for CREATE:       CHV3
+ACL for REHABILITATE: N/A               ACL for REHABILITATE: N/A
+ACL for INVALIDATE:   N/A               ACL for INVALIDATE:   N/A
+ACL for LIST FILES:   N/A               ACL for LIST FILES:   N/A
+ACL for CRYPTO:       N/A               ACL for CRYPTO:       N/A
+ACL for DELETE SELF:  N/A               ACL for DELETE SELF:  N/A
+Proprietary attributes:  00 02          Proprietary attributes:  00 02
+Security attributes:     33 3F FF       Security attributes:     33 3F FF
+
+OpenSC [3F00]> cd 5015                  OpenSC [3F00]> cd 5015
+OpenSC [3F00/5015]> info                OpenSC [3F00/5015]> info
+
+Dedicated File  ID 5015                 Dedicated File  ID 5015
+
+File path:     3F00/5015                File path:     3F00/5015
+File size:     32767 bytes              File size:     5000 bytes
+DF name:     \xA0\x00\x00\x00cPKCS-15   DF name:     \xA0\x00\x00\x00cPKCS-15
+ACL for SELECT:       N/A               ACL for SELECT:       N/A
+ACL for LOCK:         N/A               ACL for LOCK:         N/A
+ACL for DELETE:       NEVR              ACL for DELETE:       CHV1
+ACL for CREATE:       CHV3              ACL for CREATE:       CHV1
+ACL for REHABILITATE: N/A               ACL for REHABILITATE: N/A
+ACL for INVALIDATE:   N/A               ACL for INVALIDATE:   N/A
+ACL for LIST FILES:   N/A               ACL for LIST FILES:   N/A
+ACL for CRYPTO:       N/A               ACL for CRYPTO:       N/A
+ACL for DELETE SELF:  N/A               ACL for DELETE SELF:  N/A
+Proprietary attributes:  00 02          Proprietary attributes:  00 00
+Security attributes:     33 FF FF       Security attributes:     11 1F FF
+----
+
+If someone needs the exact same 5015 file as in MyEID card, workaround is
+available in *OsEID-tool*, you need only to uncomment APDU, that creates DF
+5015 in INIT command.
+
+
+NOTE: hexadecimal values in next text are prefixed by *0x* or suffixed by *h*
+for example 0x45 or 45h. In some cases, hexadecimal values are without
+prefix/suffix, but it can be deduced from context that this number is
+hexadecimal. Sorry about this. This doc is only a draft, not the final version.
+
+NOTE: OsEID documentation is still incomplete, please consult MyEID
+reference manual 2.1.4, lot of MyEID APDUs are identical with OsEID APDUs.
+Do not expect a completely identical functions, keep in mind, OsEID is a hobby
+card.
+
+
+<<<
+SELECT FILE
+~~~~~~~~~~~
+
+Selection mechanism manages current DF and current EF. If EF is selected,
+parent DF is set as current DF.
+
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1  | P2  | LC | Data | LE
+|0x00 | 0xA4 | ... | ... | ...| ...  | ...
+|=========================================
+
+- P1 see below
+- P2 0 = return FCI of selected file, 0x0c - return status only
+- LC see below
+- Data  length corresponding to LC
+- LE empty
+
+Select file is controlled by P1, P2 parameters. There are several P1, P2
+valid combinations. For some of combinations LC != 0 and data field must
+contain specific data
+
+
+- P1 = 0, P2 == 0, LC = 0:
+  Select MF (0x3f00)
+
+- P1 = 3, LC = 0:
+  Select parent DF of the current DF
+
+- P1 = 8, LC >=2, LC even, Data represents IDs of path to file:
+  Select by path from MF
+
+- P1 = 9, LC >=2, LC even, Data represents IDs of path to file:
+  Select by path from selected DF
+
+- P1 = 4, LC >0, LC < 17, Data represents filename:
+  Select DF by name
+
+- P1 = 1, LC = 2, Data file ID:
+  Select DF
+
+- P1 = 2, LC = 2, Data file ID:
+  Select EF
+
+- P1 = 0, P2 = 0, LC = 2, Data = 0x3f00:
+  Select MF
+
+- P1 = 0, LC = 2, Data = ID:
+  Firstly the file with ID in all children of selected DF is searched, if ID is found,
+  FCI/status is returned.  If previous search fails, test if parent of selected
+  file matches ID.  If this fails too, file in neighbors of selected
+  file is searched.
+
+- P2 = 0x0c - do not return FCI/FCP/FMD
+
+If select command failed, last correctly selected file remains selected.
+
+MyEID difference: MyEID (according MyEID reference manual 2.1.4) does not
+support values 1,2,3 for P1.  MyEID does not support P2 = 0x0c.
+
+
+<<<
+CREATE FILE
+~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|===========================================
+|CLA  | INS  | P1   | P2   | LC | Data | LE
+|0x00 | 0xE0 | 0x00 | 0x00 | ...| ...  | ...
+|===========================================
+
+- LC  18 .. 255
+- Data - length corresponding to LC
+- LE empty
+
+Data must contain File Control Parameters (FCP) information.
+
+.FCP structure
+
+First byte (0x62) represents FCP tag, second byte represents sum of length of
+all tags in structure. The rest of structure is formed by TLV items. TLV items
+order doesn't matter. TLV item with the same TAG value overwrites previous item
+with the same tag except TAG 0x80 and 0x81, these tags are mutually exclusive and
+can not be repeated.
+
+----
+Value   bytes   description
+
+0x62	1	FCP tag
+16..255	1	length of FCP structure
+
+0x80	1	File size TAG (for EF)
+1..2 	1	length of value
+value	1..2	size of file in bytes
+
+0x81	1	File size TAG (for DF and key EF)
+2 	1	length of value
+value	2	size of file in bytes
+
+0x82	1	File description tag
+1..6    1	length of value
+value	1..6	File description byte(s) check table below
+
+0x83	1	file identifier
+2	1	length of value
+value	2	File Identifier
+
+0x84	1	DF Name tag    (optional, default none)
+1..16	1	length of value
+value	1..16	Optional DF name
+
+0x85	1	Proprietary Information (optional, default 0)
+2	1	length of value
+value	2	check table below
+
+0x86	1	Security Attributes (optional, default 0x000000)
+3..16	1	length of value
+value   3..16   only first 3 bytes are used, rest of bytes are ignored
+
+0x8A	1	Life Cycle Status (optional, ignored)
+1	1	length of value
+value	1	check table below
+----
+
+NOTE: key file size can be specified by tag 0x80.
+
+NOTE: DF size is handled in card internally. Size of DF specified by tag 0x81
+is only symbolic, card allocates filesystem space for DF dynamically.
+
+NOTE: TAG 0x8a (Lifecycle) can be provided in FCP structure, but is ignored by
+*CREATE FILE* command
+
+NOTE: Before, between or after BER-TLV data objects, 0x00 or 0xffs without any meaning may occur.
+
+.File description byte(s)
+
+only the first byte is used, rest is ignored.
+
+allowed values:
+
+----
+0x01	EF working, transparent structure
+0x11	EF proprietary, for RSA key
+0x22	EF proprietary, for EC key
+0x23	EF proprietary, for EC key secp256k1 Experimental!
+0x19	EF proprietary, for DES key
+0x29	EF proprietary, for AES key
+0x38	DF
+----
+Any value can be orred with value 0x40, this mark file as shareable.
+
+BEWARE! filetype 0x23 is not used by original MyEID card. In future, MyEID card may
+use the 0x23 filetype to different purposes. OsEID project will then change
+secp256k1 key marking to another filetype or move marking into Proprietary
+Information field.
+
+
+.File Identifier
+----
+reserved: 0x3f00, 0x3fff, 0xffff
+----
+
+.Proprietary Information
+
+.KEY EF
+----
+
+1st byte:
+X0h - not valid key file
+X1h - valid key file
+X3h - key valid, key generated on card
+
+X = AC to be cleared after RSA operation - due to incomplete information
+about this in MyEID documentation, upper nibble is ignored by OsEID card.
+
+If KEY file is created, 1st byte is always masked to X0h.  After successful
+upload of private part of EC key or modulus of RSA key or AES/DES key
+upload, the 1st byte of proprietary information is changed. Beware, file can be
+marked as valid, but not all parts of key are in file.  For EC key this is
+no problem if public part is missing, but incomplete RSA key then generates
+error in RSA security operation.
+
+2nd byte: 0x00 RFU
+----
+
+.EF
+----
+1st byte: 0x00 RFU
+2nd byte: 0x00 RFU
+----
+
+.DF
+----
+1st byte: 0x00 RFU
+2nd byte: 0x00 or 0x02 other values RFU
+          0x02 = this DF can not be deleted
+----
+
+.Lifecycle
+----
+ (card uses only codes 1 and 7)
+0	- no info
+1*	- creation
+3	- initialization
+4	- operational (deactivated)
+5	- operational (activated)
+6	- operational (deactivated)
+7*	- operational (activated)
+----
+NOTE: Lifecycle is managed internally (by PUT DATA/initialize applet and ACTIVATE APPLET
+commands), value in FCP is ignored
+
+You can found more information about key file in PUT DATA and GENERATE
+PUBLIC KEY PAIR command.
+
+
+NOTE: opensc versions 0.14 to 0.19 (myeid driver) can handle only limited set of key sizes:
+512, 768, 1024, 1536, 2048
+*Example apdu*
+
+Create working EF with transparent structure, ID 2233, size 511, security
+attributes set to 01 1F FF:
+
+====
+00 e0 00 00 12 62 10 80 02 01 ff 82 01 01 83 02 22 33 86 03 01 1f ff
+====
+
+*Responses*
+
+*No error* ::
+- 0x9000
+
+*if P1 != 0 or P2 != 0* ::
+-  0x6a86 - Incorrect parameters P1-P2
+
+*if LC = 0* ::
+-  0x6700 - Incorrect length
+
+*if transport of LC bytes of data fail* ::
+- 0x6984 invalid data
+
+*if there is not selected DF* ::
+- 0x6a82 - file not found
+
+*missing FCP template byte (0x62) in 1st position in data* ::
+- 0x6984 - invalid data
+
+*any wrong tag/value in FCP data* ::
+- 0x6984 - invalid data
+
+*if DF name already exists* ::
+- 0x6A89 - already exists
+
+*security status (does not allow file creation)* ::
+- 0x6982 - security status not satisfied
+
+*file with same ID already exists in current DF* ::
+- 0x6A89 - already exists
+
+*problem to write file in filesystem* ::
+- 0x6985 -  condition not satisfied
+
+NOTE: From ISO 7816-4 *SELECT* APDU with P1 = 0: If P2 is set to 0 and the
+command data field provides a file identifier, then that file identifier
+shall be unique in the following three environments: the immediate children
+of the current DF, the parent DF and the immediate children of the parent
+DF. Function *CREATE FILE* allows to create files with same ID in these three
+environments. Please check *SELECT* command to find how the file selection is handled.
+
+<<<
+DELETE FILE
+~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|============================================
+|CLA  | INS  | P1   | P2   | LC  | Data | LE
+|0x00 | 0xE0 | 0x00 | 0x00 | ... | ...  | ...
+|============================================
+
+- LC  0
+- Data empty
+- LE empty
+
+
+The DELETE FILE command does removing of file. File must be selected by
+SELECT command before calling DELETE FILE command. Before deletion of file,
+access condition is checked. After file delete operation a parent of deleted
+file is selected. (This may change in future!)
+
+NOTE: files are only marked as deleted, and only marked files at end of
+filesystem are really deallocated and space is returned to filesystem. 
+Returned space is filled by value 0xff.
+
+*Responses*
+
+*No error* ::
+- 0x9000
+
+*if P1 != 0 or P2 != 0* ::
+- 0x6a86 - Incorrect parameters P1-P2
+
+*if LC = 0* ::
+- 0x6700 - Incorrect length
+
+*if there is not selected file* ::
+- 0x6986 command not allowed, (no current EF)
+
+*DF/MF file is marked by proprietary attribute as undeletable* ::
+- 0x6985 condition of use not satisfied
+
+*security status (does not allow file deletion)* ::
+- 0x6982 - security status not satisfied
+
+*DF is not empty* ::
+- 0x6985 condition of use not satisfied
+
+*select of parent failed* ::
+- 0x6A82  File not found
+
+*memory subsystem error* ::
+- 0x6581 memory fail
+
+<<<
+ERASE BINARY
+~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0x0E |... | ... | ... | ...  | ...
+|=========================================
+
+- P1 - in range 0-0x7f
+- P2 in range 0-0xff
+- LC  empty
+- Data empty
+- LE empty
+
+The ERASE BINARY command fills selected transparent EF with 0xff value. Start
+of fill is selectable by P1, P2 parameters. P1 represent bits 14..8, P2
+represent bit 7..0 of offset.
+
+
+*Responses*
+
+*No error* ::
+- 0x9000
+
+*if P1,P2 is over 0x7fff* ::
+- 0x6a86 - Incorrect parameters P1-P2
+
+*if LC = 0* ::
+- 0x6700 - Incorrect length
+
+*if there is not selected file* ::
+- 0x6986 command not allowed,(no current EF)
+
+*file is RSA/EC key file or DF* ::
+- 0x6985 condition of use not satisfied
+
+*security status (does not allow file deletion)* ::
+- 0x6982 - security status not satisfied
+
+*offset in P1,P2 is outside EF size* ::
+- 0x6B00 outside EF
+
+*memory subsystem error* ::
+- 0x6581 memory fail
+
+
+<<<
+UPDATE BINARY
+~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0xD6 |... | ... | ... | ...  | ...
+|=========================================
+
+- P1 - in range 0-0x7f
+- P2 in range 0-0xff
+- LC  1..0xff
+- Data binary data
+- LE empty
+
+The UPDATE BINARY command updates data in selected transparent EF. Start
+of update is selectable by P1, P2 parameters. P1 represents bits 14..8, P2
+represents bit 7..0 of offset. LC represents number of updated bytes.
+
+
+*Responses*
+
+*No error* ::
+- 61 xx - xx of data bytes are available (for GET RESPONSE COMMAND)
+
+*if P1,P2 is over 0x7fff* ::
+- 0x6a86 - Incorrect parameters P1-P2
+
+*if LE = 0* ::
+- 0x6700 - Incorrect length
+
+*if transport of LC bytes of data fail* ::
+- 0x6984 invalid data
+
+*if there is not selected file* ::
+- 0x6986 command not allowed,(no current EF)
+
+*file is RSA/EC/DES/AES key file or DF* ::
+- 0x6985 condition of use not satisfied
+
+*security status (does not allow file update)* ::
+- 0x6982 - security status not satisfied
+
+*offset in P1,P2 is outside EF size* ::
+- 0x6b00 end of size before LE
+
+*memory subsystem error* ::
+- 0x6581 memory fail
+
+<<<
+READ BINARY
+~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0xB0 |... | ... | ... | ...  | ...
+|=========================================
+
+- P1 - in range 0-0x7f
+- P2 in range 0-0xff
+- LC  empty
+- Data empty
+- LE Number of bytes to read.
+
+The READ BINARY command reads data from selected transparent EF (file type
+0x01).  Start of read is selectable by P1, P2 parameters.  P1 represents bits
+14..8, P2 represents bits 7..0 of offset.  For LE=0, 256 bytes are to be read;
+
+
+*Responses*
+
+*No error* ::
+- 61 xx - xx of data bytes are available (for GET RESPONSE COMMAND)
+
+*if P1,P2 is over 0x7fff* ::
+- 0x6a86 - Incorrect parameters P1-P2
+
+*if LE = 0* ::
+- 0x6700 - Incorrect length
+
+*if there is not selected file* ::
+- 0x6986 command not allowed, (no current EF)
+
+*file is RSA/EC/DES/AES key file or DF* ::
+- 0x6985 condition of use not satisfied
+
+*security status (does not allow file read)* ::
+- 0x6982 - security status not satisfied
+
+*offset in P1,P2 is outside EF size* ::
+- 0x6282 end of size before LE
+
+*memory subsystem error* ::
+- 0x6281 part of data is corrupted
+
+<<<
+GET DATA
+~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|===========================================
+|CLA  | INS  | P1   | P2  | LC  | Data | LE
+|0x00 | 0xCA | 0x01 | ... | ... | ...  | ...
+|===========================================
+
+
+- LC = 0
+- P2 = data selector
+
+P2 for global functions:
+....
+0xA0  Get applet information
+0xA1  Get file list in current DF
+0xA2  Get file list in current DF - list only transparent EF
+0xA3  Get file list in current DF - list only DF
+0xA4  Get file list in current DF - list only EF with RSA keys
+0xA5  Get file list in current DF - list only EF with ECC keys
+0xA6  Get file list in current DF - list only EF with DES/AES keys
+0xAA  Get card capabilities
+0xAC  Get access condition table
+....
+
+P2 for key file GET DATA:
+(Key file must be selected before GET DATA command)
+....
+0x00  Get algorithm identifier
+0x00  Get modulus
+0x02  Get public exponent
+0x81  Get ECC curve parameter prime
+0x82  Get ECC curve parameter A
+0x83  Get ECC curve parameter B
+0x84  Get ECC Generator point (X and Y)
+0x85  Get ECC curve parameter Order
+0x86  Get ECC public key (uncompressed)
+....
+
+GET DATA  PIN information:
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|===========================================
+|CLA  | INS  | P1  | P2    | LC  | Data | LE
+|0x00 | 0xCA | 0x01| 0xBX  | 0   | none | 9
+|===========================================
+
+- X in range 1..E
+- LC, Data are ignored
+
+This function returns PIN parameters as 9 bytes structure:
+....
+PIN retries - actual state
+PUK retries - actual state
+PIN max retries - initial state
+PUK max retries - initial state
+FLAGS
+PIN type (for now always 0, normal PIN)
+Grid size (for GRID PIN, not implemented for now)
+PIN minimal length
+PUK minimal length
+....
+
+
+<<<
+PUT DATA
+~~~~~~~~
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0xDA | .. | ... | ... | ...  | ...
+|=========================================
+
+
+INITIALIZE APPLET
+^^^^^^^^^^^^^^^^^
+[cols="1,1,1,1,1,8,1",width="85%"]
+|================================================================
+|CLA  | INS  | P1 | P2 | LC | Data                          | LE
+|0x00 | 0xDA | 01 | E0 | 08 | XX XX ACL0 ACL1 ACL2 XX XX XX | ...
+|================================================================
+
+- LE empty
+
+
+This function can be used to erase card and return card into creation state
+(Lifecycle = 1). MF access conditions are set to values specified by
+ACL0, ACL1, ACL2.  If card is already in creation state, no access condition
+is checked, card is erased, only MF exists after calling this function.  If
+card is in activated state, access condition is checked first (MF
+recreation access condition).
+
+
+INITIALIZE PIN
+^^^^^^^^^^^^^^
+[cols="1,1,1,1,1,8,1",width="85%"]
+|========================================
+|CLA  | INS  | P1 | P2 | LC  | Data | LE
+|0x00 | 0xDA | 01 | ID | ... | ...  | ...
+|========================================
+
+- LE empty
+- ID PIN ID 1 .. 14
+
+
+This function is available only in card creation state (Lifecycle = 1). No
+access conditions are checked in this state, PIN 1 to 14 can be
+initialized. If PIn is already initialized, new initialization overwrites
+old PIN data.
+
+If card is in activated state (Lifecycle = 7), this function returns SW1,2 = 0x6982
+(security status not satisfied).
+
+
+
+Key load operations
+^^^^^^^^^^^^^^^^^^^
+
+[cols="1,1,1,3,1,8,1",width="85%"]
+|================================================
+|CLA  | INS  | P1 | P2          | LC  | Data | LE
+|0x00 | 0xDA | 01 | Key Part ID | ... | ...  | ...
+|=================================================
+
+- LE empty
+- Part = key part identification
+- LC corresponding to data field length
+
+Key part identification numbers:
+....
+ 80  modulus P*Q - (for keys < 2048)
+ 81  public exponent (65537 or 3)
+ 82  private exponent (not CRT, for keys < 2048)
+ 83  prime P
+ 84  prime Q
+ 85  d mod (p-1)
+ 86  d mod (q-1)/EC publickey
+ 87  q-1 mod p/EC private key
+ 88  modulus (1st part for 2048 key)
+ 89  modulus (2nd part for 2048 key)
+ 8A  private exponent (not CRT, 1st part for 2048 key)
+ 8B  private exponent (not CRT, 2nd part for 2048 key)
+ A0  symmetric key (DES/3DES/AES128/AES192/AES256)
+....
+
+Key file length in bytes must match key size in bits (for any type of keys,
+symmetric/ECC or RSA).
+
+Before Key load operation, key file must be selected.
+
+OsEID internally uses TLV to represent key parts, T is 8 bit value, L 8 bit
+value, length of V is specified by L (1..256 bytes).  One more byte is
+reserved (but for now not used) for key index in file.  There is one byte at
+end of last component (padding, 0xff).
+
+OsEID allows to create key file of arbitrary size, but key upload fail if file
+size does not correspond to allowed key sizes for selected cipher.  
+
+Any EF can be used to hold key data. However, it is advisable to use the values
+specified in description if the CREATE FILE operation.
+
+For DES,  allowed size are: 64 bytes = standard DES, 128 bytes 2DES (EDE
+mode), 256 bytes for 3DES (EDE mode). 
+
+For AES,  allowed sizes are: 128, 192, or 256 bytes.
+
+For ECC keys, only private key must be uploaded, public key is not needed. 
+File type is 0x22.  Allowed key sizes: 192, 256 or 384 bits.  For secp256k1
+curve file type must be set to 0x23 and only 256 it key is allowed.
+
+For RSA keys, card uses only CRT algo, if some of CRT component is not
+available, RSA operation fails.  You need to upload at least: *prime P*,
+*prime Q*, *d mod (p-1)*, *d mod (q-1)*, *q^-1^ mod P*
+
+For now, public exponent is not needed by OsEID card, but future version of
+OsEID with RSA message blinding algo need this part of key too.  Therefore,
+it is recommended to upload *public exponent*.
+
+Card allows to upload *modulus* and *private exponent*, but these values are not
+used. (But if *modulus* is not loaded, operation GET DATA fails if modulus is
+requested!)
+
+Components with ID A3 and A4 are not standard CRT components.
+Precalculating of these values allows us to speed up RSA calculation.  Card
+automatically calculates these values from P and Q components, user is not
+allowed to upload these components.  This functionality is optional, can be
+turned off at compilation time.  (R is based on P/Q length, if P length is
+512 bits, R is set to 2^512^, more information - search internet for
+Montgomery product calculation).
+
+[cols="3,1,1,1,1,1,1",width="85%",options="header"]
+|==================================================================
+|                |Key part ID| 512  | 768  | 1024  | 1536  |  2048
+|modulus P*Q     |80         | 2+64 | 2+96 | 2+128 | 2+192 | 0
+|public exp d    |81         | 2+3  | 2+3  | 2+3   | 2+3   | 2+3
+|priv. exp       |82         | 2+64 | 2+96 | 2+128 | 2+192 | 0
+|      P         |83         | 2+32 | 2+48 | 2+64  | 2+96  | 2+128
+|      Q         |84         | 2+32 | 2+48 | 2+64  | 2+96  | 2+128
+|P^-1^ mod R     |A3         | 2+48 | 2+48 | 2+64  | 2+96  | 2+128
+|Q^-1^ mod R     |A4         | 2+48 | 2+48 | 2+64  | 2+96  | 2+128
+|d^-1^ mod (Q-1) |85         | 2+32 | 2+48 | 2+64  | 2+96  | 2+128
+|d^-1^ mod (P-1) |86         | 2+32 | 2+48 | 2+64  | 2+96  | 2+128
+|Q^-1^ mod P     |87         | 2+32 | 2+48 | 2+64  | 2+96  | 2+128
+| mod2048 part1  |88         | 0    | 0    | 0     | 0     | 2+128
+| mod2048 part2  |89         | 0    | 0    | 0     | 0     | 2+128
+| exp2048 part1  |8A         | 0    | 0    | 0     | 0     | 2+128
+| exp2048 part2  |8B         | 0    | 0    | 0     | 0     | 2+128
+| File size      |           | 512  | 768  |1024   |1536   | 2048
+|==================================================================
+
+
+MyEID allows to upload non CRT components, but these components may
+overwrite some of CRT components. Please consult MyEID reference manual.
+
+
+GENERATE PUBLIC KEY PAIR
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+This command generates RSA/ECC keys. Key type and size is determined from
+selected file. If file type/size does not match allowed key length for
+cipher, operation fails. 
+
+RSA key for now uses fixed public exponent 65537. For RSA key, user can set LC
+to 0 or set LC and data field with this public exponent:
+
+RSA key generation APDU:
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=====================================================================
+|CLA  | INS  | P1 | P2 | LC | Data                               | LE
+|0x00 | 0x46 | 00 | 00 | 00 |                                    | ...
+|0x00 | 0x46 | 00 | 00 | 07 | 0x30 0x05 0x02 0x03 0x01 0x00 0x01 | ...
+|0x00 | 0x46 | 00 | 00 | 07 | 0x30 0x05 0x81 0x03 0x01 0x00 0x01 | ...
+|=====================================================================
+
+All three formats are identical. First format  does not define public
+exponent, the card then uses default public exponent. If LC is not 0, data 
+field contain ASN1 formated data for public exponent. Only value 65537 is
+accepted.
+
+Data field is ASN1 formated, 0x30 is SEQUENCE indicator, and value 0x02 or
+0x81 is used as "public exponent" tag.  (ASN.1 uses 0x02 as tag for INTEGER, 
+MyEID 2.1.4 manual defines here tag 0x02 too. Opensc 0.17 send
+0x81 here, OsEID for now allows both values).
+
+If key is successfully generated, key file is filled with key data and card
+returns public modulus.
+
+ECC key generation APDU:
+[cols="1,1,1,1,1,8,1",width="85%"]
+|=======================================
+|CLA  | INS  | P1 | P2 | LC | Data | LE
+|0x00 | 0x46 | 00 | 00 | 00 | ...  | ...
+|=======================================
+
+- Data empty
+- LE 3 + [key size in bites] * 2 / 8
+
+
+This APDU is same as specified in MyEID reference manual 2.1.4. As you can
+see, there is no information about key size or OID of cipher. Only one way to
+detect number of key bits exists -  key file size. If you need to generate ECC
+key on card, key file size in bytes must match key length in bits.
+
+APDU returns public key in format:
+0x86 - TAG
+0xXX - LEN (or 0x81, LEN for 521 bit key)
+0x04 - uncompressed indicator
+0xXX .. 0xXX - X coordinate of public key
+0xXX .. 0xXX - Y coordinate of public key
+
+It is surprising that MyEID does not use for example OID of curve in the
+DATA section to specify the key absolutely precisely. OsEID may in future use
+proprietary APDU thats allows to specify OID of curve in data field, but if
+*opensc* does not support this information, this feature is for now not
+interesting.
+
+
+Card security mechanism functions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Files and directories on card are protected by access flags. If file
+operation is protected by access flag, access flag can deny or allow
+operation on file. 
+
+PIN create is allowed only before using ACTIVATE APPLET command.
+
+VERIFY
+^^^^^^
+
+Verify command is used to authenticate user/application to card. 
+Command allows to send verification data (e.g password/PIN) to card.
+The verification data is compared to reference data stored in card. 
+The card security status is modified according to this comparison. 
+
+Card supports maximal 14 security access conditions.
+
+A successful comparison enables use of card function controlled by security
+access condition, which number is in P2 parameter of APDU.  Counter
+of unsuccessful verify attempts is then cleared.  
+
+For unsuccessful comparison, counter of unsuccessful verify attempts is
+incremented and if this counter is over predefined value, PIN
+is blocked. PIN can be unblocked by PUK.
+
+PIN can be optionally marked as LOCKED, verification to locked PIN always fails.
+For more about PIN LOCK feature check CHANGE REFERENCE DATA command.
+
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|===========================================
+|CLA  | INS  | P1   | P2  | LC  | Data | LE
+|0x00 | 0x20 | 0x00 | ... | ... | ...  | ...
+|===========================================
+
+- P2 must specify PIN number
+- LC 0 to 255
+- Data - length corresponding to LC
+- LE empty
+
+
+If LC is 0, this command returns how many authorization retries are left for
+PIN specified by parameter P2 in APDU.
+
+If LC != 0, data in APDU are used as verification data. Normally exact 8
+bytes are present in APDU Data section and LC is set to 8.  PIN in Data
+section of APDU is padded by 0xff or 0x00.  If APDU present more data, rest
+of data is ignored.  If APDU presents data below 8 bytes, data are internally
+padded with 0xff.
+
+Responses::
+
+*if P1 != 0* ::
+-  0x6a86 - Incorrect parameters P1-P2
+
+*if P2 <1 or >14* ::
+-  0x6a86 - Incorrect parameters P1-P2
+
+*if LC = 0* ::
+-  0x6983 - PIN fail, no more auth retries, PIN is blocked
+-  0x6985 - PIN is locked
+-  0x63cX - X present number of retries left
+
+*if LC != 0* ::
+-  0x6983 - PIN fail, no more auth retries, PIN is blocked
+-  0x6985 - PIN is locked
+-  0x63cX - PIN fail, X present number of retries left
+-  0x9000 - PIN ok, access is enabled for all functions controlled by pin P2
+
+NOTE: MyEID - from reference manual Ver 1.7.7,  APDU need exact 0 or 8 bytes
+in data (LC = 0 or 8).
+NOTE: response codes are organized in same order as tests in code
+
+
+ACTIVATE APPLET
+~~~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0x44 |... | ... | ... | ...  | ...
+|=========================================
+
+- P1, P2, LC, Data, - arbitrary data are accepted
+
+This command activates card security mechanism of card, all access conditions
+become active.
+
+Difference to MyEID: MyEID needs applet AID in Data field, P1 must be set to
+4 and P2 to 0.  Applet AID must be set to A000000063504B43532D3135.  MyEID
+card allow activation only if PIN corresponding to MF recreation access
+condition is already initialized, otherwise card return SW1,2 = 0x6985
+(Conditions not satisfied).  OsEID always allow activation.  If PIN that
+allow recreation of MF is not initialized, there is no possibility to erase
+the activated card (only way for reuse activated card is reprogramming card
+CPU).
+
+<<<
+
+Cryptographic functions
+----------------------
+
+Card supports several cryptographic functions. Symmetric cryptographic
+functions are available and asymmetric cryptography is available.
+
+Support for symmetric cryptography is experimental for now, because it is based
+only on MyEID 2.1.4 reference manual.  Internally OsEID support AES
+encrypt/decrypt with standard block size 16 bytes, and key sizes 128/192/256
+bits in ECB mode.  DES encrypt/decrypt in ECB is supported with standard
+block size 8 bytes, and standard key size 64 bits (56 bits + parity bits,
+but all parity bits are ignored).  Support for 3DES encrypt/decrypt is for
+192 bit key size, all three keys independent (3TDEA).  Only EDE keying is
+supported, no EEE.  This allow run 2 DES too, if 3rd key is copy of 1st key
+(2TDEA).  Maximal key size is then 192 bits, but real security of this cipher
+is about 112 bits.
+
+Block chaining is not available for now, but it seems that MyEID uses CBC
+mode, and in future this mode is planed as default.  OsEID for now uses only
+ECB mode for AES and DES.  Data size for DES operation is then limited for
+only 8 bytes block per operation (APDU) and one 16 bytes block AES operation.
+
+Asymmetric cryptography supports RSA with key sizes 512 to 2048 bits (with
+steps 64 bit).  There is support for private operation only.  This allows to use
+RSA for decipher and for sign operation.  Elliptic curve cryptography
+support is available for small set of curves: prime192v1, prime256v1,
+secp384r1, secp256k1.  ECDH and ECDSA are supported.
+
+
+The following procedure is recommended for the execution of a security
+operation:
+
+- use SELECT FILE operation to specify file with key/private key 
+- use VERIFY command to get access condition for key file
+- use SET SECURITY ENVIRONMENT command to set parameters of security 
+- use PERFORM SECURITY OPERATION or GENERAL AUTHENTICATE to perform 
+  requested operation
+
+
+SET SECURITY ENVIRONMENT
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|0x00 | 0x22 |... | ... | ... | ...  | ...
+|=========================================
+
+
+- P1  41h: decipher operation
+      81h: encipher operation
+      A4h: ECDH operation
+
+- P2  B6h: attributes for digital signature in data filed
+      B8h: attributes for cipher/decipher in data field
+      A4h: ECDH operation
+
+- LC size of data field
+
+- Data concatenated objects
+
+- LE  0
+
+Warning, implementation of ECDH operation differs in Opensc 0.17 and
+MyEID manual 2.1.4.  Opensc  uses value 41h in P1 and value A4h in P2.
+MyEID manual request A4h in P1 for authentication/key agreement.  Because
+this discrepancy, OsEID uses workaround, if P1 is set to A4h, internally P1
+is changed to 41h and P2 is set to A4h.  This allows both alternatives to
+work.  Please set P1 to 41h and P2 to A4h for ECDH operation.
+
+Data field is organized as concatenated Tag Len Value objects.
+....
+TAG 80h, LEN 1
+
+
+Value
+00h - Raw operation - data length must match key modulus length
+
+02h - for decipher: remove padding from data
+02h - for signatures: concatenate padding || signature data
+      (do not use data over 60% of key size, minimal padding is 11 bytes)
+12h - for decipher: same as raw operation
+12h - for signatures: concatenate padding || SHA1 OID || signature data
+      (here always 20 bytes of signature data is allowed)
+
+04h - ECDSA, ECDH operation
+....
+
+....
+TAG 81h, LEN 2 
+Value: XXXXh key file ID, 
+
+Id is used to select the file which contains the key for the next security
+operation.  Select file this file is selected by same way as SELECT
+operation with P1 = 2 (DF can not be selected here).
+
+
+TAG 83h or 84h, LEN 1
+Tag 83h is for key file with symmetric key, 84h for file with asymmetric key.
+Not used, must not be present. Reference for key in keyfile.
+If present, only value 0 is correct.
+....
+
+....
+TAG 87h, LEN 1
+
+Set initialization vector.  Must not be present.  If not present, then
+initialization vector is filled by 0.  OsEID does not use initialization
+vector for now.  (Experimental support for AES/DES).
+.....
+
+
+PERFORM SECURITY OPERATION
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|...  | 0x2A |... | ... | ... | ...  | ...
+|=========================================
+
+Before security operation correct security environment must be set and
+correct file with key for security operation must be selected.  Access
+condition must allow use of selected key file.
+
+More types of security operations exists:
+
+1. Perform digital signature (ECC/RSA)
+   CLA = 00h or 80h
+   P1 = 9Eh perform digital signature
+   P2 = 9Ah data to be signed in data field
+   LC = length of data
+
+2. Encrypt plaintext (DES/3DES/AES128/AES192/AES256)
+   CLA = 80h
+   P1 = 84h
+   P2 = 80h
+   LC = length of plaintext
+
+3. Decrypt ciphertext (RSA/DES/3DES/AES128/AES192/AES256)
+   CLA = 00h or 80h
+   P1 = 80h
+   P2 = 84h - data field contain ciphertext
+   P2 = 86h - data field contain padding indicator, then partial or full ciphertext
+   LC = length of ciphertext/ciphertext part + length of padding indicator if used
+
+If P2 = 0x86, 1st byte of ciphertext is padding byte. Allowed padding bytes:
+....
+00h = rest of data field is ciphertext
+81h = rest of data field is 1st part of ciphertext
+82h = rest of data field is 2nd part of ciphertext
+....
+
+In case of P1 = 80h and P2 = 81h, card saves 1st part of ciphertext in
+temporary buffer.  Status 0x9000 is returned.  In all other cases the card
+returns result of security operation and status bytes.
+
+Temporary buffer is overwritten by any command that returns data (not only
+status bytes).  If 2nd part of ciphertext is send by APDU, the card checks if
+temporary buffer is in tact, and concatenate 1st and 2nd part of ciphertext
+for decipher operation.  Length of concatenated ciphertext must not be
+over 256 bytes of data.
+
+MyEID manual 2.1.4 limits P2 = 0x84 for AES/DES decipher.  For RSA decipher
+P2 = 0x86 is requested.  OsEID allows both values for AES/DES/RSA decipher.
+OsEID allows arbitrary length of ciphertext parts for padding indicators 81h
+and 82h.  MyEID manual 2.1.4 defines use of this padding indicators for 2048
+bit keys.
+
+MyEID as described in reference manual 2.1.4 does not support RSA 2048 raw
+sign operation, but this operation is identical to raw decipher operation.
+Please use *opensc* version from *git*, there is already fix that allows raw
+2048 bit signature.
+https://github.com/OpenSC/OpenSC/commit/deab9cce73377f973d2020ab5ab7adc302018bf6
+Opensc 0.18.0 already contain this patch.
+
+WARNING!  OsEID support for DES and AES security operation is experimental.
+If selected key file contain AES/DES key, security operation is allowed only
+for CLA = 0x80.  Digital signature security operation is not supported if
+AES/DES key is selected. Data size (LC) must match block size of DES /AES
+block.
+
+WARNING!  Before running SECURITY OPERATION, key file specified by tag 81h
+in SET SECURITY ENVIRONMENT must be selected by SELECT FILE command!  MyEID
+card does not need it.  MyEID (ver 3.3.3) always uses key file specified by
+tag 81h in SET SECURITY ENVIRONMENT, even currently selected file have
+different ID.  After security operation last selected file by SELECT command
+remains selected (SET SECURITY ENVIRONMENT/PERFORM SECURITY OPERATION
+preserves last selected file)
+
+ECDH security operation is handled by GENERAL AUTHENTICATE command.
+
+GENERAL AUTHENTICATE
+~~~~~~~~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+| 0   | 0x86 | 0  |  0  | ... | ...  | ..
+|=========================================
+
+This command is used to provide ECDH operation. Before calling this command,
+correct security environment must be set and key file must be selected.
+
+LC   - correspond to length of data field
+Data - peer public key in format:  0x7c, LC-2 0x85 LC-4 0x04 point_data
+Here: 0x7c is Dynamic Authentication Template tag
+      0x85 public key in data field
+      0x04 uncompressed key indicator
+
+In addition to tag 0x85 tag 0x80 (Witness tag) is allowed with an arbitrary
+length.  This tag is ignored for now.
+
+Card returns shared secret derived from private key in selected file and
+public key provided in APDU. Technically, this operation does a point
+multiplication and X coordinate of calculated point is returned.
+
+For more info, please read *OsEID-tool* - ECDH operation.
+
+
+GET CHALLENGE
+~~~~~~~~~~~~~
+
+[cols="1,1,1,1,1,8,1",width="85%",options="header"]
+|=========================================
+|CLA  | INS  | P1 | P2  | LC  | Data | LE
+| 0   | 0x84 | 0  |  0  | ... | ..   | ..
+|=========================================
+
+LE - number of requested random data (1..255)
+
+Card return 1..255 bytes of random data.
+
+Please read appendix *Random generator implementation* about random number
+generator.
+
+Return values:
+- 0x9000 - All OK
+- 0x6f00 - if number of requested bytes is zero.
+
+Note: In future here comes more P1/P2 values, thats allow us to
+authenticate by challenge/response.  There is consideration about requested
+number of random data bytes, for LC=0, 256 bytes of random data may be
+returned.
+
+<<<
+[[appendixA]]
+[appendix]
+
+PCB ver 0.1
+-----------
+[%autofit]
+image::images/OsEID_pcb_ver0.1.svg[PCB0.1, 1200]
+
+<<<
+[[appendixB]]
+[appendix]
+
+Schematics ver 0.1
+------------------
+[%autofit]
+image::images/OsEID_sch_ver0.1.svg[SCH0.1, 1200]
+<<<
+
+[[appendixC]]
+[appendix]
+
+APDU summary
+------------
+
+NOTE: All APDU numbers in hexadecimal format, APDU format for T0 protocol
+
+CLASS 0
+~~~~~~~~
+
+*ERASE BINARY* ::
+- 00 0E P1 P2 00 (P1 0-0x7f, P2 0-0xff)
+
+*VERIFY* ::
+- 00 20 00 P2 00  (P2 in range 1 to 0x0e)
+- 00 20 00 P2 LC [data] (P2 in range 1 to 0x0e)
+
+*MANAGE SECURITY ENVIRONMENT* ::
+- 00 22 F3 00 00	reset sec env
+- 00 22 41 B6 LC [data] perform digital signature
+- 00 22 41 B8 LC [data] perform decipher
+- 00 22 81 B8 LC [data] perform encipher
+- 00 22 41 A4 LC [data] perform ECDH operation
+
+*CHANGE REFERENCE DATA* ::
+- 00 24 00 P2 10 [data] (P2 in range 1 to 0x0e)
+
+*PERFORM SECURITY OPERATION* ::
+-00 2A 9E 9A LC [data]
+
+*RESET RETRY COUNTER* ::
+- 00 2C 00 P2 00  (P2 in range 1 to 0x0e)
+- 00 2C 00 P2 10 [data] (P2 in range 1 to 0x0e)
+
+*DEAUTHENTICATE* ::
+- 00 2E 00 P2 00  (P2 in range 0 to 0x0e)
+
+*ACTIVATE APPLET* ::
+- 00 44 P1 P2 LC [data](P1,P2,LC, does not matter to values)
+
+*GENERATE PUBLIC KEY PAIR* ::
+- 00 46 00 00 LC
+
+*GET CHALLENGE* ::
+- 00 84 00 00 LE [data] (LE in range 1 - 255)
+
+*GENERAL AUTHENTICATE* ::
+- 00 86 00 00 LC [data]
+
+*SELECT FILE* ::
+- 00 A4 P1 P2 LC [data]
+
+*READ BINARY* ::
+- 00 B0 P1 P2 LE (P1 0-0x7f, P2 0-0xff, LE 1..0xff)
+
+*GET RESPONSE* ::
+- 00 C0 00 00 LE
+
+*GET DATA* ::
+- 00 CA 01 00 00 Get algorithm identifier
+- 00 CA 01 01 00 Get modulus
+- 00 CA 01 02 00 Get public exponent
+- 00 CA 01 81 00 Get ECC curve parameter prime
+- 00 CA 01 82 00 Get ECC curve parameter A
+- 00 CA 01 83 00 Get ECC curve parameter B
+- 00 CA 01 84 00 Get ECC Generator point (X and Y)
+- 00 CA 01 85 00 Get ECC curve parameter Order
+- 00 CA 01 86 00 Get ECC public key (uncompressed)
+- 00 CA 01 A0 00 Get applet information
+- 00 CA 01 A1 00 Get file list in current DF
+- 00 CA 01 A2 00 Get file list in current DF - list only EF
+- 00 CA 01 A3 00 Get file list in current DF - list only DF
+- 00 CA 01 A4 00 Get file list in current DF - list only EF with RSA keys
+- 00 CA 01 A5 00 Get file list in current DF - list only EF with ECC keys
+- 00 CA 01 A6 00 Get file list in current DF - list only EF with DES/AES keys
+- 00 CA 01 AA 00 Get card capabilities
+- 00 CA 01 AC 00 Get access condition table
+- 00 CA 01 BX 00 Get PIN parameters (X in range 1 - 0x0e)
+
+*UPDATE BINARY* ::
+- 00 D6 P1 P2 LC [data] (P1 0-0x7f, P2 0-0xff, LC 1..0xff)
+
+*PUT DATA/initialize pin* ::
+- 00 DA 01 P2 LC [data]
+
+*PUT DATA/load key* ::
+
+NOTE: only CRT algo is supported, loading not CRT components is not supported,
+operation exits with code 0x6985 - conditions not satisfied
+
+- 00 DA 01 80 LC [data] private modulus
+- 00 DA 01 81 LC [data] public exponent
+- 00 DA 01 82 LC [data] private exponent (not CRT)
+- 00 DA 01 83 LC [data] prime P
+- 00 DA 01 84 LC [data] prime Q
+- 00 DA 01 85 LC [data] d^-1^ mod (p-1)
+- 00 DA 01 86 LC [data] d^-1^ mod (q-1) /EC publickey
+- 00 DA 01 87 LC [data] q^-1^ mod p /EC private key
+- 00 DA 01 88 LC [data] modulus (1st part for 2048 key)
+- 00 DA 01 89 LC [data] modulus (2nd part for 2048 key)
+- 00 DA 01 8A LC [data] private exponent 1st part for 2048 key (not CRT)
+- 00 DA 01 8B LC [data] private exponent 2nd part for 2048 key (not CRT)
+- 00 DA 01 A0 LC [data] symmetric key (DES/3DES/AES128/AES192/AES256)
+
+*PUT DATA/initialize applet* ::
+- 00 DA 01 E0 08 [data]
+
+*CREATE FILE* ::
+- 00 E0 00 00 LC [data] (LC in range 25 to 49 bytes)
+
+*DELETE FILE* ::
+- 00 E4 00 00 00
+
+CLASS A0
+~~~~~~~~
+
+*DELETE FILE* ::
+- 00 E4 00 00 00
+
+CLASS 80
+~~~~~~~~
+
+Proprietary, change file type of EC key from 0x22 to 0x23 ::
+- 80 DA 00 00 00
+
+Proprietary, DES and AES ciphers ::
+- 80 2A xx xx xx
+
+<<<
+[[appendixD]]
+[appendix]
+OsEID token
+-----------
+
+[%autofit]
+image::images/token1.png[OeEID-token]
+
+Features
+~~~~~~~~
+
+* Based on easily accessible microcontroller Atmel xmega128A4U
+* single sided PCB
+* integrated CCID reader and card in one microcontroller
+* no driver needed for windows/linux - emulation of Gemalto reader
+* T0 and T1 protocol, TPDU exchange level
+* RSA speed: 2048 - about 12 second, 1536 about 6 seconds, 1024 about 2seconds
+* ECC speed: secp384r1 about 2.5 seconds, prime256v1 about 1.1 seconds
+* low suspend current
+* two LEDs to signalize reader/card operation
+* optional button to approve sign/decrypt operations
+* full speed USB device with electrostatic discharge protection
+
+Drawbacks
+~~~~~~~~~
+Drawback are similar to OsEID card. But one significant drawback should be
+pointed up:
+
+* USB and CCID code in same microcontroller as card code reduces security of device
+  (due complexity of code, bug in CCID/USB code can compromise card code
+  and lead to getting private keys from card.
+
+
+Components
+~~~~~~~~~~
+
+1x ATMEL ATXMEGA128A4U-AU - microcontroller
+https://www.tme.eu/en/details/atxmega128a4u-au/8-bit-avr-family/microchip-atmel/
+
+1x NXP PRTR5V0U2X.215  - ESD protection
+https://www.tme.eu/en/details/prtr5v0u2x.215/transil-diodes-arrays/nexperia/
+
+1x MCP1700T3302E/TT LTO 3.3V - LDO stabilizer (quiescent current 1.6uA package SOT23)
+https://www.tme.eu/en/details/mcp1700t3302ett/ldo-unregulated-voltage-regulators/microchip-technology/mcp1700t-3302ett/
+
+1x DL1206-4.7  4.7H  - inductor package 1206  0.9ohm 50mA
+https://www.tme.eu/en/details/dl1206-4.7/smd-1206-inductors/ferrocore/dl1206-4r7/
+
+1x  DS1097-BN0  - USB connector
+https://www.tme.eu/en/details/usba-lp/usb-ieee1394-connectors/connfly/ds1097-bn0/
+
+4x SMD capacitors in 1206 package (values from schematics)
+4x SMD resistors  in 1206 package (values from schematics)
+2x SMD LED in 1206 package (red/green or red/blue)
+
+1x Optional button OMRON B3U-3100PM
+https://www.tme.eu/en/details/b3u-3100pm/microswitches-tact/omron/
+
+P2 connector is realized only by pads on PCB. Connector is used to program
+xmega by PDI programmer.  Needle spring probe is used to connect programmer
+to P2 connector.
+
+Programming
+~~~~~~~~~~~
+You need programmer that support PDI programming. One open source/open
+hardware can be found at:
+
+https://www.olimex.com/Products/AVR/Programmers/AVR-ISP-MK2/open-source-hardware
+
+To connect programmer to token, you need connector with spring needles
+(contacts pitch 2mm).  Create a reduction from this connector to your PDI
+programmer.  Use schematics of token and pin description of your programmer,
+to get correct connection.
+
+Example for *avrdude* and *avrispmkII* programmer:
+
+----
+$ avrdude -p x128a4u -c avrispmkII -e -v -U flash:w:download/OsEID_token.hex
+$ avrdude -p x128a4u -c avrispmkII -v -U fuse2:w:0xBF:m
+----
+
+Compiling from sources
+~~~~~~~~~~~~~~~~~~~~~~
+
+Compiling is similar to ATmega128 version:
+
+----
+make -f Makefile.xmega128a4u
+make -f Makefile.xmega128a4u fuses
+make -f Makefile.xmega128a4u program
+----
+
+Overclocking
+~~~~~~~~~~~~
+
+Overclocking is not recommended, but if someone need this, there is a simple
+way to do this. CPU clock is defined in file *targets/xmega128a4u/avr_os.c*
+
+....
+// use PLL - multiply 2MHz RC oscilator to 32MHz
+  OSC.PLLCTRL = OSC_PLLSRC_RC2M_gc | (32 / 2);
+....
+
+Overwrite multiplication factor *(32 / 2)* to requested value (for example
+*(48 / 2)*). Recompile and program your token.
+
+There is lot of information about XMEGA overclocking on internet.  Some
+people run XMEGA over 50MHz and more without any problems.  Some other
+people report problems with EEPROM on overclocked XMEGAs.  If your XMEGA
+burns, this is your problem.  Please, read again disclaimer section in this
+manual.
+
+
+
+Schematics
+~~~~~~~~~~
+
+[%autofit]
+image::images/OsEID_token.sch.svg[SCH0.1, 600]
+
+PCB
+~~~
+
+There exists two version of PCB, one for classical photographic method and
+etching in ferric chloride and second version for CNC routing.  You can
+found OsEID_token.ngc file in download section.  This file is designed for
+*linuxcnc* http://linuxcnc.org.  Please read this file, adjust feed rate,
+check safe Z position, tune spindle commands, tool number etc.  Dimensions
+in file are given in mm, make sure your machine uses metric, not imperial
+units.  Use 0.3 up to 0.5mm milling tool.  PCB is positioned at Z=-1, Z=1 is
+used for traverse.  Run your machine without tool first!
+
+AUTHOR IS NOT RESPONSIBLE FOR ANY DAMAGE OF YOUR MACHINE, TOOL OR ANY ANOTER
+EQUIPMENTS. USE AT YOUR OWN RISK ONLY!
+
+
+[%autofit]
+image::images/OsEID_token-F.Cu.svg[PCB0.1, 600]
+
+[%autofit]
+image::images/OsEID_token-Dwgs.User.svg[PCBcut0.1, 600]
+
+[%autofit]
+image::images/OsEID_token_vis1.png[VIS0.1, 1600]
+
+
+There is a plan for dual side PCB, with SD card reader. Development of this
+model is frozen for now. 
+
+<<<
+[[appendixE]]
+[appendix]
+AVR arithmetics
+---------------
+
+Addition, subtraction and rotate/shift operations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These operations are relatively simple, but to achieve desired speed,
+operations are partially unrolled.  In one unrolled step 32 or 64 bit of
+operands are processed.
+
+Multiplication
+~~~~~~~~~~~~~~
+
+AVR multiplication is based on karatsuba multiplication.  It uses modified
+open source (public domain) implementation from Michael Hutter and Peter
+Schwabe <<AVR_KARATSUBA>>.  256 bit multiplication code is fully revised to
+enable run in interrupt safe way (stack pointer change is protected by CLI
+instruction.) Code is faster, original code took 4797 clock cycles (in
+branched version), new code is about 5% faster and about 6% smaller.  Now
+code need only 4552 clock cycles.  Same revision was made on 192 bit
+multiplication, 2923 clock cycles was reduced to 2860 clock cycles.
+
+Squaring
+~~~~~~~~
+
+192 and 256 bit squaring was written from scratch, it uses similar method as
+described in <<AVR_SQUARING>>.  Code is designed as non branched.  Optimized
+squaring allows us to run 1872 clock cycles for 192 bit squaring and 3093
+clock cycles for 256 bit squaring.  (1966 / 3253 clock cycles
+<<AVR_SQUARING>>).  Squaring code is interrupt safe too.
+
+Modular multiplicative inversion
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Modular multiplicative inversion is based on left shift, similar to
+<<Lorencz>> or more similar to <<Hars>> shifting Euclidean algorithm.  AVR
+microcontroller shift/rotate instruction allow us to rotate 8 bit value only
+by one bit in one instruction cycle.  Original Hars algorithm is not usable
+without modifications (very slow repetitive rotations of V/S by 'f').  The
+goal is to minimize the number of rotations.
+
+In each step of algorithm 'U' and 'V' is aligned (by left rotations) on
+highest non zero bit, then this bit is eliminated by subtraction.  'R' and
+'S' are kept updated similar to 'U' and 'V'.  This step is repeating, but
+align is done by right rotation, until bit size of 'U' is bigger that bit
+size of 'V'.  If this is not true, 'U' and 'V' ('R' and 'S') are swapped, and
+all rotations are returned back (right).  This procedure is repeating until
+bit size of 'U' is zero or one (no inversion exists or inversion found).
+
+The 'U' and 'V' are represented as unsigned number, but there are helper
+variables 'sU' and 'sV' for storing the signs of 'U' and 'V'.  'R' and 'S'
+variables use 64 more bits (this is enough to use 1 more bit to represent
+two's complement number, but arithmetics routines are unrolled and use 8 bytes
+step).
+
+Only C code is available for now, ASM version is planned.  Implementation
+allows us to calculate inversion for even modulus too (this is needed for
+calculation of CRT components).  Code is designed to be small, the speed of
+the algorithm is not significant.  (In versions before 20171231, right shift
+binary Euclidean algorithm was used, but this doesn't allows us to calculate
+CRT components because modulus is always even number.  This code is smaller
+as new code but is slower too.)
+
+<<<
+Modulo operation
+~~~~~~~~~~~~~~~~
+
+Operation uses binary division algorithm.  The rotate/shift operation, as
+mentioned before, is slow on AVR devices, table of 8 rotated modulus values
+are used to save lot of rotate instructions. AVR assembler version of this
+code need 262593 clock cycles for 1024 bit number (575021 clock cycles for
+1536, 1008281 clock cycles for 2048). Code run in  constant time.
+
+Montgomery exponentiation
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For Montgomery exponentiation we need to calculate  'M = msg * r mod n' and
+'x = 1 * r mod n'.  Additionally we need 'n^/^' value calculated from 'r *
+r^-1^ - n * n^/^ = 1'.  Here 'r' is in form 'r = 2^k^'.  The smallest
+possible 'k' is chosen so that 'r > n'.
+
+For calculation of 'n^/^' modified Euclidean algorithm is used, there is
+similar table for 'n' used as in modulo operation.  Code is in AVR
+assembler, calculation need only only 188300 clock cycles for 512 bit
+modulus length (400684 clock cycles for 768 bit, 694988 clock cycles for
+1024).
+
+'M' calculation uses already described  modulo operation.
+
+For calculating 'x = 1 * r mod n' similar code can be used as for
+calculating 'M = msg * r mod n', but we can use special property of 'r' to
+avoid division in this calculation (<<RSA_high_speed>> page 48, chapter 3.8.1.
+claims need of division in this step).
+
+If 'n < 2^k^ < 2 * n',  then '2^k^ mod n = 2^k^ - n'.  Here negated 'n'
+('0 - n') can be used directly as 'x'.
+
+
+ECC operation speed
+~~~~~~~~~~~~~~~~~~~
+
+EC calculation uses projective coordinates.  Lot of code is inspired by NIST
+<<NIST_ECC>> and <<OPENCRYPTOTOKEN>> EC point doubling is optimized for NIST
+curves and for secp256k1 curve.  EC point multiplication is designed as
+constant time, with multiplication window of 4 bits.  Point multiplication
+is blinded.  For each supported curve, a separate fast reduction algorithm
+is used. The secp521r1 curve is supported only on devices with 8KB RAM and
+more (ATmega 1284, xmega128A4U). Firmware for atmega128 microcontroller can
+be recompiled with two bits multiplication window, then secp521r1 is running
+on this device.
+
+.ECDSA operation timing, blinded, in millions of clock cycles
+[width="80%"]
+|======================================
+|           |32 bit blind| not blinded
+|prime192v1 |  15,5      |  13,5
+|prime256v1 |  38,7      |  34,6
+|secp256k1  |  ----      |  47,1
+|secp384r1  |  82,9      |  76.8
+|secp521r1  | 140,9      | 133.8
+|======================================
+
+
+RSA operation speed
+~~~~~~~~~~~~~~~~~~~
+In the next table, there is  RSA calculation timing in clock cycles (normal
+RSA / precalculated P^-1^ mod R and Q^-1^ mod R) in key file, interrupt
+always enabled.  512 bit key is calculated by using 768 bit arithmetics,
+because 512 bit key is not safe today, it makes no sense to speed up this
+calculation by using 512 bit arithmetics.  Likewise, it does not make sense
+to speed up the calculation for small keys if exponentiation window is not
+optimal to key size - optimal window for key size 512/768 is 4 bits, not 5,
+but code uses fixed size defined at compilation time for all key sizes.
+
+<<<
+.RSA private operation timing (in millions of clock cycles)
+[width="80%"]
+
+|=========================================================================
+ 2+|             2+|    no blinding        2+|   precalc, blinding
+   |key size|window| precalc    |no precalc  |            | Bellcore.prot
+ 6+|
+.3+|  512   |   2  |  20,58     |  20,80     |  22,45     |  23,38
+            |   4  |  17,60     |  17,82     |  19,14     |  20,07
+            |   5  |  18,01     |  18,23     |  19,52     |  20,46
+ 6+|
+.3+|  768   |   2  |  30,43     |  30,65     |  32,30     |  33,23
+            |   4  |  25,67     |  25,89     |  27,21     |  28,13
+            |   5  |  25,54     |  25,76     |  27,34     |  28,29
+ 6+|
+.3+|  1024  |   2  |  63,36     |  63,73     |  66,30     |  67,75
+            |   4  |  53,14     |  53,51     |  55,56     |  57,01
+            |   5  |  52,56     |  52,93     |  54,93     |  56,41
+ 6+|
+.3+|  1536  |   2  | 199,4      | 200,2      | 205,6      | 208,7
+            |   4  | 165,8      | 166,6      | 170,9      | 174,0
+            |   5  | 162,0      | 162,8      | 167,0      | 170,1
+ 6+|
+.3+|  2048  |   2  | 410,9      | 412,3      | 420,5      | 425,3
+            |   4  | 340,9      | 342,3      | 348,8      | 353,6
+            |   5  | 331,1      | 332,5      | 340,4      | 345,2
+|=========================================================================
+
+
+
+To reach this, lot of  assembler routines are used, especially Montgomery
+algo and function like mul256 mod 2^256^ (truncated multiplication).  To get
+best possible performance, the 384, 512, 768 and 1024 bit squaring and
+multiplication are unrolled as possible, with respect to flash memory size
+in AVR.
+
+Code size: about 20 000 lines in AVR assembler, about 10000 lines in C. AVR
+flash in ATmega128 is occupied by ~ 63kB code, 64Kb is used as data space for
+card filesystem.
+
+
+<<<
+[[appendixF]]
+[appendix]
+Cryptographic algorithm security
+--------------------------------
+
+RSA security
+~~~~~~~~~~~~
+
+OsEID implements several protections to generally known attacks to RSA
+cryptosystem. There exists several types of side channel attacks:
+
+Simple Power Analysis (SPA) / timing attack
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+To prevent this type of attack, OsEID uses:
+
+ * constant time calculation (time does not depend on key or message value)
+ * Exponentiation uses fixed window size, window is not sliding, zeros 
+   are not skipped. 
+
+_RSA implementation in OsEID card is resistant to SPA / timing attack._
+
+Differential Power Analysis (DPA)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+To prevent this type of attack, OsEID uses:
+
+ * card uses exponent blinding
+
+In default settings 24 bits random value is used to blind private exponent
+parts (dP and dQ).  Exponent blinding is a big barrier for lot of advanced
+techniques that allow use of side channel attack to expose private keys.
+
+ * Card does not support message blinding <<RSA_MSG_BLINDING>>
+ 
+Due constant time of operation (no variable length sliding window), it is
+not possible to use known attacks which could work due to the absence of a
+message blinding.
+
+ * Card does not support modulus blinding
+
+Modular reduction is needed to calculate Montgomery product like `1 * r mod
+n` and `M * r mod n`.  In both cases, `n` is secret value P or Q.  Due CRT
+calculation there are operations like `M mod P` and `M mod Q`.  Modular
+reduction is running in constant time, but is not blinded.  There is a way
+to extract power fingerprint from this operation.  It is necessary to run
+lot of power traces to get reliable power fingerprint from the same message. 
+Several special formated messages must be traced to get some information
+about P/Q.  Because number of analyzed messages run over 30 000, this type
+of attack is not realistic for now.  More about this attack to this function
+can be found in <<DPA_on_modular_reduction>>.
+
+Because missing message blinding, there is another point that allow extract
+some information from card.  CRT recombination (Garner`s algorithm) 
+produce result, that need conditional addition.  This addition is always
+realized, but power trace can be used to detect which of two possible
+results is used as return value.  It's not easy to detect this step in one
+power trace, but the correlation of a very large number of power traces may
+leak some information about this step.
+
+Montgomery product needs `n'` from equation `r* r^-1 - n * n' = 1`.  This
+calculation is running in constant time, but is not blinded.  There is a way
+to use DPA for extracting some information about P and Q from card.  In
+default firmware configuration, this calculation is running only in key
+upload operation, therefore the security of this algorithm is for now
+irrelevant.
+
+_RSA implementation in OsEID card is (reasonably) resistant to DPA attack_
+
+Algorithm problem
+^^^^^^^^^^^^^^^^^
+RSA implementation uses <<CRT>> (China Remainder Theorem).  <<SINGLE_ERROR>>
+in CRT implementation can expose private key.  This is also known as
+<<BELLCORE>> attack. To prevent this type of attack, OsEID uses:
+
+  * result of exponentiation is checked by public exponent.
+
+This extends the calculation time by approximately 2% for 2048 bits to 5%
+for 512 bits RSA.  CRT recombination is not protected, but injecting fault
+precisely into this point is very difficult.  Implementing full check
+(exponenting signature by public exponent) is problematic due RAM and FLASH
+size limitation.  There is not protection against wrong loaded P or Q from
+key storage!  There is about 20 msec interval for 1024 bit key for
+injecting error in message mod P/Q calculation and about 75 msec if 2048
+bit key is used. Intervals for OsEID token are about 2.5x shorter.
+
+There is lot of methods to inject error into microcontroller calculation,
+fotons from laser/flash light can be used or some particle from radioactive
+isotope or electrostatic discharge etc.  Is very difficult to hit exact time
+and exact part of microcontroller (for example do not hit program counter but
+hit only some of registers or ALU, exact part of RAM etc.), lot of attempt
+is needed and lot of luck is needed.  Usually any of attempts ends with
+halted microcontroller or in worst case with total damage of
+microcontroller.
+
+_RSA implementation in OsEID card is (reasonably) resistant to Bellcore attack_
+
+RSA key generation
+^^^^^^^^^^^^^^^^^^
+OsEID supports RSA key generation.  This operation is really slow, but is
+not subject to <<ROCA>>.  There is really random prime selection algorithm
+used for RSA key generation.
+
+Number from random generator is modified - highest  and lowest bit are set
+to 1 and this number is then tested by simple sieve - division by 1st 130
+primes - and then Miller-Rabin test is used as primality test.  There is no
+hardware divisor in AVR devices, GCD is used to check all 130 primes in one
+step (product of 1st 130 primes can be fitted into 1024 bit value, this
+value is one operand in GCD, second operand is tested number).  When both
+primes are found, they are tested if they are not too close to each other. 
+Then modulus is calculated, and tested if modulus is not too short.  Finally
+RSA components are calculated.  If some of test fails, both primes are
+discarded and two new primes are searched.  This handling prevents
+unnecessary bias of prime/modulus value.  The potential attack to
+sieve/primality test is then even more complicated too.
+
+Keep in mind, if you generate a key, operation is not blinded.
+Exponentiation in Miller-Rabin test, squaring, and CRT components calculation
+(3x modular multiplicative inverse) is not blinded too.  SPA, DPA or IPA can
+be used to extract some informations about generated key.  Therefore it is
+recommended to generate key only in secure environment, if key security is
+important.
+
+Generation of 1024 bit key take in average about 4 minutes, but in worst case
+over 30 minutes. When generating a 2048 bit key you have to be very patient.
+Count with time 1 to 3 hours. (One Miller-Rabin test run in 13 second - there
+is really no way to run this faster with only one 8 bit multiplier in AVR)
+
+_RSA key generation is not resistant to side channels attack_
+
+Please read more about <<RSA_attack_resistance>>, OsEID is hobby card, you
+can not expect perfect resistance to all attacks.
+
+
+ECC security
+~~~~~~~~~~~~
+
+Briefly, all implemented curves are not secure enough, more info at
+<<SAFECURVES>>.  Apart from this information, implemented elliptic curves
+are widely used on the Internet.  If you have any doubts about the safety of
+NIST curves, please search internet about rigidity of NIST curves.  Some
+information can be found here: <<NIST_RIGGED>>
+
+To prevent SPA, EC calculation is running in constant time (but not perfect
+constant time, for example, modular multiplicative inversion run time
+depends on input numbers).  OsEID implementation also uses blinding in point
+multiplication.  Random 32 bit value is used to blind private key in point
+multiplication.  SPA attack is not very effective.  Still DPA/IPA can be
+used to extract some of sensitive information from other functions.  It is,
+however, much more problematic as the attack on not blinded point
+multiplication.
+
+
+
+_Card firmware implementation may also have some security bugs.  You have
+been warned._
+
+(Do you know about these shortcomings in the world of commercial cards?)
+
+<<<
+[[appendixG]]
+[appendix]
+Literature
+----------
+
+sorry, no paper literature, only internet links
+
+Card/ISO7816 related literature
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- https://en.wikipedia.org/wiki/ISO/IEC_7816
+- http://www.cardwerk.com/smartcards/smartcard_standard_ISO7816.aspx
+
+AVR
+~~~
+- http://www.atmel.com/images/Atmel-0856-AVR-Instruction-Set-Manual.pdf
+
+atmega128
+^^^^^^^^^
+- http://www.microchip.com/wwwproducts/ATmega128
+- http://ww1.microchip.com/downloads/en/DeviceDoc/doc2467.pdf
+- http://www.atmel.com/Images/Atmel-8151-8-bit-AVR-ATmega128A_Datasheet.pdf
+
+atxmega128a4u
+^^^^^^^^^^^^^
+- http://www.microchip.com/wwwproducts/en/ATxmega128A4U
+- http://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-8331-8-and-16-bit-AVR-Microcontroller-XMEGA-AU_Manual.pdf
+- http://ww1.microchip.com/downloads/en/DeviceDoc/Atmel-8387-8-and16-bit-AVR-Microcontroller-XMEGA-A4U_Datasheet.pdf
+
+Mathematics implementations in AVR
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- https://cryptojedi.org/papers/avrmul-20140715.pdf
+- [[[AVR_KARATSUBA]]] https://eprint.iacr.org/2014/592.pdf
+- [[[AVR_SQUARING]]] https://eprint.iacr.org/2014/817.pdf
+- http://mhutter.org/research/avr/
+
+Modular Multiplicative Inversion
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- [[[Hars]]] https://pdfs.semanticscholar.org/2e6e/fa126c2f1e719489df30b22c4ec42a7212c8.pdf
+- [[[Lorencz]]] https://link.springer.com/content/pdf/10.1007%2F3-540-36400-5_6.pdf
+
+ECC
+~~~
+
+- http://www.johannes-bauer.com/compsci/ecc/
+- [[[NIST_ECC]]] https://apps.nsa.gov/iaarchive/library/ia-guidance/ia-solutions-for-classified/algorithm-guidance/mathematical-routines-for-the-nist-prime-elliptic-curves.cfm
+- [[[SAFECURVES]]] https://safecurves.cr.yp.to/
+- [[[NIST_RIGGED]]] https://crypto.stackexchange.com/questions/12898/is-there-a-feasible-method-by-which-nist-ecc-curves-over-prime-fields-could-be-i
+
+RSA
+~~~
+
+- [[[CRT]]] http://www.di-mgt.com.au/crt_rsa.html
+- http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.538.4909&rep=rep1&type=pdf
+- [[[RSA_high_speed]]] ftp://ftp.rsasecurity.com/pub/pdfs/tr201.pdf
+- https://crypto.stanford.edu/~dabo/papers/RSA-survey.pdf
+- https://www.nics.uma.es/pub/seciot10/files/pdf/liu_seciot10_paper.pdf
+- [[[RSA_MSG_BLINDING]]] https://eprint.iacr.org/2014/869.pdf
+- https://www.cryptoexperts.com/ches2015/slides/day2/session1/talk2.pdf
+- [[[ROCA]]] https://github.com/crocs-muni/roca
+- [[[SINGLE_ERROR]]] https://www.cryptologie.net/article/371/fault-attacks-on-rsas-signatures/
+- [[[BELLCORE]]] https://eprint.iacr.org/2012/553.pdf
+- [[[DPA_on_modular_reduction]]] https://link.springer.com/content/pdf/10.1007/3-540-36400-5_18.pdf
+- [[[RSA_attack_resistance]]] https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Zertifizierung/Interpretationen/AIS_46_BSI_guidelines_SCA_RSA_V1_0_e_pdf.pdf
+
+RNG
+~~~
+
+- http://www.chronox.de/lrng/doc/lrng.pdf
+- https://csrc.nist.gov/projects/random-bit-generation/documentation-and-software
+- http://www.phy.duke.edu/~rgb/General/dieharder.php
+- http://www.fourmilab.ch/random/
+
+
+USB related literature/software
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- http://www.beyondlogic.org/usbnutshell/usb1.shtml
+- http://www.fourwalledcubicle.com/LUFA.php
+- https://www.obdev.at/products/vusb/index.html
+
+CCID
+~~~~
+
+- https://usb.org.10-1-108-210.causewaynow.com/sites/default/files/DWG_Smart-Card_CCID_Rev110.pdf
+- https://github.com/LudovicRousseau/CCID
+
+MyEID
+~~~~~
+- [[[MyEID]]] https://webservices.aventra.fi/wordpress/wp-content/downloads/MyEID_PKI_JavaCard_Applet_Reference_Manual_2-1-4.pdf
+
+Related projects
+~~~~~~~~~~~~~~~~
+
+- [[[OpenSC]]] https://github.com/OpenSC/OpenSC/wiki
+- [[[OPENCRYPTOTOKEN]]] https://github.com/sa2ajj/opencryptotoken/tree/master/opencryptotoken
+- http://wiki.seeed.cc/FST-01/
+- http://www.fsij.org/category/gnuk.html
+- https://trezor.io/
+
+pkcs11
+~~~~~~
+- https://github.com/Pkcs11Interop/PKCS11-SPECS/tree/master/v2.20
+
+PIV
+~~~
+- http://csrc.nist.gov/groups/SNS/piv/index.html
+
+minidriver
+~~~~~~~~~~
+- https://msdn.microsoft.com/en-us/library/windows/hardware/dn631754(v=vs.85).aspx
+- http://download.microsoft.com/download/7/E/7/7E7662CF-CBEA-470B-A97E-CE7CE0D98DC2/sc-minidriver_specs_V7.docx
+
+Licence
+~~~~~~~
+- [[[GPL]]] https://www.gnu.org/licenses/licenses.en.html
+
+<<<
+[[appendixH]]
+[appendix]
+Opensc patches
+--------------
+
+Opensc 0.17, 018 and 0.19
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Opensc 0.17, 0.18 and 0.19 can detect all features of OsEID except of
+support for secp256k1.  To use myeid driver for OsEID card you need to
+configure opensc package only.  Please insert OsEID ATR into *opensc.conf*
+file.
+
+secp256k1 curve support
+^^^^^^^^^^^^^^^^^^^^^^^
+
+If you need secp256k1 support, minimal patch is needed.  Please read all
+comments about secp256k1 patch for opensc 0.16 (below).
+
+For Opensc 0.17, 0.18 and 0.19 following patch is suggested:
+
+............................................................................................................
+--- opensc-0.17rc1/src/libopensc/card-myeid.c.orig     2017-06-13 13:23:53.000000000 +0200
++++ opensc-0.17rc1-patched/src/libopensc/card-myeid.c  2017-06-20 08:58:43.650806261 +0200
+@@ -79,6 +79,7 @@
+        "3B:89:80:01:09:38:33:B1:4D:79:45:49:44:4C",
+        "3B:F5:96:00:00:80:31:FE:45:4D:79:45:49:44:15", /* Infineon's chip */
+        "3B:F5:96:00:00:81:31:FE:45:4D:79:45:49:44:14",
++       "3B:F5:18:00:02:10:80:4F:73:45:49:44",          /* OsEID */
++       "3B:F5:18:00:02:80:01:4F:73:45:49:44:1A",       /* OsEID token*/
+        NULL
+ };
+
+@@ -113,6 +114,7 @@
+        {"secp384r1", {{1, 3, 132, 0, 34, -1}},         384},
+        {"secp521r1", {{1, 3, 132, 0, 35, -1}},         521},
+        {NULL, {{-1}}, 0},
++       {"secp256k1", {{1, 3, 132, 0, 10, -1}},         256},   /* OsEID */
+ };
+
+ static int myeid_get_info(struct sc_card *card, u8 *rbuf, size_t buflen);
+@@ -227,6 +229,9 @@
+                if (card_caps.max_aes_key_length >= 256)
+                        _sc_card_add_symmetric_alg(card, SC_ALGORITHM_AES, 256, flags);
+        }
++        /* OsEID support for secp256k1 */
++        if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 5, 5))
++               _sc_card_add_ec_alg(card,  ec_curves[5].size, flags, ext_flags, &ec_curves[5].curve_oid);
++        if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 6, 5))
++               _sc_card_add_ec_alg(card,  ec_curves[5].size, flags, ext_flags, &ec_curves[5].curve_oid);
+
+        /* State that we have an RNG */
+        card->caps |= SC_CARD_CAP_RNG | SC_CARD_CAP_ISO7816_PIN_INFO;
+............................................................................................................
+
+
+Opensc 0.15 and 0.16
+~~~~~~~~~~~~~~~~~~~~
+
+ECDH operation
+^^^^^^^^^^^^^^
+
+There is not working support for ECDH in opensc version below 0.17. Please
+use opensc 0.17 or newer if you need ECDH operation.
+
+secp384r1 curve support
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Card support for secp384r1 curve can be enabled in opensc. Following patch
+is suggested:
+............................................................................................................
+--- opensc-0.16.0/src/libopensc/card-myeid.c    2016-05-31 09:36:09.000000000 +0200
++++ opensc-0.16.0.patched/src/libopensc/card-myeid.c    2016-10-02 21:33:24.348532994 +0200
+@@ -69,6 +69,7 @@
+        "3B:89:80:01:09:38:33:B1:4D:79:45:49:44:4C",
+        "3B:F5:96:00:00:80:31:FE:45:4D:79:45:49:44:15", /* Infineon's chip */
+        "3B:F5:96:00:00:81:31:FE:45:4D:79:45:49:44:14",
++       "3B:F5:18:00:02:10:80:4F:73:45:49:44",          /* OsEID */
+        NULL
+ };
+ 
+@@ -188,6 +189,10 @@
+                        _sc_card_add_ec_alg(card,  ec_curves[i].size, flags,
+ext_flags, &ec_curves[i].curve_oid);
+                }
+        }
++       /* OsEID secp384r1 */
++        if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 5, 5)) {
++               _sc_card_add_ec_alg(card,  ec_curves[2].size, flags, ext_flags, &ec_curves[2].curve_oid);
++        }
+ 
+        /* State that we have an RNG */
+        card->caps |= SC_CARD_CAP_RNG | SC_CARD_CAP_ISO7816_PIN_INFO;
+............................................................................................................
+
+
+Experimental support for secp256k1
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+There is no simple way to decide what curve is used (secp256k1/secp256r1) in
+card firmware/opensc.  Original MyEID card does not support curve OID
+specification in key upload/key generate functions.  It is not simple to design
+a reasonable method for specifying curve OID, which does not affect
+compatibility with newer versions of MyEID card. For now, filetype 0x23 is used
+to mark secp256k1 internal key file.
+
+For expert users, who want to try secp256k1 curve, following patch for
+opensc is suggested:
+
+.............................................................................
+--- opensc-0.16.0/src/libopensc/card-myeid.c    2016-05-31 09:36:09.000000000 +0200
++++ opensc-0.16.0-patched/src/libopensc/card-myeid.c    2016-12-13 13:16:16.461312282 +0100
+@@ -69,6 +69,7 @@
+        "3B:89:80:01:09:38:33:B1:4D:79:45:49:44:4C",
+        "3B:F5:96:00:00:80:31:FE:45:4D:79:45:49:44:15", /* Infineon's chip */
+        "3B:F5:96:00:00:81:31:FE:45:4D:79:45:49:44:14",
++       "3B:F5:18:00:02:10:80:4F:73:45:49:44",          /* OsEID */
+        NULL
+ };
+
+@@ -94,6 +95,7 @@
+        {"secp384r1", {{1, 3, 132, 0, 34, -1}},         384},
+        {"secp521r1", {{1, 3, 132, 0, 35, -1}},         521},
+        {NULL, {{-1}}, 0},
++       {"secp256k1", {{1, 3, 132, 0, 10, -1}},         256},   /* OsEID */
+ };
+
+ static int myeid_get_info(struct sc_card *card, u8 *rbuf, size_t buflen);
+@@ -188,6 +190,11 @@
+                        _sc_card_add_ec_alg(card,  ec_curves[i].size, flags, ext_flags, &ec_curves[i].curve_oid);
+                }
+        }
++        /* OsEID secp384r1, secp256k1 */
++         if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 5, 5)) {
++                _sc_card_add_ec_alg(card,  ec_curves[2].size, flags, ext_flags, &ec_curves[2].curve_oid);
++                _sc_card_add_ec_alg(card,  ec_curves[5].size, flags, ext_flags, &ec_curves[5].curve_oid);
++         }
+
+        /* State that we have an RNG */
+        card->caps |= SC_CARD_CAP_RNG | SC_CARD_CAP_ISO7816_PIN_INFO;
+
+
+
+............................................................................
+
+After uploading secp256k1 key, you need to determine key file
+path (use pkcs15-tool -D command).  Then change type of this file.  For
+this purpose proprietary APDU can be used.  This proprietary APDU is a
+special variant of PUT DATA command, but with CLA code 0x80:
+
+0x80 0xDA 0x00 0x00 0x00
+
+
+Before use of this APDU, SELECT and VERIFY command must be issued on key
+file. (Key file path can be determined by pkcs15-tool -D command)
+
+Please read OsEID-tool script for example usage.
+
+Card can generate secp256k1 key, but this needs more patches in opensc
+(before key is generated, key file must be created with 0x23 value in tag
+0x82).  Unfortunately, there is no curve type information available in this
+part of opensc (ver 0.16.0) code and there is no simple way to determine
+what curve is to be used (secp256k1/prime256v1).
+
+To test key generation, there is a simple way - recompile opensc to always
+generate 0x23 value in tag 0x82 for EC keys.
+
+
+............................................................................
+--- opensc-0.16.0/src/libopensc/cardctl.h       2016-05-31 09:36:09.000000000 +0200
++++ opensc-0.16.0-patched/src/libopensc/cardctl.h       2016-12-13 13:19:23.461149289 +0100
+@@ -856,7 +856,7 @@
+  */
+        enum SC_CARDCTL_MYEID_KEY_TYPE {
+                SC_CARDCTL_MYEID_KEY_RSA = 0x11,
+-               SC_CARDCTL_MYEID_KEY_EC  = 0x22
++               SC_CARDCTL_MYEID_KEY_EC  = 0x23
+        };
+
+        struct sc_cardctl_myeid_data_obj {
+............................................................................
+
+After generating secp256k1 key, recompile opencs with original
+libopensc/cardctl.h, and load/generate rest of normal (NIST) EC keys, RSA
+keys etc.
+
+<<<
+[[appendixI]]
+[appendix]
+Random generator implementation
+-------------------------------
+
+Both  implementations (ATmega128  and xmega) use similar and very simple
+random number generator.  There is no seed, no hash function, no reseed
+function.
+
+Xmega uses 12 bit ADC to measure internal temperature sensor (to internal
+band gap reference).  Only bit 0 from ADC conversion is used as entropy
+value.
+
+Generator tests by *ent* software from http://www.fourmilab.ch/random/ (This
+tests are made with small data blocks, random generator quality is here well
+demonstrated - RSA key generation and ECC cryptography uses small data
+blocks)
+
+............................................................................
+File parsed as the bit stream:
+==============================
+Entropy = 1.000000 bits per bit.
+
+Optimum compression would reduce the size
+of this 83264 bit file by 0 percent.
+
+Chi square distribution for 83264 samples is 0.04, and randomly
+would exceed this value 75.00 percent of the times.
+
+Arithmetic mean value of data bits is 0.5003 (0.5 = random).
+Monte Carlo value for Pi is 3.155709343 (error 0.45 percent).
+Serial correlation coefficient is -0.000145 (totally uncorrelated = 0.0).
+
+File parsed as the byte stream:
+===============================
+Entropy = 7.981877 bits per byte.
+
+Optimum compression would reduce the size
+of this 10408 byte file by 0 percent.
+
+Chi square distribution for 10408 samples is 258.70, and randomly
+would exceed this value 50.00 percent of the times.
+
+Arithmetic mean value of data bytes is 127.4115 (127.5 = random).
+Monte Carlo value for Pi is 3.155709343 (error 0.45 percent).
+Serial correlation coefficient is 0.001352 (totally uncorrelated = 0.0).
+............................................................................
+
+The result is excellent for such a simple generator.
+
+
+Unfortunately, similar result is not available on atmega with 10 bit ADC.
+There is no temperature sensor.  ADC is set to measure input voltage (to
+internal band gap reference).  Only bit 0 from ADC conversion is used as
+entropy value.
+
+Result of this RNG is not good.  Random generator is strongly affected by
+input voltage characteristics (this depends on card reader, USB host,
+cables, external interference etc..).  For example, in some environments
+random generated data are significantly biased - arithmetic mean value over
+160 or higher, Monte Carlo value for PI below 0.1, Chi square never exceed
+0.01 percent, etc...  In some other environment RNG data are relatively good,
+but still Chi square is wrong.
+
+To get better result, DES cipher is used on 16 bytes from ADC random data (8
+bytes data, 8 bytes key) and resulting 8 bytes from DES cipher xored with
+key are used as return value from RNG.
+
+<<<
+
+In next tables results for OsEID token/card and MyEID card can be compared.
+(Beware, in this table, result for atmega generator without DES is one of the
+good ones /one of the best, but still with very wrong chi square value)
+
+Small data set 10408 bytes:
+
+[cols="3,1,1,1,1", width="80%",options="header"]
+|==========================================================================
+|                         |xmega      | atmega    | atmega+DES |MyEID 3.3.3
+|Entropy per bit          |1.000000   |0.999766   | 0.999993   | 0.999997
+|Entropy per byte         |7.981877   |7.781246   | 7.982590   | 7.982021
+|Chi square (bit stream)  |75.00      | 0.01      | 50.00      | 54.64
+|Chi square (byte stream) |50.00      | 0.01      | 50.00      | 38.19
+|Arithmetic mean (bit)    |0.5003     |0.5090     | 0.5016     | 0.5010
+|Arithmetic mean (byte)   |127.4115   |123.8805   | 128.1469   | 127.4539
+|Serial correlation (bit) |-0.000145  |0.111164   | 0.004077   |0.000332
+|Serial correlation (byte)|0.001352   |0.046713   | -0.009899  |0.005033
+|Monte Carlo value for Pi |3.155709343|3.158016148| 3.106751298|3.111367571
+|==========================================================================
+
+
+Big data set (about 100 MBytes):
+
+[width="80%",options="header"]
+|==================================================
+|                         |xmega      | atmega+DES
+|Entropy per bit          |1.000000   |1.000000
+|Entropy per byte         |7.999998   |7.999998
+|Chi square (bit stream)  |41.54      | 78.08
+|Chi square (byte stream) |41.47      | 23.43
+|Arithmetic mean (bit)    |0.5000     | 0.5000
+|Arithmetic mean (byte)   |127.5091   | 127.4966
+|Serial correlation (bit) |0.000010   | 0.000017
+|Serial correlation (byte)|-0.000078  | -0.000194
+|Monte Carlo value for Pi |3.140210247| 3.141706616
+|==================================================
+
+
+More tests with big data sets (100MB) were made by *dieharder* software
+(http://www.phy.duke.edu/~rgb/General/dieharder.php).
+
+(In doc directory you can found output from *dieharder* software for card and token
+RNG.)
+
+Random generator speed
+~~~~~~~~~~~~~~~~~~~~~~
+Speed measurement is only approximate, speed depend on card reader, 3.8MHz reader was used.
+USB utilization  also have an impact on speed tests.
+
+[cols="3,1,1,1,1",width="80%",options="header"]
+|===============================================================================
+|                  | xmega        | atmega       | atmega+DES   | MyEID 3.3.3
+|240 bytes in APDU |4661 bytes/sec|1346 bytes/sec| 640 bytes/sec| 2670 bytes/sec
+| 32 bytes in APDU | 750 bytes/sec| 340 bytes/sec| 225 bytes/sec|  340 bytes/sec
+|===============================================================================
+
+Note: OsEID card uses T0 protocol, MyEID and OsEID token use T1 protocol.
+
+<<<
+[[appendixJ]]
+[appendix]
+Card simulator
+--------------
+
+All card functions can be tested without any hardware.  Card simulation is
+then running as one task in OS.  Simulation is attached to pseudoterminal.
+This pseudoterminal is then connected to simulated card reader, and this
+reader is attached to *pcscd*.  Simulation creates one file *card_mem*,
+where it maintains the FLASH and EEPROM memory of card.
+
+For now, this simulator must run with *root privileges*.  *Consider this before
+running* this on your computer.  You need *socat* package to run simulation.
+This simulation is tested on DEBIAN 9.1 system.
+
+Steps to use:
+....
+1. Unpack OsEID tarball
+2. cd src
+3. make -f Makefile.console
+4. su / sudo to get root
+5. systemctl stop pcscd.socket
+6. systemctl stop pcscd.service
+7. build/console/run_pcscd.sh
+8. switch to another window/console
+9. pcsc_scan
+....
+
+If card is available, You can use *OsEID-tool* to test functionality of card
+(OsEID-tool is in tool directory included in tarball)
+
+....
+./OsEID-tool INIT
+./OsEID-tool RSA-CREATE-KEYS
+./OsEID-tool RSA-UPLOAD-KEYS
+pkcs15-tool -D
+./OsEID-tool RSA-DECRYPT-TEST
+....
+
+*WARNING!* all other readers in system are available to *pcscd* too, please
+disconnect all other readers  or remove another cards from reader to
+prevent unwanted modification of your real card.
+
+
+Better (but slower) simulation uses *simulavr*. This allow us to test card
+functionality inclusive ASM routines for AVR, measuring speed of procedures
+and debugging card function in native AVR instructions. Please read
+*targets/simulavr/Readme* from OsEID tarball. 
+
+
+<<<
+[[appendixK]]
+[appendix]
+DES and AES implementation
+--------------------------
+
+Both ciphers are optimized to minimal flash size.  Of course, the code is
+written in assembler, but C version is available to.  Both ciphers are
+optimized to run on 8 bit AVR microcontroller.  Xmega microcontroller
+already contains DES instruction, but due absence of this instruction in
+atmega, both microcontrollers uses same code (without special DES
+instructions).  Xmega contains accelerated engine for 128 bit AES.  This is
+not used for the same reason - atmega does not contain this accelerator. 
+Limiting AES to 128 bit is another reason to do not use xmega accelerator.
+
+Both ciphers are designed to run in constant time (time does not depend on
+message or key bits).  Timing attack is protected, but differential power
+attack is not protected.  (similar problem is in XMEGA accelerated engine:
+https://www.cryptolux.org/images/7/7b/Xmegarump.pdf,
+https://wiki.newae.com/Tutorial_A6_Replication_of_Ilya_Kizhvatov%27s_XMEGA%C2%AE_Attack
+or location dependent EM leakage, please search internet for this keywords).
+
+
+DES
+~~~
+
+Code is modified, does not use standard permutations as described by DES
+original (NIST) description.
+
+Message expansion (E), Permuted choice 1 (PC-1) and Permuted choice 2 (PC-2)
+are merged into one 56 bit long message expansion.  This expanded message is
+directly XORed by plain key.  S-box addresses are selected from result of
+XOR operation by table.  S-boxes are merged to one table (256 bytes).
+
+Initial and inverse initial permutation is done by procedures.  Key
+expansion is in procedure too.  Only the permutation (P) is unchanged.
+
+Code is really small, 800 bytes for DES or 828 bytes if 3DES is needed.
+Speed about 50 000 clock cycles for DES decipher or encipher.
+
+More informations can be found in C and ASM sources.
+
+AES
+~~~
+
+AES supports key sizes 128/192/256 bits.  AES code is extra small, below 600
+bytes.  S-BOX is calculated into RAM.  About 800 bytes of RAM is needed (for
+S-box, inverse S-box and expanded key).  Code is compact, does not use
+context and therefore the S-box must be calculated repeatedly for every run
+of AES.  Speed is sufficient, about 40 000 clock cycles for one AES encipher
+or decipher with 256 bit key.
+
+<<<
+[[appendixL]]
+[appendix]
+RSA calculation in 'genius'
+---------------------------
+
+This part of doc is only for explanation how RSA cryptosystem works.
+Especially, here is explained how message and exponent blinding can be
+implemented and how can single error in CRT calculation expose P and Q. 
+
+To run calculation from this appendix, please use _genius_  calculator
+available from http://www.jirka.org/genius.html.  Code from this appendix
+can be pasted directly into _genius_ console. To track calculation, do
+not paste whole code at once, code is divided by lines with asteriskses, 
+paste only partial code and check results in _genius_ console.
+
+
+
+....
+# This is part of OsEID project documentation,
+# https://sourceforge.net/projects/oseid/
+.
+#
+#
+# key calculation: choice prime numbers p,q, calculate totient
+# ------------------------------------------------------------
+.
+p = 251
+q = 337
+totient = (p - 1) * (q - 1)
+
+# choice public exponent
+# most commonly used public exponent is 65537
+# --------------------------------------------------------
+.
+pub_exp = 65537
+
+# calculate private exponent
+# --------------------------
+.
+
+priv_exp = pub_exp ^ -1 mod totient
+# calculate n
+n = p * q
+
+# calculate  CRT components
+# ------------------------
+.
+dP = (pub_exp^-1) mod (p-1)
+dQ = (pub_exp^-1) mod (q-1)
+qInv = q ^ -1  mod p
+
+# encipher and decipher
+# ---------------------
+.
+msg = 41444
+ciphertext = msg ^ pub_exp mod n
+plaintext = ciphertext ^ priv_exp mod n
+
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# decipher with message blinding
+# ------------------------------
+.
+blind_msg_rnd = 54       # random number
+
+blind_cipher_msg_rnd = blind_msg_rnd ^ pub_exp mod n
+blind_cipher         = blind_cipher_msg_rnd * ciphertext mod n
+blind_plain          = blind_cipher ^ priv_exp mod n
+
+blind_msg_rnd_inv = blind_msg_rnd ^ -1 mod n
+plaintext         = blind_msg_rnd_inv * blind_plain mod n
+
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# decipher with exponent blinding
+# -------------------------------
+.
+blind_exp_rnd = 56      # random number
+
+blind_exp = blind_exp_rnd * totient + priv_exp
+plaintext = ciphertext ^ blind_exp mod n
+
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# CRT decipher
+# ------------
+.
+cipher_m1 =  ciphertext mod p
+cipher_m2 =  ciphertext mod q
+
+m1 = cipher_m1 ^ dP mod p
+m2 = cipher_m2 ^ dQ mod q
+h = qInv * (m1 - m2) mod p
+plaintext = m2 + h * q
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# CRT single error explanation:
+# -----------------------------
+# calculation of m2 fail:
+.
+m2 = 123
+h = qInv * (m1 - m2) mod p
+plaintext = m2 + h * q
+# failed plaintext is used to reconstruct 'p'
+# -------------------------------------------
+.
+reconstructed_p = gcd (plaintext - msg, n)
+reconstructed_q = n / rp
+#
+# if calculation is correct, 'p' = 251 and 'q' = 337
+# message blinding or exponent blinding does not eliminate single error!
+# *****************************************************************
+.
+# CRT decipher with message blinding
+# ----------------------------------
+cipher_m1 =  ciphertext mod p
+cipher_m2 =  ciphertext mod q
+
+blind_msg_rnd = 54     #random number
+
+blind_msg_p = blind_msg_rnd ^ pub_exp mod p
+blind_cipher_p = blind_msg_p * cipher_m1
+blind_cipher_m1 = blind_cipher_p mod p
+
+blind_msg_q = blind_msg_rnd ^ pub_exp mod q
+blind_cipher_q = blind_msg_q * cipher_m2
+blind_cipher_m2 = blind_cipher_q mod q
+
+blind_m1 = blind_cipher_m1 ^ dP mod p
+blind_m2 = blind_cipher_m2 ^ dQ mod q
+
+blind_inv_msg = blind_msg_rnd ^ -1 mod n
+
+blind_inv_msg_p = blind_inv_msg mod p
+m1 = blind_m1 * blind_inv_msg_p mod p
+
+blind_inv_msg_q = blind_inv_msg mod q
+m2 = blind_m2 * blind_inv_msg mod q
+
+h = qInv * (m1 - m2) mod p
+plaintext = m2 + h * q
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# similar, but unblinding after recombination:
+.
+h = qInv * (blind_m1 - blind_m2) mod p
+plaintext_blindend = blind_m2 + h * q
+plaintext = plaintext_blindend * blind_inv_msg mod n
+
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+
+# CRT decipher with message and exponent blinding
+# -----------------------------------------------
+cipher_m1 =  ciphertext mod p
+cipher_m2 =  ciphertext mod q
+
+blind_msg_rnd = 54
+
+blind_msg_p = blind_msg_rnd ^ pub_exp mod p
+blind_cipher_p = blind_msg_p * cipher_m1
+blind_cipher_m1 = blind_cipher_p mod p
+
+blind_msg_q = blind_msg_rnd ^ pub_exp mod q
+blind_cipher_q = blind_msg_q * cipher_m2
+blind_cipher_m2 = blind_cipher_q mod q
+
+blind_dP_rnd = 34
+blind_dQ_rnd = 89
+
+blind_dP = dP + blind_dP_rnd * (p -1)
+blind_dQ = dQ + blind_dQ_rnd * (q -1)
+
+blind_m1 = blind_cipher_m1 ^ blind_dP mod p
+blind_m2 = blind_cipher_m2 ^ blind_dQ mod q
+
+blind_inv_msg = blind_msg_rnd ^ -1 mod n
+
+blind_inv_msg_p = blind_inv_msg mod p
+m1 = blind_m1 * blind_inv_msg_p mod p
+
+blind_inv_msg_q = blind_inv_msg mod q
+m2 = blind_m2 * blind_inv_msg mod q
+
+h = qInv * (m1 - m2) mod p
+plaintext = m2 + h * q
+#
+# if calculation is correct, plaintext is 41444
+# *****************************************************************
+.
+....
