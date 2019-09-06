@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,14 +18,16 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    Atmega128 memory devices subsystem (ASM version)
-
+    Same as targets/atmega128/mem_device.S with one difference, memory is
+    checked to 16kB - allow simulation on atmega1284 (in patched simulavr)
 
 // FLASH organization:
 // 0x00000 .. 0x0FFFF bytes is for program
 // 0x10000 .. 0x1FF00 for data
 // 0x1FF00 .. 0x1FFFF SPM code
 
+// EEPROM 0x000-0x7ff - constants (used in constants.c)
+//        0x800-0xfff - sec memory(pins..)
 */
 
 osccal_min:
@@ -68,6 +70,7 @@ sec_device_write_block:
 sec_device_block:
 	movw	r30,r24		// RAM pointer
 	movw	r26,r22		// EEPROM pointer
+	ori	r27,0x08	// offset 2048 byte in EEPROM
 
 	mov	r24,r20         //size
 	dec	r20
@@ -166,6 +169,7 @@ device_update_page:
 		cpi	r25,0xff
 		breq	error_trap
 // test RAM address (must be in range 0x0100 0x10ff for atmega128)
+// (0x100 to 0x40ff for atmega1284)
 		cpi	r23,0x11
 		brcc	error_trap
 		and	r23,r23

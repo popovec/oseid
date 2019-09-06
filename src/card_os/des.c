@@ -62,7 +62,8 @@
 #if GCC_VERSION < 40700
 #error Your GCC is too old
 #endif
-#warning Do not use this code, use ASM version
+//Linker is responsible to link ASM version if exists
+//#warning Do not use this code, use ASM version
 #define TAB_TYPE const __flash uint8_t
 #ifdef KEY_PERMUTATION
 #warning Please undefine KEY_PERMUTATION, code is smaller
@@ -77,7 +78,7 @@
 
 /* *INDENT-OFF* */
 // not used key bits marked by /**/
-TAB_TYPE message_perm[] = {	//
+static TAB_TYPE message_perm[] = {	//
   5,      0,     0,/**/ 0,     9, 15,  0,/**/ 7,
   12,     2,    24,     8,    14,  6, 15,     0,/**/
   11,    11,     1,     3,    13,  4, 23,     4,
@@ -90,7 +91,7 @@ TAB_TYPE message_perm[] = {	//
 };				//
 
 
-TAB_TYPE S_box_address_perm[] = {
+static TAB_TYPE S_box_address_perm[] = {
   0, 0, 23,  0, 13,  7, 19, 10,
   0, 0,  3, 18,  9, 24, 14, 21,
   0, 0, 26, 20, 12,  5, 16,  1,
@@ -103,7 +104,7 @@ TAB_TYPE S_box_address_perm[] = {
 };
 
 #ifdef KEY_PERMUTATION
-TAB_TYPE initial_key_permutation[] = {
+static TAB_TYPE initial_key_permutation[] = {
   5, 13, 21, 29, 37, 45, 53, 61,
   6, 14, 22, 30, 38, 46, 54, 62,
   7, 15, 23, 31, 39, 47, 55, 63,
@@ -116,7 +117,7 @@ TAB_TYPE initial_key_permutation[] = {
 };
 #endif
 #ifdef MSG_PERMUTATION
-TAB_TYPE initial_message_permutation[] = {
+static TAB_TYPE initial_message_permutation[] = {
   6, 14, 22, 30, 38, 46, 54, 62,
   4, 12, 20, 28, 36, 44, 52, 60,
   2, 10, 18, 26, 34, 42, 50, 58,
@@ -127,7 +128,7 @@ TAB_TYPE initial_message_permutation[] = {
   1,  9, 17, 25, 33, 41, 49, 57,
 };
 
-TAB_TYPE final_message_permutation[] = {
+static TAB_TYPE final_message_permutation[] = {
   56, 24, 48, 16, 40,  8, 32, 0,
   57, 25, 49, 17, 41,  9, 33, 1,
   58, 26, 50, 18, 42, 10, 34, 2,
@@ -138,7 +139,7 @@ TAB_TYPE final_message_permutation[] = {
   63, 31, 55, 23, 47, 15, 39, 7,
 };
 #endif
-TAB_TYPE S_box[] = {		//
+static TAB_TYPE S_box[] = {		//
   0xef, 0xa7, 0x2c, 0x4d, 0x41, 0x0d, 0xc1, 0xb2,
   0xd8, 0x9e, 0x4a, 0x28, 0x1e, 0xe3, 0x1f, 0xe4,
   0x26, 0x60, 0x79, 0xf6, 0xfb, 0x36, 0xa2, 0x0f,
@@ -179,7 +180,7 @@ TAB_TYPE S_box[] = {		//
   0xa0, 0xbc, 0xa6, 0xe3, 0x05, 0x57, 0x40, 0x25,
   0x6e, 0x22, 0x58, 0x36, 0xd9, 0xce, 0x3d, 0xcb,
 };
-TAB_TYPE right_sub_message_permutation[] = {	//
+static TAB_TYPE right_sub_message_permutation[] = {	//
   23, 28, 12, 27, 19, 20,  1,  8,
   14, 25, 22,  3, 30, 17,  9,  7,
   15,  5, 29, 24, 10, 16,  0,  6,
@@ -189,7 +190,7 @@ TAB_TYPE right_sub_message_permutation[] = {	//
 
 // this is very simple implementation not usable in production code, use for test only
 // or rewrite for your architecture in ASM!
-#warning Do not use this rotations in production code, write rotations code for your arch
+// #warning Do not use this rotations in production code, write rotations code for your arch
 // for avr-gcc is better if this function is non static
 void
 rotate_key_l (uint8_t * key)

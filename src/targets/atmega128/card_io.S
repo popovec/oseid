@@ -282,7 +282,14 @@ card_io_tx_byte_repeat:
 	ldi	r24,1
 	ret
 
+#define TX_LEN16
 card_io_tx:
+#ifdef TX_LEN16
+	push	r28
+	push	r29
+// length
+	movw	r28,r22
+#endif
 	rcall	card_io_osccal_max
 	sei
 
@@ -299,7 +306,6 @@ card_io_tx0_buffer_loop:
 // load byte
 	ld	r20,X
 	rcall	card_io_tx_byte
-
 // 0    - all ok
 // 1    - do retransmit
 // 0xff - overrun in parity error signal waiting
@@ -310,7 +316,11 @@ card_io_tx0_buffer_loop:
 	breq	card_io_tx0_fail
 // next character .. 
 	adiw	r26,1
+#ifdef TX_LEN16
+	sbiw	r28,1
+#else
 	dec	r22
+#endif
 	breq	card_io_tx0_ok
 	rjmp	card_io_tx0_buffer_loop
 
@@ -330,12 +340,22 @@ card_io_tx0_ok:
 	clr	r24
 	clr	r25
 card_io_tx0_fail:
+#ifdef TX_LEN16
+	pop	r29
+	pop	r28
+#endif
 	ret
 
-
+// uint16_t card_io_rx (uint8_t * data, uint16_t len);
+// this function allow only 255 bytes to be read .. 
 // define maximum parity error per one character
 #define MAX_PARITY_ERR 1
 card_io_rx:
+	tst	r23
+	breq	1f
+// > 255 bytes allowed to be read.. clamp this to 255
+	ldi	r22,255
+1:
 	movw	r26, r24
 	rcall	card_io_osccal_max
 	sei
@@ -575,7 +595,7 @@ card_io_idle3:
 	cpi	r23,0xff
 	breq	card_io_pts	// PTS class
 card_io_idle4:
-// uint8_t or uint16_ result ..
+// uint16_ result .. (in future bit 15 protocol T0/T1)
 	clr	r25
 	ret
 
@@ -640,6 +660,7 @@ card_io_pts_no_PS3:
 	rcall	card_io_tx		// confirm PTS
 card_io_ignore_pts:
 	clr	r24			// no byte is received
+	clr	r25			// in future bit 15 - protocol T0/T1
 	ret
 
 
@@ -787,6 +808,7 @@ card_io_init_atr_loop:
 	push	r20
 	dec	r23
 	brne	card_io_init_atr_loop
+// length in r23,r22, position r25:r24
 	rcall	card_io_send_atr
 	ldi	r24,0xff
 	sts	null_send,r24	// mark ATR sended

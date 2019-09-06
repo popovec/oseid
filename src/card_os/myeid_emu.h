@@ -3,7 +3,7 @@
 
     This is part of MyECC (My Elliptic Curve Cryptography)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,7 +24,7 @@
 #ifndef CS_MYEID_H
 #define CS_MYEID_H
 /* myeid_emu.c */
-uint8_t security_env_set_reset(uint8_t *message, struct iso7816_response *r);
+uint8_t security_env_set_reset(uint8_t *message);
 uint8_t security_operation(uint8_t *message, struct iso7816_response *r);
 uint8_t myeid_generate_key(uint8_t *message, struct iso7816_response *r);
 uint8_t myeid_get_data(uint8_t *message, struct iso7816_response *r);

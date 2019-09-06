@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018  Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019  Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,9 +32,13 @@
 // MyEID applet information
 #define N_CARD_ID	1
 #define S_CARD_ID	20
-#define C_CARD_ID	  'O','s','E','I','D',4,2,0x10,\
+#if 1
+#define C_CARD_ID	  'O','s','E','I','D',4,5,1,\
                           0,0,0,0,0,0,0,0,0,1,0,0
-
+#else
+#define C_CARD_ID	  'O','s','E','I','D',4,2,16,\
+                          0,0,0,0,0,0,0,0,0,1,0,0
+#endif
 // MyEID card  capabilities
 #define N_CARD_CAP_ID	2
 #define S_CARD_CAP_ID	11
@@ -46,7 +50,16 @@
 #endif
 #define L_DES		192
 #define L_AES		256
-#define C_CARD_CAP_ID	1, 0,0x0f, (L_RSA/256),(L_RSA&255), (L_DES/256),(L_DES&255), (L_AES/256),(L_AES&255), (L_ECC/256),(L_ECC&255)
+
+#define CAP_RSA		0x01
+#define CAP_DES		0x02
+#define CAP_AES		0x04
+#define CAP_ECDSA	0x08
+// bit 4 = Grid Pin
+// bit 5 = PIV emulation
+// 6..15 RFU
+
+#define C_CARD_CAP_ID	1, 0,(CAP_RSA|CAP_DES|CAP_AES|CAP_ECDSA), (L_RSA/256),(L_RSA&255), (L_DES/256),(L_DES&255), (L_AES/256),(L_AES&255), (L_ECC/256),(L_ECC&255)
 
 // product of first 43 or 130 primes (used in primality tests)
 #if 0
@@ -73,6 +86,13 @@
 #define S_PSHA1_prefix	15
 #define C_PSHA1_prefix 	  0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,\
                           0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+
+#define N_FS_INIT_DATA	5
+#define	S_FS_INIT_DATA	42
+#define	C_FS_INIT_DATA	0x00,0x3f,0xff,0x7f,0x00,0x00,0x00,0x00,0x38,0x11,0x3f,0xff,0x02,0x00,0xe0,\
+			0x15,0x50,0xff,0x7f,0x01,0x00,0x00,0x00,0x38,0x11,0x1f,0xff,0x02,0x00,0xec,\
+                        0xa0,0x00,0x00,0x00,0x63,0x50,0x4b,0x43,0x53,0x2d,0x31,0x35
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 // ECC parameters: - use N_ below 0x3f, check ec.h / ec.c form MASK bits 6,7 are used to
 // signalize special values of A (A=0 A=-3) to speed up ec_double and checking if point is on curve
@@ -458,7 +478,7 @@
   N_CARD_ID,	     S_CARD_ID,	        C_CARD_ID,\
   N_CARD_CAP_ID,     S_CARD_CAP_ID,     C_CARD_CAP_ID,\
   N_GCD_PRIMES,      S_GCD_PRIMES,      C_GCD_PRIMES,\
-
+  N_FS_INIT_DATA,    S_FS_INIT_DATA,	C_FS_INIT_DATA,\
 /* *INDENT-ON* */
 
 

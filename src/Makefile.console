@@ -2,13 +2,23 @@ TARGET= targets/console/
 BUILD= build/console/
 
 #normal debug
-#CFLAGS= -Wall -O2 -DDEBUG -g -Wfatal-errors
-#debug EC function
-#CFLAGS= -Wall -O2 -DDEBUG -DEC_DEBUG -g -Wfatal-errors
-#debug RSA function
-#CFLAGS= -Wall -O2 -DDEBUG -DRSA_DEBUG -g -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
-CFLAGS= -Wall -O2 -Wfatal-errors -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
+#CFLAGS= -Wall -O2  -g -Wfatal-errors
+
+CFLAGS= -Wall -Wstrict-prototypes -Wfatal-errors
+CFLAGS+= -fstack-protector-strong -Wformat -Werror=format-security -Wextra
+CFLAGS+= -O2 -g
+CFLAGS+= -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
+
+# this is used to generate statistics for RSA keygen code (or enable this in card_os/debug.h)
+#CFLAGS+= -DRSA_GEN_DEBUG
+#grep -v close rsa_gen_debug.stat |grep -v 0x| awk '{g+=$2;r+=$4}END{print g/NR" "r/NR}
+#grep close rsa_gen_debug.stat |awk '{c+=$2;s+=$4}END{print s" "c}'
+
 CC= gcc
+##CFLAGS+= -D_FORTIFY_SOURCE=2
+#CC= cgcc -Wsparse-all
+#CC=afl-clang-fast
+#ASAN_OPTIONS=symbolize=0 AFL_USE_ASAN=1
 
 all:	$(BUILD)console $(BUILD)libOsEIDsim.so
 
@@ -58,7 +68,7 @@ sim_version="0.0.1"
 
 
 $(BUILD)libOsEIDsim.so:
-	$(CC) -shared -O2 -g -Wall -fPIC -I.  `pkg-config libpcsclite --cflags` -o $(BUILD)libOsEIDsim.so $(TARGET_S)ifdhandler.c $(TARGET_S)serial.c
+	$(CC) -shared -O2 -g -Wall -fPIC -I.  `pkg-config libpcsclite --cflags` -o $(BUILD)libOsEIDsim.so $(TARGET_S)ifdhandler.c $(TARGET_S)serial.c $(TARGET_S)hex2bytes.c
 	chmod -x $(BUILD)libOsEIDsim.so
 	(cd  $(BUILD); ln -s libOsEIDsim.so libOsEIDsim.so.$(sim_version))
 	cp $(TARGET_S)run_pcscd.sh $(BUILD)

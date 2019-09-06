@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -25,7 +25,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <string.h>
-
+#include "rnd.h"
 
 
 void
@@ -53,7 +53,7 @@ get_rnd ()
 
 }
 
-uint8_t
+void
 rnd_get (uint8_t * r, uint8_t size)
 {
   while (size--)
@@ -62,7 +62,6 @@ rnd_get (uint8_t * r, uint8_t size)
       *r = get_rnd ();
       r++;
     }
-  return 0;
 }
 
 void

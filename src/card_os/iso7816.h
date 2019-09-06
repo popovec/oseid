@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -24,21 +24,30 @@
 #ifndef CS_ISO7816_H
 #define CS_ISO7816_H
 
-
-void confirm_command (uint8_t * message);
-uint8_t read_command_data (uint8_t * message);
-
+// RSA 2048 need 256 bytes of data + padding indicator -> 257 bytes data part of APDU
+// 5 bytes header, max 257 bytes data +2+2 (to support Case 3E, 4E ISO786-3)
+#ifndef APDU_CMD_LEN
+#define APDU_CMD_LEN 261+5
+#endif
+// 257 bytes (this buffer is used as case of apdu chaining and RSA proprietary padding..)
+#ifndef APDU_RESP_LEN
+#define APDU_RESP_LEN 257
+#endif
 void card_poll (void);
 
 void response_clear (void);
 
 struct iso7816_response
 {
-  uint8_t data[256];		//256 real bytes
-  uint8_t len;			//0 = 256, 1=1 ... 255=255
+  uint8_t protocol;		// 0 T0 1 T1
+  uint16_t Nc;			// 0, Lc not present, 1..65535 Lc
+  uint16_t Ne;			// 0, Le not present, 1..65535 Le  (iso allow 65536 here, but for limited RAM in hardware this is not used)
+  uint8_t chaining_active;
+  uint16_t len16;
+  uint16_t tmp_len;		// how many bytes are  stored in response (in case of flag == R_TMP)
   uint8_t flag;			//check #define below ..
-  uint8_t input_len;
-  uint8_t input[255 + 5];	//5 bytes command, max 255 bytes data
+  uint8_t data[APDU_RESP_LEN];
+  uint8_t input[APDU_CMD_LEN];
 };
 
 // definition of values in struct iso7816_response.flag
@@ -48,12 +57,16 @@ struct iso7816_response
 #define  R_RESP_READY  1
 // no response data in buffer, buffer is used to other data (temporary)
 #define  R_TMP	    2
+// no response data in buffer, buffer is used by envelope command
+#define  R_ENVELOPE	    3
 
+
+uint8_t resp_ready (struct iso7816_response *r, uint16_t len);
 
 // 0x9000
 #define S_RET_OK   0
-
-#define S0x6100 0x10	// response length in low byte
+#define S_RET_GET_RESPONSE 1		// used by GET RESPONSE to signalize data must be returned
+#define S0x6100 0x10		// response length in low byte
 
 #define S0x6281 0x21
 #define S0x6282 0x22
@@ -80,6 +93,9 @@ struct iso7816_response
 #define S0x6581 0x51
 
 #define S0x6700 0x70		//fixed 6700
+
+#define S0x6883	0x83
+#define S0x6884	0x84
 
 #define S0x6981 0x91
 #define S0x6982 0x92

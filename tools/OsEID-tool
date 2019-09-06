@@ -231,11 +231,7 @@ if [ -z ${CARD_TYPE} ]; then
 	exit 1
 fi
 # check if card is initialize (file 2f00 exist)
-if [ ${PROTO} == "T=1" ]; then
-	echo "00 a4 08 00 02 2f 00"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q "Normal processing." && CARD_INIT=1
-else
-	echo "00 a4 08 00 02 2f 00"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q "bytes of response still available" && CARD_INIT=1
-fi
+echo "00 a4 08 00 02 2f 00"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q 'Normal processing.\|bytes of response still available' && CARD_INIT=1
 X_ver=`opensc-tool -i`
 if [ $? -ne 0 ]; then
 	failecho "unable to determine opensc version"
@@ -250,7 +246,7 @@ RAWSIGN2048=0
 if [ $OPENSC_VERSION -lt 15000 ]; then
 	failecho "Your OPENSC version is:"
 	opensc-tool -i
-	failecho "please check opensc version, use opensc 0.15 - 0.19 only"
+	failecho "please check opensc version, use opensc 0.15 - 0.20 only"
 	exit 1
 fi
 if [ $OPENSC_VERSION -ge 17000 ]; then
@@ -259,20 +255,16 @@ fi
 if [ $OPENSC_VERSION -ge 18000 ]; then
 	RAWSIGN2048=1
 fi
-if [ $OPENSC_VERSION -gt 19000 ]; then
+if [ $OPENSC_VERSION -gt 20000 ]; then
 	warnecho "not tested opensc version detected"
 	opensc-tool -i
-	warnecho "this code is tested in opensc versions 0.15 .. 0.19"
-	sleep 5
+	warnecho "this code is tested in opensc versions 0.15 .. 0.20"
 fi
 
 
 if [ ${CARD_TYPE} == "OsEID" ]; then
- if [ ${PROTO} == "T=1" ]; then
-	echo "00 a4 08 00 04 3f 00 50 15"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q "Normal processing."
- else
-	echo "00 a4 08 00 04 3f 00 50 15"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q "bytes of response still available"
- fi
+ echo "00 a4 08 00 04 3f 00 50 15"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q 'Normal processing.\|bytes of response still available'
+
  if [ $? -ne 0 ];then
         warnecho "OsEID without DF 5015, creating DF 5015"
         #this is code that generates same security attributes as in originam MyEID card
@@ -296,7 +288,7 @@ if [ $mode == "INFO" ]; then
    RESP=`read_card "00 CA 01 A0 00" "${SCReaderFlag}" "${SCReader}"`
    echo $RESP
    echo -n "Card serial number: "
-   echo $RESP|gawk '{for(i=19;i<29;i++) printf $i" ";print""}'
+   echo $RESP|gawk '{for(i=9;i<19;i++) printf $i" ";print""}'
    echo -n "Card version number: "
    echo $RESP|gawk '{for(i=6;i<9;i++) printf $i" ";print""}'
    CARD_VER=`echo $RESP|gawk '{v=0;for(i=6;i<9;i++) {v*=100;v+=strtonum("0x"$i)};printf v;exit}'`
@@ -904,7 +896,7 @@ if [ $mode == "DES-AES-UPLOAD-KEYS" ]; then
 	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 	echo "AES 128:"
 	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm aes128   --auth-id 01  --pin=11111111 --id 85
-	if [ $? -ne 0 ]; then err=$[$err + 1 ] ;fi
+	if [ $? -ne 0 ]; then err=$[$err + 1 ] ;failecho "FAIL";else trueecho "OK"; fi
 # MyEID driver not support this, opensc must be patched to use AES192 with OsEID card
 #	if [ ${CARD_TYPE} == "OsEID" ]; then
 #		echo "AES 192:"

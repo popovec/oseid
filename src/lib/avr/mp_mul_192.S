@@ -3,7 +3,7 @@
 
     192bit (interrupt safe) multiplication routine for AVR
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -28,15 +28,26 @@
   Differences to original code from Michael Hutter and Peter Schwabe:
 
   --  no stack register move forward/backwards
+  --  The code uses macros - improved code readability
   --  code is faster and interrupt safe (please check LOAD_SP macro)
-  --  improved registers reuse/clear
-  --  macros
-  --  code speed up (orig:2923 this: 2867 ticks)
-  --  -7 ticks if RAM_LE32 is defined (2860 ticks)
-      (There is no AVR device with RAM over 32kB, bit 15 of memory pointers
-      is used as one bit variable)
 
-  -- size 4440 bytes (original size 4600 bytes)
+  orig code                                            2923 clock cycles
+  size: 4600 bytes
+
+  this code (MEM pointers 15 bit)                      2854 clock cycles
+  size: 4424 bytes
+
+  this code (MEM pointers 16 bit)                      2861 clock cycles
+  size: 4424 + 26 bytes
+
+  For ATMEGA (not XMEGA, please read xmega doc about SP change):
+  For environment  enabled interrupts, I flag is saved before CLI and
+  restored after SP manipulation or SEI is forced after SP manipulation.
+
+  this code - I flag restored after stack pointer change	+3 clock cycles
+								+6 bytes
+  this code - I flag forced to interrupt enable 		+2 clock cycles
+								+4 bytes
 
 */
 //#undef RAM_LE32
@@ -88,6 +99,20 @@
 
 .macro ADD96  RS11,RS10,RS9,RS8,RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0  A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0
 	add	\RS0,\A0
+	adc	\RS1,\A1
+	adc	\RS2,\A2
+	adc	\RS3,\A3
+	adc	\RS4,\A4
+	adc	\RS5,\A5
+	adc	\RS6,\A6
+	adc	\RS7,\A7
+	adc	\RS8,\A8
+	adc	\RS9,\A9
+	adc	\RS10,\A10
+	adc	\RS11,\A11
+.endm
+.macro ADC96  RS11,RS10,RS9,RS8,RS7,RS6,RS5,RS4,RS3,RS2,RS1,RS0  A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0
+	adc	\RS0,\A0
 	adc	\RS1,\A1
 	adc	\RS2,\A2
 	adc	\RS3,\A3
@@ -162,6 +187,20 @@
         ldd     \REG4,Y+4+\M
         ldd     \REG5,Y+5+\M
 .endm
+.macro  LOAD96_FROM_Y  REG11 REG10 REG9 REG8 REG7 REG6 REG5 REG4 REG3 REG2 REG1 REG0    M
+        ldd     \REG0,Y+0+\M
+        ldd     \REG1,Y+1+\M
+        ldd     \REG2,Y+2+\M
+        ldd     \REG3,Y+3+\M
+        ldd     \REG4,Y+4+\M
+        ldd     \REG5,Y+5+\M
+        ldd     \REG6,Y+6+\M
+        ldd     \REG7,Y+7+\M
+        ldd     \REG8,Y+8+\M
+        ldd     \REG9,Y+9+\M
+        ldd     \REG10,Y+10+\M
+        ldd     \REG11,Y+11+\M
+.endm
 .macro  LOAD48_FROM_Z  REG5 REG4 REG3 REG2 REG1 REG0    M
         ldd     \REG0,Z+0+\M
         ldd     \REG1,Z+1+\M
@@ -170,16 +209,68 @@
         ldd     \REG4,Z+4+\M
         ldd     \REG5,Z+5+\M
 .endm
+.macro  STORE48_TO_Z   REG5 REG4 REG3 REG2 REG1 REG0    M
+        std     Z+0+\M,\REG0
+        std     Z+1+\M,\REG1
+        std     Z+2+\M,\REG2
+        std     Z+3+\M,\REG3
+        std     Z+4+\M,\REG4
+        std     Z+5+\M,\REG5
+.endm
+.macro  STORE24_TO_Z   REG2 REG1 REG0    M
+        std     Z+0+\M,\REG0
+        std     Z+1+\M,\REG1
+        std     Z+2+\M,\REG2
+.endm
+.macro  STORE96_TO_Z   REG11,REG10,REG9,REG8,REG7,REG6,REG5,REG4,REG3,REG2,REG1,REG0    M
+        std     Z+0+\M,\REG0
+        std     Z+1+\M,\REG1
+        std     Z+2+\M,\REG2
+        std     Z+3+\M,\REG3
+        std     Z+4+\M,\REG4
+        std     Z+5+\M,\REG5
+        std     Z+6+\M,\REG6
+        std     Z+7+\M,\REG7
+        std     Z+8+\M,\REG8
+        std     Z+9+\M,\REG9
+        std     Z+10+\M,\REG10
+        std     Z+11+\M,\REG11
+.endm
+.macro  STORE96_TO_Y   REG11,REG10,REG9,REG8,REG7,REG6,REG5,REG4,REG3,REG2,REG1,REG0    M
+        std     Y+0+\M,\REG0
+        std     Y+1+\M,\REG1
+        std     Y+2+\M,\REG2
+        std     Y+3+\M,\REG3
+        std     Y+4+\M,\REG4
+        std     Y+5+\M,\REG5
+        std     Y+6+\M,\REG6
+        std     Y+7+\M,\REG7
+        std     Y+8+\M,\REG8
+        std     Y+9+\M,\REG9
+        std     Y+10+\M,\REG10
+        std     Y+11+\M,\REG11
+.endm
+.macro  STORE48_TO_Y   REG5 REG4 REG3 REG2 REG1 REG0    M
+        std     Y+0+\M,\REG0
+        std     Y+1+\M,\REG1
+        std     Y+2+\M,\REG2
+        std     Y+3+\M,\REG3
+        std     Y+4+\M,\REG4
+        std     Y+5+\M,\REG5
+.endm
 
   .global rsa_mul_192_no_abi
   .type rsa_mul_192_no_abi, @function
   .section .text.rsa_mul_192_no_abi,"ax",@progbits
 
 rsa_mul_192_no_abi:
-	push	r26
-	push	r27
-	push	r28
-	push	r29
+// positions in result (32..35) is used to store operands pointers
+// (this part of result is unused in 1st part of calculation). 
+	std	Z+32,r26
+	std	Z+33,r27
+	std	Z+34,r28
+	std	Z+35,r29
+
 	push	r30
 	push	r31
   ;------ level 1: compute L ------
@@ -262,9 +353,7 @@ rsa_mul_192_no_abi:
   ADC R20, R7
   ADC R21, R0
   ADC R22, R1
-  STD Z+0, R14
-  STD Z+1, R15
-  STD Z+2, R16
+	STORE24_TO_Z	r16,r15,r14	0
 
   LD R5, X+
   MUL R5, R10 ;a3 * b2
@@ -307,6 +396,7 @@ rsa_mul_192_no_abi:
   ADD R21, R15
   ADC R22, R0
   ADC R23, R1
+	movw	r4,r24		// save ZERO pair
   ADC R24, R25
   MUL R6, R11 ;a4 * b3
   MOVW R14, R0
@@ -340,9 +430,8 @@ rsa_mul_192_no_abi:
   ADC R23, R15
   ADC R24, R0
   ADC R25, R1
-  STD Z+3, R17
-  STD Z+4, R18
-  STD Z+5, R19
+
+	STORE24_TO_Z	r19,r18,r17	3
 
   ;--- load a6..a11 and b6..b11 ---
 	LOAD48_FROM_X	r19,r18,r17,r16,r15,r14
@@ -350,11 +439,10 @@ rsa_mul_192_no_abi:
 	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	6
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
-  CLR R12
-  CLR R13
-  MOVW R2, R12
-  MOVW R4, R12
-  MOVW R6, R12
+// r4,5 zero
+	movw	r2,r4
+	movw	r6,r4
+	movw	r12,r4
 
   MUL R8, R14
   ADD R20, R0   
@@ -734,12 +822,7 @@ rsa_mul_192_no_abi:
   POP R1
   
   ;--- add l5+h0 to l0 and h5 ---
-  LDD R14, Z+0
-  LDD R15, Z+1
-  LDD R16, Z+2
-  LDD R17, Z+3
-  LDD R18, Z+4
-  LDD R19, Z+5
+	LOAD48_FROM_Z	r19,r18,r17,r16,r15,r14	0
 
   	ADD96 r25,r24,r23,r22,r21,r20,r19,r18,r17,r16,r15,r14    r5,r4,r3,r2,r1,r0 r25,r24,r23,r22,r21,r20
 #ifdef RAM_LE32
@@ -780,33 +863,15 @@ final_L:
   ;--- propagate carry to end ---
 	ADC48	r5,r4,r3,r2,r1,r0	r7,r7,r7,r7,r7,r6
 
-  STD Z+6, R14
-  STD Z+7, R15
-  STD Z+8, R16
-  STD Z+9, R17
-  STD Z+10, R18
-  STD Z+11, R19
-  STD Z+12, R20
-  STD Z+13, R21
-  STD Z+14, R22
-  STD Z+15, R23
-  STD Z+16, R24
-  STD Z+17, R25
-  STD Z+18, R0
-  STD Z+19, R1
-  STD Z+20, R2
-  STD Z+21, R3
-  STD Z+22, R4
-  STD Z+23, R5
+	STORE48_TO_Z	r19,r18,r17,r16,r15,r14 6
+	STORE48_TO_Z	r25,r24,r23,r22,r21,r20 12
+	STORE48_TO_Z	r5,r4,r3,r2,r1,r0	18
 
-// restore poinetrs to operands
-	in	r28, _SFR_IO_ADDR(SPL)
-	in	r29, _SFR_IO_ADDR(SPH)
-	ldd	r20,Y+4
-	ldd	r21,Y+3
-	ldd	r26,Y+6
-	ldd	r27,Y+5
-	movw	r28,r20
+// restore pointers to operands
+	ldd	r26,Z+32
+	ldd	r27,Z+33
+	ldd	r28,Z+34
+	ldd	r29,Z+35
 
 	adiw	r26,12
   ;------ level 1: compute H ------
@@ -888,9 +953,7 @@ final_L:
   ADC R20, R7
   ADC R21, R0
   ADC R22, R1
-  STD Z+24, R14
-  STD Z+25, R15
-  STD Z+26, R16
+	STORE24_TO_Z	r16,r15,r14	24
 
   LD R5, X+
   MUL R5, R10 ;a3 * b2
@@ -933,6 +996,7 @@ final_L:
   ADD R21, R15
   ADC R22, R0
   ADC R23, R1
+	movw	r4,r24		// save ZERO pair
   ADC R24, R25
   MUL R6, R11 ;a4 * b3
   MOVW R14, R0
@@ -966,21 +1030,17 @@ final_L:
   ADC R23, R15
   ADC R24, R0
   ADC R25, R1
-  STD Z+27, R17
-  STD Z+28, R18
-  STD Z+29, R19
+	STORE24_TO_Z	r19,r18,r17	27
 
   ;--- load a6..a11 and b6..b11 ---
 	LOAD48_FROM_X	r19,r18,r17,r16,r15,r14
-  
 	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	18
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
-  CLR R12
-  CLR R13
-  MOVW R2, R12
-  MOVW R4, R12
-  MOVW R6, R12
+// r4,5 zero
+	movw	r2,r4
+	movw	r6,r4
+	movw	r12,r4
 
   MUL R8, R14
   ADD R20, R0   
@@ -1396,19 +1456,7 @@ final_H:
 #endif
   ;--- propagate carry to end ---
 	ADC48	r5,r4,r3,r2,r1,r0	r7,r7,r7,r7,r7,r6
-
-  STD Z+36, R20
-  STD Z+37, R21
-  STD Z+38, R22
-  STD Z+39, R23
-  STD Z+40, R24
-  STD Z+41, R25
-  STD Z+42, R0
-  STD Z+43, R1
-  STD Z+44, R2
-  STD Z+45, R3
-  STD Z+46, R4
-  STD Z+47, R5
+	STORE96_TO_Z	r5,r4,r3,r2,r1,r0,r25,r24,r23,r22,r21,r20  36
 
   ;------ level 1: combine L and H ------
 	LOAD48_FROM_Z	r11,r10,r9,r8,r7,r6	24
@@ -1438,36 +1486,13 @@ final_H:
 	adc	r28,r\Reg
 	std	Z+Off+12,r28
 .endr
-
-  ADC R20, R6
-  STD Z+24, R20
-  ADC R21, R7
-  STD Z+25, R21
-  ADC R22, R8
-  STD Z+26, R22
-  ADC R23, R9
-  STD Z+27, R23
-  ADC R24, R10
-  STD Z+28, R24
-  ADC R25, R11
-  STD Z+29, R25
-  ADC R0, R14
-  STD Z+30, R0
-  ADC R1, R15
-  STD Z+31, R1
-  ADC R2, R16
-  STD Z+32, R2
-  ADC R3, R17
-  STD Z+33, R3
-  ADC R4, R18
-  STD Z+34, R4
-  ADC R5, R19
-  STD Z+35, R5
-
-  POP R29
-  POP R28
-  POP R27
-  POP R26
+	ADC96	r5,r4,r3,r2,r1,r0,r25,r24,r23,r22,r21,r20  r19,r18,r17,r16,r15,r14,r11,r10,r9,r8,r7,r6
+// restore pointers to operands X and Y
+	ldd	r26,Z+32
+	ldd	r27,Z+33
+	ldd	r28,Z+34
+	ldd	r29,Z+35
+	STORE96_TO_Z	r5,r4,r3,r2,r1,r0,r25,r24,r23,r22,r21,r20	24
 
   ADC R13, R12		// update carry in R13 is 0, 1 or 2!
 
@@ -1632,6 +1657,8 @@ final_H:
   ADD R21, R15
   ADC R12, R0
   ADC R13, R1
+	movw	r4,r24		// save ZERO pair
+
   ADC R24, R25
   MUL R6, R11 ;a4 * b3
   MOVW R14, R0
@@ -1677,11 +1704,10 @@ final_H:
 	LOAD48_FROM_Y	r31,r30,r11,r10,r9,r8	16
   
   ;--- Compute H + (l6,l7,l8,l9,l10,l11) ---
-  CLR R22
-  CLR R23
-  MOVW R2, R22
-  MOVW R4, R22
-  MOVW R6, R22
+// r4,5 zero
+	movw	r2,r4
+	movw	r6,r4
+	movw	r22,r4
 
   MUL R8, R14
   ADD R20, R0   
@@ -2127,12 +2153,8 @@ final_sub:
 	sbc	r26,r27
 	sbc	r27,r27
 final:
-
-.set Off, 12
-.irp Reg,6,8,9,10,11,22,23,14,15,16,17,18,19,20,21,12,13,24,25,0,1,2,3,4
-	std	Y+Off,r\Reg
-.set Off, Off+1
-.endr
+	STORE96_TO_Y	r18,r17,r16,r15,r14,r23,r22,r11,r10,r9,r8,r6 12
+	STORE96_TO_Y	r4,r3,r2,r1,r0,r25,r24,r13,r12,r21,r20,r19 24
 
 // return stack back
 	adiw	r30,33
@@ -2140,14 +2162,9 @@ final:
 	LOAD_SP r0, r30,r31
 
 // R27:R26 is -1,0,1,2,  propagate carry to end
-.set Off, 36
-	ldd	r0,Y+Off
-	add	r0,r26
-	std	Y+Off,r0
-.rept	11
-.set Off, Off+1
-	ldd	r0,Y+Off
-	adc	r0,r27
-	std	Y+Off,r0
-.endr
+
+	LOAD96_FROM_Y	r13,r12,r11,r10,r9,r8,r5,r4,r3,r2,r1,r0	36
+	ADD96		r13,r12,r11,r10,r9,r8,r5,r4,r3,r2,r1,r0  r27,r27,r27,r27,r27,r27,r27,r27,r27,r27,r27,r26
+	STORE96_TO_Y	r13,r12,r11,r10,r9,r8,r5,r4,r3,r2,r1,r0 36
+
 	ret

@@ -70,6 +70,7 @@ uint8_t __attribute__ ((weak)) bn_shiftr_c (void *r, uint8_t carry);
 void __attribute__ ((weak)) bn_mul_v (void * r, void * a, void * b, uint8_t len);
 
 void __attribute__ ((weak)) bn_mod (void *result, void *mod);
+void __attribute__ ((weak)) bn_mod_half (void *result, void *mod);
 
 uint8_t __attribute__ ((weak)) bn_inv_mod (void * r, void * c, void * p);
 

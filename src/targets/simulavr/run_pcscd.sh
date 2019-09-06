@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015,2017 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015,2019 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -25,26 +25,29 @@ if [ `id -u` -ne 0 ]; then
 	echo "Sorry, this work only for root user"
 	exit 1
 fi
-mkdir -p `pwd`tmp
-touch `pwd`/tmp/OsEIDsim.socket
+
+OsEID_DIR=`pwd`
+
+mkdir -p "${OsEID_DIR}/tmp"
+touch "${OsEID_DIR}/tmp/OsEIDsim.socket"
 DEV=$1
 if [ $? -lt 1 ]; then
-	if [ -x targets/simulavr/simulavr-oseid ]; then
-	  socat -d -d pty,link=tmp/OsEIDsim.socket,raw,echo=0 "exec:'targets/simulavr/simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	if [ -x "${OsEID_DIR}/targets/simulavr/simulavr-oseid" ]; then
+	  socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'${OsEID_DIR}/targets/simulavr/simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
 	else
 	  which simulavr-oseid
 	  if [ $? -ne 0 ]; then
 		echo "Unable to execute simulavr-oseid, please read targets/simulavr/Readme"
 		exit 1
 	  fi
-	  socat -d -d pty,link=tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	  socat -d -d pty,link=${OsEID_DIR}tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
 	fi
-	DEV=`pwd`/tmp/OsEIDsim.socket
+	DEV="${OsEID_DIR}/tmp/OsEIDsim.socket"
 fi
 sleep 1
-echo 'FRIENDLYNAME      "OsEIDsim"' > `pwd`/tmp/reader.conf
-echo 'DEVICENAME        '$DEV >> `pwd`/tmp/reader.conf
-echo 'LIBPATH           '`pwd`/build/console/libOsEIDsim.so.0.0.1  >>`pwd`/tmp/reader.conf
-echo 'CHANNELID         1' >>  tmp/reader.conf
+echo 'FRIENDLYNAME      "OsEIDsim"' > "${OsEID_DIR}/tmp/reader.conf"
+echo 'DEVICENAME        '$DEV >> "${OsEID_DIR}/tmp/reader.conf"
+echo 'LIBPATH           '${OsEID_DIR}/build/console/libOsEIDsim.so.0.0.1  >> "${OsEID_DIR}/tmp/reader.conf"
+echo 'CHANNELID         1' >>  "${OsEID_DIR}/tmp/reader.conf"
 
-/usr/sbin/pcscd -d -f -c `pwd`/tmp/reader.conf
+/usr/sbin/pcscd -d -f -c "${OsEID_DIR}/tmp/reader.conf"

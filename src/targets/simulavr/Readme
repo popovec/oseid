@@ -1,5 +1,6 @@
 You need patched version of simulavr (from debian simulavr package)
-(simulavr_0.1.2.2-7 from stretch/sid)
+simulavr_0.1.2.2-7 from stretch/sid
+https://packages.debian.org/stretch/simulavr
 
 You can found shell script that can compile patched version of simulavr in
 targets/simulavr/compile_simulavr.sh
@@ -285,3 +286,5 @@ end
 Or You use predefined macro file from command line:
 
 $ avr-gdb -x targets/simulavr/gdb_macros -ex "target remote localhost:1212" build/simulavr/card.elf
+
+To dump eeprom (PIN/PUK data, constants) use address 0x810000 in avr-gdb.

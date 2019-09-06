@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,6 +26,7 @@
 #include <avr/interrupt.h>
 #include <avr/pgmspace.h>
 #include <stddef.h>
+#include "rnd.h"
 //#include <string.h>
 
 
@@ -54,11 +55,11 @@ rnd_init (void)
   ADCA.PRESCALER = ADC_PRESCALER_DIV32_gc;
   ADCA.REFCTRL = ADC_REFSEL_INT1V_gc | ADC_TEMPREF_bm;	// ADC_REFSEL_INT1V_gc | ADC_BANDGAP_bm | ADC_TEMPREF_bm;
   ADCA.CTRLB = ADC_RESOLUTION_12BIT_gc;	//ADC_CONVMODE_bm | ADC_FREERUN_bm
-  ADCA.CH0.CTRL = ADC_CH_INPUTMODE_INTERNAL_gc;	// | ADC_CH_GAIN_1X_gc;    
+  ADCA.CH0.CTRL = ADC_CH_INPUTMODE_INTERNAL_gc;	// | ADC_CH_GAIN_1X_gc;
   ADCA.CH0.MUXCTRL = ADC_CH_MUXINT_TEMP_gc;;
 }
 
-uint8_t
+void
 rnd_get (uint8_t * r, uint8_t size)
 {
   uint8_t v;
@@ -82,5 +83,4 @@ rnd_get (uint8_t * r, uint8_t size)
       pos++;
     }
   while (--size);
-  return 0;
 }

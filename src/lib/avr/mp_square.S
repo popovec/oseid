@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -69,18 +69,18 @@ rsa_square_1024_no_abi - input is addressed by r22,r23 result by r24,r25
                 ABI functions ticks inclusive prolog/epilog
 function name   ticks (without call/ret, inclusive CLI/SEI if SP is changed)
 ------------------------------------------------------------------
-rsa_square_192_no_abi    1872     (uses 10 bytes on stack)
+rsa_square_192_no_abi    1847     (uses 10 bytes on stack)
 rsa_square_256_no_abi    3093     (uses 32 bytes on stack)
 
 (in next calculations number 7 is from rcall and ret clock cycles)
 
-rsa_square_384_no_abi   (7+rsa_square_192_no_abi)*3 +  994 = 6631
+rsa_square_384_no_abi   (7+rsa_square_192_no_abi)*3 +  994 = 6556
 rsa_square_512_no_abi   (7+rsa_square_256_no_abi)*3 + 1344 = 10644
 rsa_square_192
 rsa_square_256
 rsa_square_384
 rsa_square_512
-rsa_square_768          (7+rsa_square_384_no_abi)*3 + 2175 = 22101
+rsa_square_768          (7+rsa_square_384_no_abi)*3 + 2175 = 21864
 rsa_square_1024         (7+rsa_square_512_no_abi)*3 + 2889 = 34842
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1185,7 +1185,187 @@ r0,r1,r28,r29 are used direct without aliases.
 // 9 4x5
 //10
 //11
-.macro SQUARE_48	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0
+// ACC5..ACC0 is saved to stack
+.macro SQUARE_48_sp	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0
+	clr	\ACC_0
+// ------------------ _
+	mul	\A0,\A2
+	movw	\ACC_2,r0
+
+	mul	\A0,\A4
+	movw	\ACC_4,r0
+
+	mul	\A1,\A5
+	movw	\ACC_6,r0
+
+	mul	\A3,\A5
+	movw	\ACC_8,r0
+
+//------------------ .
+	mul	\A0,\A1
+	mov	\ACC_1,r0
+	add	\ACC_2,r1
+	adc	\ACC_3,\ACC_0
+
+	mul	\A0,\A3
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\ACC_0
+
+	mul	\A0,\A5
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_0
+
+//----------------- /
+	mul	\A1,\A4
+	movw	\ACC_10,r0
+
+	mul	\A1,\A2
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\ACC_10
+	adc	\ACC_11,\ACC_0
+
+	mul	\A1,\A3
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_11,\ACC_0
+
+	mul	\A2,\A5
+	add	\ACC_6,\ACC_11
+	adc	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\ACC_0
+
+//----------------- x
+	mul	\A3,\A4
+	movw	\ACC_10,r0
+
+	mul	\A2,\A3
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_10
+	adc	\ACC_11,\ACC_0
+
+	mul	\A2,\A4
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_11,\ACC_0
+
+	mul	\A4,\A5
+	add	\ACC_8,\ACC_11
+	adc	\ACC_9,r0
+        clr	\ACC_10
+	adc	\ACC_10,r1
+
+	clr	\ACC_11
+
+// maximal result is 00FF00 FF00FE 00FF00 FF0100, there is no carry to ACC_11
+
+// double result
+	add	\ACC_1,\ACC_1
+	adc	\ACC_2,\ACC_2
+	adc	\ACC_3,\ACC_3
+	adc	\ACC_4,\ACC_4
+	adc	\ACC_5,\ACC_5
+	adc	\ACC_6,\ACC_6
+	adc	\ACC_7,\ACC_7
+	adc	\ACC_8,\ACC_8
+	adc	\ACC_9,\ACC_9
+	adc	\ACC_10,\ACC_10
+	adc	\ACC_11,\ACC_11
+// this is old code, result is in ACC_11.. ACC_0
+#if 0
+	mul	\A0,\A0
+	mov	\ACC_0,r0
+	add	\ACC_1,r1
+
+	rol	\ACC_11		//save carry
+	mul	\A1,\A1
+	ror	\ACC_11		//renew carry
+	adc	\ACC_2,r0
+	adc	\ACC_3,r1
+
+	rol	\ACC_11
+	mul	\A2,\A2
+	ror	\ACC_11		//renew carry
+	adc	\ACC_4,r0
+	adc	\ACC_5,r1
+
+	rol	\ACC_11
+	mul	\A3,\A3
+	ror	\ACC_11		//renew carry
+	adc	\ACC_6,r0
+	adc	\ACC_7,r1
+
+	rol	\ACC_11
+	mul	\A4,\A4
+	ror	\ACC_11		//renew carry
+	adc	\ACC_8,r0
+	adc	\ACC_9,r1
+
+	rol	\ACC_11
+	mul	\A5,\A5
+	lsr	\ACC_11		//renew carry
+	adc	\ACC_10,r0
+	adc	\ACC_11,r1
+#else
+// new code result in ACCC_11.. ACC_6 .. then 6 bytes in stack
+	mul	\A0,\A0
+	push	r0
+	add	\ACC_1,r1
+	push	\ACC_1
+	rol	\ACC_11		//save carry
+
+	mul	\A2,\A2
+	movw	\ACC_0,r0	// save to stack ..
+
+	mul	\A1,\A1
+	ror	\ACC_11		//renew carry
+	adc	\ACC_2,r0
+	adc	\ACC_3,r1
+	adc	\ACC_4,\ACC_0
+	adc	\ACC_5,\ACC_1
+
+	push	\ACC_2
+	push	\ACC_3
+	push	\ACC_4
+	push	\ACC_5
+	rol	\ACC_11		//save carry
+
+	mul	\A5,\A5
+	movw	\ACC_2,r0
+
+	mul	\A4,\A4
+	movw	\ACC_0,r0
+
+	mul	\A3,\A3
+	lsr	\ACC_11		//renew carry
+	adc	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_8,\ACC_0
+	adc	\ACC_9,\ACC_1
+	adc	\ACC_10,\ACC_2
+	adc	\ACC_11,\ACC_3
+
+#endif
+.endm
+
+// 0
+// 1 0.1
+// 2 0_2
+// 3 0.3 1/2
+// 4 0_4 1/3
+// 5 0.5 1/4 2x3
+// 6 1_5 2x4
+// 7 2/5 3x4
+// 8 3_5
+// 9 4x5
+//10
+//11
+//A0..A5 no needed anymore
+.macro SQUARE_48c	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0
 	clr	\ACC_0
 // ------------------ _
 	mul	\A0,\A2
@@ -1286,28 +1466,27 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_3,r1
 
 	rol	\ACC_11
+	mul	\A3,\A3
+	movw	\A0,r0
+
 	mul	\A2,\A2
 	ror	\ACC_11		//renew carry
 	adc	\ACC_4,r0
 	adc	\ACC_5,r1
+	adc	\ACC_6,\A0
+	adc	\ACC_7,\A1
 
 	rol	\ACC_11
-	mul	\A3,\A3
-	ror	\ACC_11		//renew carry
-	adc	\ACC_6,r0
-	adc	\ACC_7,r1
 
-	rol	\ACC_11
+	mul	\A5,\A5
+	movw	\A0,r0
+
 	mul	\A4,\A4
-	ror	\ACC_11		//renew carry
+	lsr	\ACC_11		//renew carry
 	adc	\ACC_8,r0
 	adc	\ACC_9,r1
-
-	rol	\ACC_11
-	mul	\A5,\A5
-	lsr	\ACC_11		//renew carry
-	adc	\ACC_10,r0
-	adc	\ACC_11,r1
+	adc	\ACC_10,\A0
+	adc	\ACC_11,\A1
 .endm
 
 .macro SQUARE_48_z	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0   TMP5 TMP4 TMP3 TMP2 TMP1 TMP0
@@ -1430,105 +1609,100 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_11,\TMP1
 .endm
 // 0
-// 1 0*1
-// 2 0.2
-// 3 0*3 1.2
-// 4 0.4 1.3
-// 5 0.5 1.4 2.3
-// 6 1.5 2.4
-// 7 2.5 3.4
-// 8 3.5
-// 9 4.5
+// 1 0v1
+// 2 0v2
+// 3 0v3 1^2
+// 4 0^4 1_3
+// 5 0v5 1^4 2_3
+// 6 1*5 2_4
+// 7 2^5 3_4
+// 8 3*5
+// 9 4_5
 //10
 //11
-
+// A5..A0 can be reused
 .macro SQUARE_48_ADD  ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0  Z_TMP TMP  XTMP16h XTMP16l
 //load bit 0
 	bst	\ACC_1,0
 //divide 
-	ror	\ACC_5
+	lsr	\ACC_5
 	ror	\ACC_4
 	ror	\ACC_3
 	ror	\ACC_2
 	ror	\ACC_1
 
+	clr	\ACC_11
+
+	mul	\A1,\A5
+	movw	\ACC_6,r0
+	mul	\A3,\A5
+	movw	\ACC_8,r0
+
 	mul	\A0,\A3
-	movw	\ACC_10,r0
+	movw	\XTMP16l,r0
 
 	mul	\A0,\A1
 	add	\ACC_1,r0
 	adc	\ACC_2,r1
-	adc	\ACC_3,\ACC_10
-	adc	\ACC_4,\ACC_11
-// acc_5 is max 0x7f .. 
-	adc	\ACC_5,\Z_TMP
+	adc	\ACC_3,\XTMP16l
+	adc	\XTMP16h,\ACC_11	//ZERO
 
 	mul	\A0,\A2
 	add	\ACC_2,r0
 	adc	\ACC_3,r1
-	adc	\ACC_4,\Z_TMP
-	adc	\ACC_5,\Z_TMP
+	adc	\XTMP16h,\ACC_11	//ZERO
 
+	mul	\A0,\A5
+	add	\ACC_4,\XTMP16h
+	adc	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_11  //ZERO
+//// max FEFF81FEFFFF00FF
+	mul	\A1,\A4
+	movw	\XTMP16l,r0
+	
 	mul	\A1,\A2
 	add	\ACC_3,r0
 	adc	\ACC_4,r1
-	adc	\ACC_5,\Z_TMP
-
-	mul	\A1,\A5
-	movw	\ACC_6,r0
+	adc	\ACC_5,\XTMP16l
+	adc	\XTMP16h,\ACC_11  //ZERO
 
 	mul	\A0,\A4
 	add	\ACC_4,r0
 	adc	\ACC_5,r1
-	adc	\ACC_6,\Z_TMP
-	adc	\ACC_7,\Z_TMP
+	adc	\XTMP16h,\ACC_11  //ZERO  XTMP16h is to be added to ACC_6
+
+	mul	\A2,\A5
+	add	\ACC_6,\XTMP16h
+	adc	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\ACC_11  //ZERO
+//
+	mul	\A2,\A4
+	movw	 \XTMP16l,r0
 	
 	mul	\A1,\A3
 	add	\ACC_4,r0
 	adc	\ACC_5,r1
-	adc	\ACC_6,\Z_TMP
-	adc	\ACC_7,\Z_TMP
-
-	mul	\A1,\A4
-	add	\ACC_5,r0
-	adc	\ACC_6,r1
-	adc	\ACC_7,\Z_TMP
-
-	mul	\A3,\A5
-	movw	\ACC_8,r0
-
-	mul	\A3,\A4
-	movw	\ACC_10,r0
+	adc	\ACC_6,\XTMP16l
+	adc	\XTMP16h,\ACC_11  //ZERO
 
 	mul	\A2,\A3
 	add	\ACC_5,r0
 	adc	\ACC_6,r1
-	adc	\ACC_7,\ACC_10
-	adc	\ACC_11,\Z_TMP
-
-	mul	\A2,\A4
-	add	\ACC_6,r0
-	adc	\ACC_7,r1
-	adc	\ACC_11,\Z_TMP
+	adc	\XTMP16h,\ACC_11  //ZERO
+//
+	mul	\A3,\A4
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\ACC_11  //ZERO
 
 	mul	\A4,\A5
-	add	\ACC_8,\ACC_11
+	add	\ACC_7,\XTMP16h
+	adc	\ACC_8,\ACC_11  //ZERO
 	adc	\ACC_9,r0
-	clr	\ACC_10
-	adc	\ACC_10,r1
-
-	clr	\ACC_11
-
-	mul	\A2,\A5
-	movw	\TMP,r0
-
-	mul	\A0,\A5
-	add	\ACC_5,r0
-	adc	\ACC_6,r1
-	adc	\ACC_7,\TMP
-	adc	\ACC_8,\Z_TMP
-	adc	\ACC_9,\ACC_11
-	adc	\ACC_10,\ACC_11
+	adc	r1,\ACC_11  	//ZERO
+	mov	\ACC_10,r1
 // max in acc .. FF00FF00FF00FF00FF00FF there is no carry to ACC_11
 
 // double result
@@ -3794,26 +3968,22 @@ rsa_square_192_no_abi:
 #if defined (HAVE_RSA_SQUARE_192_NO_ABI) || defined (HAVE_RSA_SQUARE_192)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // save operand pointer
-	push	r28
-	push	r29
-
-	LOAD48_FROM_Y_MEM  r13,r12,r11,r10,r9,r8    0	
+	std	Z+47,r29
+	std	Z+46,r28
+	LOAD48_FROM_Y_MEM  r19,r18,r17,r16,r15,r14  0
 //                                          result                          operand             temp registers
-	SQUARE_48_z      r25,r24,r23,r22,r21,r20  r7,r6,r5,r4,r3,r2    r13,r12,r11,r10,r9,r8   r19,r18,r17,r16,r15,r14
+	SQUARE_48_z      r25,r24,r23,r22,r21,r20  r7,r6,r5,r4,r3,r2    r19,r18,r17,r16,r15,r14  r13,r12,r11,r10,r9,r8
 	STORE48_TO_MEM 0     r7,r6,r5,r4,r3,r2
 
-	LOAD48_FROM_Y_MEM  r19,r18,r17,r16,r15,r14  6
-
-#define ZERO r27
-	clr	ZERO                                                                               //free tmp regs
-	SQUARE_48_ADD  r5,r4,r3,r2,r7,r6  r25,r24,r23,r22,r21,r20    r19,r18,r17,r16,r15,r14  ZERO r26  r29,r28
-
+	LOAD48_FROM_Y_MEM  r13,r12,r11,r10,r9,r8    6
 	ABS_SUB48  r19,r18,r17,r16,r15,r14  r13,r12,r11,r10,r9,r8    r0
-#undef ZERO
+
+	                                                                               		//free tmp regs
+	SQUARE_48_ADD  r5,r4,r3,r2,r7,r6  r25,r24,r23,r22,r21,r20    r13,r12,r11,r10,r9,r8	r27 r26  r29,r28
 // not enough registers available,  use stack
 	push	r7
 	push	r6
-	SQUARE_48  r13,r12,r11,r10,r9,r8  r29 r28 r27 r26 r7 r6    r19,r18,r17,r16,r15,r14
+	SQUARE_48c  r13,r12,r11,r10,r9,r8  r29 r28 r27 r26 r7 r6    r19,r18,r17,r16,r15,r14
 	pop	r0
 	pop	r1
 // combine
@@ -3834,29 +4004,23 @@ rsa_square_192_no_abi:
 	STORE48_TO_MEM 12 r25,r24,r23,r22,r21,r20
 	STORE48_TO_MEM 18 r5 r4 r3 r2 r1 r0
 
-/// restore operand pointer
-	in 	r28, 0x3d
-	in 	r29, 0x3e
-	ldd	r9,Y+1
-	ldd	r8,Y+2
-	movw	r28,r8
+// restore operand pointer
+	ldd	r29,Z+47
+	ldd	r28,Z+46
 ///////////////////////////////////////////////////////////////////////////////////////////////////
-
-	LOAD48_FROM_Y_MEM r13 r12 r11 r10 r9 r8     12
+	LOAD48_FROM_Y_MEM r19 r18 r17 r16 r15 r14   12
 //                                          result                          operand             temp registers
-	SQUARE_48_z      r25 r24 r23 r22 r21 r20   r5 r4 r3 r2 r7 r6     r13 r12 r11 r10 r9 r8    r19 r18 r17 r16 r15 r14
+	SQUARE_48_z      r25 r24 r23 r22 r21 r20   r5 r4 r3 r2 r7 r6    r19 r18 r17 r16 r15 r14  r13 r12 r11 r10 r9 r8
 	STORE48_TO_MEM 24  r5 r4 r3 r2 r7 r6
-
-	LOAD48_FROM_Y_MEM r19 r18 r17 r16 r15 r14   18
-#define ZERO r27
-	clr	ZERO                                                                               //free tmp regs
-	SQUARE_48_ADD  	r5 r4 r3 r2 r7 r6  r25 r24 r23 r22 r21 r20    r19 r18 r17 r16 r15 r14  ZERO r26 r29 r28
-
+	LOAD48_FROM_Y_MEM r13 r12 r11 r10 r9 r8     18
 	ABS_SUB48  r19 r18 r17 r16 r15 r14    r13 r12 r11 r10 r9 r8   r0
-#undef ZERO
+
+		                                                                               //free tmp regs
+	SQUARE_48_ADD  	r5 r4 r3 r2 r7 r6  r25 r24 r23 r22 r21 r20    r13 r12 r11 r10 r9 r8	r27 r26 r29 r28
+
 	push	r7
 	push	r6
-	SQUARE_48   r13,r12,r11,r10,r9,r8  r29 r28 r27 r26 r7 r6   r19 r18 r17 r16 r15 r14
+	SQUARE_48c   r13,r12,r11,r10,r9,r8  r29 r28 r27 r26 r7 r6   r19 r18 r17 r16 r15 r14
 	pop	r0
 	pop	r1
 
@@ -3874,10 +4038,11 @@ rsa_square_192_no_abi:
 	ADC48   r5 r4 r3 r2 r1 r0    r7 r7 r7 r7 r7 r6	
 
 	STORE48_TO_MEM 36 r25 r24 r23 r22 r21 r20
-	STORE48_TO_MEM 42 r5 r4 r3 r2 r1 r0
 
-	pop	r29
-	pop	r28
+// restore operand pointer
+	ldd	r29,Z+47
+	ldd	r28,Z+46
+	STORE48_TO_MEM 42 r5 r4 r3 r2 r1 r0
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // create B+C, propagate carry to D, save carry from B+C..
 
@@ -3929,31 +4094,25 @@ rsa_square_192_no_abi:
 	push	r31
 
 // calculate middle part
-	LOAD48_FROM_Y_MEM  r7  r6  r5  r4  r3  r2  0
-	LOAD48_FROM_Y_MEM  r19 r18 r17 r16 r31 r30 6
+	LOAD48_FROM_Y_MEM  r19 r18 r17 r16 r31 r30 0
+	LOAD48_FROM_Y_MEM  r7  r6  r5  r4  r3  r2  6
 	LOAD48_FROM_Y_MEM  r13 r12 r11 r10 r9  r8  12
 	LOAD48_FROM_Y_MEM  r25 r24 r23 r22 r21 r20 18
 
-	SUB48  r7  r6  r5  r4  r3  r2   r13 r12 r11 r10 r9  r8
-	SBC48  r19 r18 r17 r16 r31 r30  r25 r24 r23 r22 r21 r20
+	SUB48  r19,r18,r17,r16,r31,r30	r13 r12 r11 r10 r9  r8
+	SBC48  r7,r6,r5,r4,r3,r2	r25 r24 r23 r22 r21 r20
 	sbc r0,  r0
-	ABS96 r19 r18 r17 r16 r31 r30  r7 r6 r5 r4 r3 r2   r0
+	ABS96	r7,r6,r5,r4,r3,r2	r19,r18,r17,r16,r31,r30		r0
 
-	SQUARE_48   r25 r24 r23 r22 r21 r20   r13 r12 r11 r10 r9 r8    r7 r6 r5 r4 r3 r2
-// save low part of result on stack
-	push 	r8
-        push	r9
-	push	r10
-	push	r11
-	push 	r12
-	push	r13
-
-	clr	r9                                                                               //free tmp regs
-	SQUARE_48_ADD r13 r12 r11 r10 r15 r14   r25 r24 r23 r22 r21 r20   r19 r18 r17 r16 r31 r30  r9 r8 r29,r28
+// r13..r8 is saved in stack inside SQUARE_48_sp macro
+	SQUARE_48_sp   r25 r24 r23 r22 r21 r20   r13 r12 r11 r10 r9 r8    r19 r18 r17 r16 r31 r30
 
 	ABS_SUB48  r19 r18 r17 r16 r31 r30    r7 r6 r5 r4 r3 r2   r0
 
-	SQUARE_48   r3 r2 r9 r8 r5 r4  r29 r28 r27 r26 r7 r6    r19 r18 r17 r16 r31 r30
+		                                                                               //free tmp regs
+	SQUARE_48_ADD r13 r12 r11 r10 r15 r14   r25 r24 r23 r22 r21 r20   r7 r6 r5 r4 r3 r2        r9 r8 r29,r28
+
+	SQUARE_48c   r3 r2 r9 r8 r5 r4  r29 r28 r27 r26 r7 r6    r19 r18 r17 r16 r31 r30
 
 	in	r30,0x3d
 	in	r31,0x3e

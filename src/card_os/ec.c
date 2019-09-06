@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -44,6 +44,10 @@
     is preferred to security, use 0 bytes in blinding.
 */
 
+#define DEBUG_ECC
+#include "debug.h"
+
+
 //    number of bytes for blinding key in ec_mul, (tested for 0 and 4 only)
 #define EC_BLIND 4
 
@@ -63,7 +67,7 @@
 
 
 uint8_t
-mp_get_len ()
+mp_get_len (void)
 {
   return mod_len;
 }
@@ -83,22 +87,6 @@ extern void rsa_square_384 (uint8_t * r, uint8_t * a);
 extern void rsa_square_256 (uint8_t * r, uint8_t * a);
 extern void rsa_square_192 (uint8_t * r, uint8_t * a);
 
-#ifdef EC_DEBUG
-#include <stdio.h>
-#define  DPRINT(msg...) fprintf(stderr,msg)
-static void __attribute__ ((unused)) hex_print_f (FILE * f, bignum_t * t)
-{
-  int8_t i;
-  uint8_t *T = (void *) t;
-
-  fprintf (f, "0x");
-  for (i = mp_get_len () - 1; i >= 0; i--)
-    fprintf (f, "%02X", T[i]);
-  fprintf (f, "\n");
-}
-#else
-#define DPRINT(msg...)
-#endif
 
 typedef struct
 {
@@ -357,7 +345,7 @@ secp256k1reduction (bignum_t * result, bigbignum_t * bn)
 // there is enough to calculate 80 bites for k, use 16 bytes
 // because mp_add in ASM is designed to use 64 bit in one loop
   mp_set_len (16);
-
+  // coverity[suspicious_sizeof]
   memset (&w1, 0, 32);
   memcpy (&w1, a + 60, 4);
 
@@ -661,6 +649,7 @@ fast192reduction (bignum_t * result, bigbignum_t * bn)
   // ADD the diagonal parts to T
   field_add ((bignum_t *) bn, (bignum_t *) & bn->value[3 * 8]);
   // generate (0 || A5 || 0) in result
+  // coverity[suspicious_sizeof]
   memset (result, 0, 3 * 8);
   memcpy (&result->value[1 * 8], &bn->value[5 * 8], 8);
   // result = T + diagonal parts +  (0 || A5 || 0) (in result)
@@ -973,7 +962,7 @@ ec_mul (ec_point_t * point, uint8_t * k)
 
   i = mp_get_len () - 1 + EC_BLIND;
 #if MP_BYTES >= 66
-  if (curve_type == (C_SEPC521R1 | C_SEPC521R1_MASK))
+  if (curve_type == (C_SECP521R1 | C_SECP521R1_MASK))
     i = 66 + EC_BLIND - 1;
 #endif
   for (; i >= 0; i--)

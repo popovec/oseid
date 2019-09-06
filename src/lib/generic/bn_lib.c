@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -41,10 +41,10 @@
 
 #define __BN_LIB_SELF__
 
-#warning rename to bn_bytes..
-uint8_t mod_len __attribute__ ((section (".noinit")));	// global variable - number of significant bytes for BN operation
-uint16_t bn_real_bit_len __attribute__ ((section (".noinit")));	// global variable - number of bits  for opreation (this number * 8)>=mod_len
-uint8_t bn_real_byte_len __attribute__ ((section (".noinit")));
+//#warning rename to bn_bytes..
+uint8_t mod_len __attribute__((section (".noinit")));	// global variable - number of significant bytes for BN operation
+uint16_t bn_real_bit_len __attribute__((section (".noinit")));	// global variable - number of bits  for opreation (this number * 8)>=mod_len
+uint8_t bn_real_byte_len __attribute__((section (".noinit")));
 
 #include "bn_lib.h"
 
@@ -56,7 +56,9 @@ bn_set_bitlen (uint16_t blen)
   bn_real_byte_len = len;
   bn_real_bit_len = blen;
 
-  if (len <= 48)
+  if (len <= 32)
+    len = 32;
+  else if (len <= 48)
     len = 48;
   else if (len <= 64)
     len = 64;
@@ -86,7 +88,7 @@ bn_swap (void *a, void *b)
 }
 
 
-uint8_t __attribute__ ((weak)) bn_is_zero (void *k)
+uint8_t __attribute__((weak)) bn_is_zero (void *k)
 {
   uint8_t j = 0, ret;
   uint8_t len = mod_len;
@@ -103,7 +105,7 @@ uint8_t __attribute__ ((weak)) bn_is_zero (void *k)
   return ret;
 }
 
-uint8_t __attribute__ ((weak)) bn_neg (void *a)
+uint8_t __attribute__((weak)) bn_neg (void *a)
 {
   uint8_t *A = (uint8_t *) a;;
   uint8_t carry;
@@ -126,8 +128,8 @@ uint8_t __attribute__ ((weak)) bn_neg (void *a)
 
 
 uint8_t
-  __attribute__ ((weak)) bn_add_v (void *r, void *a, uint8_t len,
-				   uint8_t carry)
+  __attribute__((weak)) bn_add_v (void *r, void *a, uint8_t len,
+				  uint8_t carry)
 {
   uint8_t *A, *R;
   uint8_t i = 0;
@@ -151,13 +153,13 @@ uint8_t
   return carry;
 }
 
-uint8_t __attribute__ ((weak)) bn_add (void *r, void *a)
+uint8_t __attribute__((weak)) bn_add (void *r, void *a)
 {
   return bn_add_v (r, a, mod_len, 0);
 }
 
 /////////////////////////////////////////////////////////////////////
-uint8_t __attribute__ ((weak))
+uint8_t __attribute__((weak))
 bn_sub_v (void *r, void *a, void *b, uint8_t len)
 {
   uint8_t *A, *B, *R;
@@ -184,19 +186,19 @@ bn_sub_v (void *r, void *a, void *b, uint8_t len)
   return carry;
 }
 
-uint8_t __attribute__ ((weak)) bn_sub (void *r, void *a, void *b)
+uint8_t __attribute__((weak)) bn_sub (void *r, void *a, void *b)
 {
   return bn_sub_v (r, a, b, mod_len);
 }
 
-uint8_t __attribute__ ((weak)) bn_sub_long (void *r, void *a, void *b)
+uint8_t __attribute__((weak)) bn_sub_long (void *r, void *a, void *b)
 {
   return bn_sub_v (r, a, b, mod_len * 2);
 }
 
 /////////////////////////////////////////////////////////////////////
 // return  1  if c >= d
-uint8_t __attribute__ ((weak)) bn_cmpGE (void *c, void *d)
+uint8_t __attribute__((weak)) bn_cmpGE (void *c, void *d)
 {
   uint8_t *C = (uint8_t *) c;
   uint8_t *D = (uint8_t *) d;
@@ -215,7 +217,7 @@ uint8_t __attribute__ ((weak)) bn_cmpGE (void *c, void *d)
 }
 
 /////////////////////////////////////////////////////////////////////
-void __attribute__ ((weak)) bn_sub_mod (void *r, void *a, void *mod)
+void __attribute__((weak)) bn_sub_mod (void *r, void *a, void *mod)
 {
   uint8_t carry;
 
@@ -224,7 +226,7 @@ void __attribute__ ((weak)) bn_sub_mod (void *r, void *a, void *mod)
     bn_add (r, mod);
 }
 
-void __attribute__ ((weak)) bn_add_mod (void *r, void *a, void *mod)
+void __attribute__((weak)) bn_add_mod (void *r, void *a, void *mod)
 {
   uint8_t carry;
 
@@ -236,7 +238,7 @@ void __attribute__ ((weak)) bn_add_mod (void *r, void *a, void *mod)
 }
 
 /////////////////////////////////////////////////////////////////////
-uint8_t __attribute__ ((weak)) bn_shift_L_v (void *r, uint8_t len)
+uint8_t __attribute__((weak)) bn_shift_L_v (void *r, uint8_t len)
 {
   uint8_t carry = 0;
   uint16_t Res;
@@ -254,14 +256,14 @@ uint8_t __attribute__ ((weak)) bn_shift_L_v (void *r, uint8_t len)
   return carry;
 }
 
-uint8_t __attribute__ ((weak)) bn_shiftl (void *r)
+uint8_t __attribute__((weak)) bn_shiftl (void *r)
 {
   return bn_shift_L_v (r, mod_len);
 }
 
 //////////////////////////////////////////////////////////////////////////////////
 uint8_t
-  __attribute__ ((weak)) bn_shift_R_v_c (void *r, uint8_t len, uint8_t carry)
+  __attribute__((weak)) bn_shift_R_v_c (void *r, uint8_t len, uint8_t carry)
 {
   uint16_t Res;
   uint8_t *R = (uint8_t *) r;
@@ -283,7 +285,7 @@ uint8_t
   return c2;
 }
 
-uint8_t __attribute__ ((weak)) bn_shift_R_v_signed (void *r, uint8_t len)
+uint8_t __attribute__((weak)) bn_shift_R_v_signed (void *r, uint8_t len)
 {
   uint8_t sign;
   uint8_t *tmp = (uint8_t *) r;
@@ -292,24 +294,24 @@ uint8_t __attribute__ ((weak)) bn_shift_R_v_signed (void *r, uint8_t len)
   return bn_shift_R_v_c (r, len, sign);
 }
 
-uint8_t __attribute__ ((weak)) bn_shiftr (void *r)
+uint8_t __attribute__((weak)) bn_shiftr (void *r)
 {
   return bn_shift_R_v_c (r, mod_len, 0);
 }
 
-uint8_t __attribute__ ((weak)) bn_shiftr_c (void *r, uint8_t carry)
+uint8_t __attribute__((weak)) bn_shiftr_c (void *r, uint8_t carry)
 {
   return bn_shift_R_v_c (r, mod_len, carry);
 }
 
-uint8_t __attribute__ ((weak)) bn_shiftr_long (void *r)
+uint8_t __attribute__((weak)) bn_shiftr_long (void *r)
 {
   return bn_shift_R_v_c (r, mod_len * 2, 0);
 }
 
 
 /////////////////////////////////////////////////////////////////////
-void __attribute__ ((weak)) bn_mul_v (void *R, void *A, void *B, uint8_t len)
+void __attribute__((weak)) bn_mul_v (void *R, void *A, void *B, uint8_t len)
 {
   uint8_t i, j, c;
   uint8_t a_;
@@ -342,7 +344,50 @@ void __attribute__ ((weak)) bn_mul_v (void *R, void *A, void *B, uint8_t len)
 /////////////////////////////////////////////////////////////////////
 #include <alloca.h>
 
-void __attribute__ ((weak)) bn_mod (void *result, void *mod)
+// reduce 'result' by modulus 'mod', assume, modulus hogest bit is sero!
+void __attribute__((weak)) bn_mod_half (void *result, void *mod)
+{
+  uint8_t *tmp;
+  uint8_t *helper;
+
+  tmp = alloca (mod_len * 2);
+  helper = alloca (mod_len * 2);
+
+  uint8_t *tmp_result[2];
+
+  uint16_t i;
+  uint8_t index;
+
+  memset (tmp, 0, mod_len * 2);	// 1+3/4 * mod_len bytes is sufficient
+  memcpy (tmp + mod_len / 2, mod, mod_len);
+  bn_shift_L_v (tmp, mod_len * 2);	// 1+ 3/4 mod_len bytes is sufficient
+
+  i = 1 + mod_len * 8 / 2;	// half operand + 1 bit
+
+// get pointers for posible results
+  tmp_result[0] = result;
+  tmp_result[1] = helper;
+// first calculate result - tmp, - init index at 0
+
+  index = 0;
+  do
+    {
+      // subtract from result, if this generates carry
+      // (result < tmp), switch to unchanged result
+
+      // TODO 1 + 3/4 bytes is enough
+      if (!bn_sub_long (tmp_result[(~index) & 1], tmp_result[index & 1], tmp))
+	index++;
+      bn_shiftr_long (tmp);
+    }
+  while (i--);
+
+  memcpy (result, tmp_result[index & 1], mod_len);
+  return;
+}
+
+
+void __attribute__((weak)) bn_mod (void *result, void *mod)
 {
   uint8_t *tmp;
   uint8_t *helper;
@@ -418,7 +463,7 @@ void __attribute__ ((weak)) bn_mod (void *result, void *mod)
 // AVR or other 8 bit CPUs but ASM version is recomended (because code speed
 // and size)
 
-uint8_t __attribute__ ((weak)) bn_abs_sub (void *r, void *a, void *b)
+uint8_t __attribute__((weak)) bn_abs_sub (void *r, void *a, void *b)
 {
 #if 0
   if (bn_cmpGE (a, b))
@@ -442,7 +487,7 @@ uint8_t __attribute__ ((weak)) bn_abs_sub (void *r, void *a, void *b)
 }
 
 //static uint16_t
-uint16_t __attribute__ ((weak)) bn_count_bits (void *n)
+uint16_t __attribute__((weak)) bn_count_bits (void *n)
 {
   uint8_t val;
   uint8_t byte = mod_len;
@@ -469,7 +514,7 @@ uint16_t __attribute__ ((weak)) bn_count_bits (void *n)
 
 // 0 - inversion exists
 // 1 - no inversion exists
-uint8_t __attribute__ ((weak)) bn_inv_mod (void *result, void *a, void *m)
+uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
 {
   uint8_t bn_len = mod_len;
 
@@ -639,7 +684,7 @@ bn_is_1 (void *n)
 // never ending loop. This code fail for not coprime numbers too.
 #error Do not use this code, this code fail for RSA key calculation (because even modulus)
 
-uint8_t __attribute__ ((weak)) bn_inv_mod (void *r, void *c, void *p)
+uint8_t __attribute__((weak)) bn_inv_mod (void *r, void *c, void *p)
 {
   uint8_t carry;
   uint8_t *u, *v, *x1, *x2;

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -65,9 +65,7 @@ uint8_t ATR[33] __attribute__ ((section (".noinit")));
 enum TPDU_states
 {
   T_IDLE,
-  T_WAIT_RESPONSE,
-  T_WAIT_PROCEDURE_BYTE,
-  T_WAIT_STATUS,
+  T_RUNNING,
 };
 
 volatile uint8_t TPDU_state __attribute__ ((section (".noinit")));
@@ -76,11 +74,13 @@ uint8_t card_ins __attribute__ ((section (".noinit")));
 
 // card IO buffers/variables
 // 0  no data for card, or data len
-volatile uint8_t card_rx_len __attribute__ ((section (".noinit")));
+volatile uint16_t card_rx_len __attribute__ ((section (".noinit")));
 uint8_t CCID_card_buffer[271] __attribute__ ((section (".noinit")));
 uint8_t *card_rx_buffer __attribute__ ((section (".noinit")));
-// response from card (256 bytes of response + status 2 bytes)
-uint8_t card_response[271] __attribute__ ((section (".noinit")));
+
+// response from card (259 bytes of response + status 2 bytes.. + 10 bytes for CCID part)
+#define MAX_RESP_LEN 271
+uint8_t card_response[MAX_RESP_LEN] __attribute__ ((section (".noinit")));
 uint16_t card_response_len __attribute__ ((section (".noinit")));
 
 
@@ -128,9 +128,14 @@ uint16_t card_response_len __attribute__ ((section (".noinit")));
 // limit max size: (T1 protocol 48 bytes) + (10 bytes CCID header) < 64
 #define F_IFS_SIZE 48
 
-uint8_t T1_APDU_buffer_recv[261] __attribute__ ((section (".noinit")));
+#define MAX_T1_APDU (5+2+257+2)
+uint8_t T1_APDU_buffer_recv[MAX_T1_APDU]
+  __attribute__ ((section (".noinit")));
 uint16_t T1_APDU_len_recv __attribute__ ((section (".noinit")));
-uint8_t T1_APDU_response[271] __attribute__ ((section (".noinit")));
+
+// same as card_response, but without CCID part (used for retransit)
+uint8_t T1_APDU_response[MAX_RESP_LEN - 10]
+  __attribute__ ((section (".noinit")));
 uint16_t T1_APDU_response_len __attribute__ ((section (".noinit")));
 
 struct t1
@@ -351,7 +356,7 @@ T1_wrapper (uint8_t * t1_data, uint16_t t1_len)
 	  t1.need_ack = 0;
 	}
       // is space in buffer ?
-      if (T1_APDU_len_recv + t1_data[T1_LEN] > 261)
+      if (T1_APDU_len_recv + t1_data[T1_LEN] > MAX_T1_APDU)
 	{
 	  t1_data[T1_PCB] = F_ABORT_REQUEST;
 	  t1_data[T1_LEN] = 0;
@@ -443,7 +448,7 @@ T1_return_data ()
   size = t1_send_data (t1_data);
 
   // CCID header ..
-  buffer[1] = size + 4;	// add 4 bytes for CCID frame (NAD,PCB,SIZE,LRC)
+  buffer[1] = size + 4;		// add 4 bytes for CCID frame (NAD,PCB,SIZE,LRC)
   buffer[2] = 0;
 
   t1_data[t1_data[T1_LEN] + 3] = t1_lrc (t1_data, t1_data[T1_LEN] + 3);
@@ -452,10 +457,10 @@ T1_return_data ()
 }
 
 // NOT called from ISR
-uint8_t
-card_io_rx (uint8_t * data, uint8_t len)
+uint16_t
+card_io_rx (uint8_t * data, uint16_t len)
 {
-  uint8_t l_len;
+  uint16_t l_len;
 
   // wait for data from CCID layer
   while (!card_rx_len)
@@ -469,118 +474,65 @@ card_io_rx (uint8_t * data, uint8_t len)
 
   // copy data to card ..
   memcpy (data, card_rx_buffer, l_len);
+
+  if (reader_protocol)
+    return l_len | 0x8000;
   return l_len;
 }
-// 256 bytes TPDU response + 2 status + 10 CCID header
-#define MAX_RESP_LEN 268
+
 // NOT called from ISR
 uint8_t
-card_io_tx (uint8_t * data, uint8_t len)
+card_io_tx (uint8_t * data, uint16_t len)
 {
-  uint8_t p_byte;
+  // do not handle data from card if CCID layer does not request data
+  if (TPDU_state == T_IDLE)
+    return 0;
 
-  p_byte = data[0];
+  // if len == 0 65536 bytes in buffer, do not check "len"
 
-  switch (TPDU_state)
+  // T0 protocol may request rest of APDU
+// for now only T0 protocol is sended to card ..
+  if (reader_protocol == 0)
     {
-    case T_IDLE:
-      // no data is expected from card .. drop data
-      return 0;
-    case T_WAIT_RESPONSE:
-      {
-	uint16_t llen = len;
-	if (len == 0)
-	  llen = 256;
-	// only copy data from card, then wait for status,
-	// send this to host in one message
-	// send response to host
-	// check size, truncate oversized response
-	if (card_response_len + llen > MAX_RESP_LEN)
-	  llen = MAX_RESP_LEN - card_response_len;
-	memcpy (card_response + card_response_len, data, llen);
-	card_response_len += llen;
-	TPDU_state = T_WAIT_STATUS;
-	return 0;
-      }
-
-    case T_WAIT_PROCEDURE_BYTE:
-      if (p_byte == 0xc0)	// data from card (no other check for OsEID)
+      if (data[0] == card_ins)
 	{
-	  TPDU_state = T_WAIT_RESPONSE;
-	  return 0;
-	}
-      if (p_byte == card_ins)	// for OsEID no need to handle ~ins, ins+1, ~(ins+1), 0x60
-	{
-	  // rest of APDU to card (only if data len >0)
-	  if (CCID_card_buffer[14])
+	  if (len == 1)
 	    {
-	      card_rx_buffer = CCID_card_buffer + 15;
-	      card_rx_len = CCID_card_buffer[14];
-	      TPDU_state = T_WAIT_STATUS;
+	      // send rest of APDU  to card
+	      // OsEID card can handle all APDU cases, card send single
+	      // INS only if rest of  APDU is needed.
+	      if (CCID_card_buffer[14])
+		{
+		  card_rx_buffer = CCID_card_buffer + 15;
+		  card_rx_len = CCID_card_buffer[14];	// max 255 bytes
+		  CCID_card_buffer[14] = 0;
+		}
 	      return 0;
 	    }
-	  // protocol error ? or return 1 byte status ?
-	  // No data for this APDU, return one byte response
-	  // back to host (fall through to T_WAIT_STATUS:)
-	  card_response[card_response_len] = card_ins;
-	  // truncate oversized output from card
-	  if (card_response_len < MAX_RESP_LEN)
-	    card_response_len++;
+	  else
+	    {
+	      // in buffer: procedure byte, response, SW1,SW2
+	      // remove procedure byte from response
+	      data++;
+	      len--;
+	    }
 	}
-      p_byte &= 0xf0;
-      // len 1 for 0x90  is ok ?
-      if ((p_byte != 0x60 && p_byte != 0x90) || len > 2)
-	{
-	  // protocol error
-	  card_response[1] = 0;
-	  card_response[2] = 0;
-	  Status.bmCommandStatus = 1;
-	  card_response[7] = Status.SlotStatus;
-	  card_response[8] = SlotError = 0xf4;
-// here card_response_len can be set to fixed 10 bytes ?
-	  CCID_response_to_host (card_response, card_response_len);
-	  TPDU_state = T_IDLE;
-	  return 0;
-	}
-      // fall through, send
-    case T_WAIT_STATUS:
-/*
-//truncate ovesized status (0=256!)
-// TODO this code is wrong
-      if (len > 2)
-	len = 2;
-      if (len == 0)
-	len = 2;
-*/
-
-      if (reader_protocol == 1 && data[0] == 0x61)
-	{
-	  // fake response length for wrong response..
-	  if (len == 1)
-	    data[1] = 1;
-	  CCID_card_buffer[0] = 0;
-	  CCID_card_buffer[1] = 0xc0;
-	  CCID_card_buffer[2] = 0;
-	  CCID_card_buffer[3] = 0;
-	  CCID_card_buffer[4] = data[1] > 128 ? 128 : data[1];
-	  card_rx_buffer = CCID_card_buffer;
-	  card_rx_len = 5;
-	  TPDU_state = T_WAIT_PROCEDURE_BYTE;
-	  return 0;
-	}
-
-      // send response to host
-      memcpy (card_response + card_response_len, data, len);
-      card_response_len += len;
-      card_response[1] = (card_response_len - 10) & 0xff;
-      card_response[2] = (card_response_len - 10) >> 8;
-      TPDU_state = T_IDLE;
-      if (reader_protocol == 1)
-	T1_return_data ();
-      else
-	CCID_response_to_host (card_response, card_response_len);
-      return 0;
+//        else
+//              no procedure byte, do not check for valid SW, return as is to host
     }
+  // return response to host
+  if (card_response_len + len > MAX_RESP_LEN)
+    len = MAX_RESP_LEN - card_response_len;
+  memcpy (card_response + card_response_len, data, len);
+  card_response_len += len;
+  // update size in CCID header
+  card_response[1] = (card_response_len - 10) & 0xff;
+  card_response[2] = (card_response_len - 10) >> 8;
+  TPDU_state = T_IDLE;
+  if (reader_protocol == 1)
+    T1_return_data ();
+  else
+    CCID_response_to_host (card_response, card_response_len);
   return 0;
 }
 
@@ -607,6 +559,8 @@ static int8_t
 run_card (uint8_t * ccid_command, uint8_t * response)
 {
   uint8_t ret;
+  uint16_t t1_size = 0;
+
   if (reader_protocol == 1)
     {
       // T1 protocol
@@ -640,11 +594,13 @@ run_card (uint8_t * ccid_command, uint8_t * response)
 	  CCID_card_buffer[1] = T1_APDU_len_recv & 0xff;
 	  CCID_card_buffer[2] = T1_APDU_len_recv >> 8;
 	  memcpy (CCID_card_buffer + 10, T1_APDU_buffer_recv, 261);
+	  t1_size = T1_APDU_len_recv;
 	  T1_APDU_len_recv = 0;
 	}
     }
   else
     {
+      // protocol T0
       if (TPDU_state == T_IDLE)
 	// just copy ccid data into CCID_card_buffer
 	memcpy (CCID_card_buffer, ccid_command, 271);
@@ -694,8 +650,12 @@ run_card (uint8_t * ccid_command, uint8_t * response)
 // send command to card (card software wait for card_rx_len in busy loop)
 
   card_rx_buffer = CCID_card_buffer + 10;
-  card_rx_len = 5;
-  TPDU_state = T_WAIT_PROCEDURE_BYTE;
+  if (reader_protocol == 0)
+    card_rx_len = 5;
+  else
+    card_rx_len = t1_size;
+
+  TPDU_state = T_RUNNING;
 // CCID header is already prepared, set only status/error
   Status.bmCommandStatus = 0;	// command ok
 
@@ -828,7 +788,7 @@ func_PC_to_RDR_IccPowerOn (uint8_t * command, uint8_t * response)
   Status.bmICCStatus = 0;	//ICC present, active
   response[7] = Status.SlotStatus;
   response[8] = SlotError;
-  response[1] = C_ATR_LEN;		// set response length
+  response[1] = C_ATR_LEN;	// set response length
   return C_ATR_LEN + 10;
 }
 

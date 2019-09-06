@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015,2017,2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,12 +26,15 @@
 
 card_io_tx:
 	movw	r30,r24
+	movw	r26,r22
+
 	ldi	r24,0
 	sts	0xff,r24	//reset output fifo
+// insert data into buffer (up to 261 bytes..)
 card_io_tx_loop:	
 	ld	r24,Z+
 	sts     0xfe,r24
-	dec	r22
+	sbiw	r26,1
 	brne	card_io_tx_loop
 
 	ldi	r24,1
@@ -43,23 +46,32 @@ card_io_tx_loop:
 
 card_io_rx:
 	movw	r30,r24
-card_io_rx_repeat:
-	ldi	r24,2
-	sts	0xff,r24 	// read line
+	movw	r24,r22		// length
+	ldi	r22,2
+// next instruction waits until input is available
+	sts	0xff,r22 	// read line
 
-	lds	r24,0xff	// number of bytes
-	tst	r24
-	breq	card_io_rx_repeat
-	mov	r25,r24
-	cp	r22,r25
-	brcc	card_io_rx_loop
-	mov	r25,r22
-//
+// clear counter
+	clr	r26
+	clr	r27
+
 card_io_rx_loop:
+	lds	r23,0xff
+	tst	r23
+	breq	1f	// no more characters, skip to end
+// protocol...
+	bst	r23,0
+	bld	r27,7
+// in r23 0xF0 or 0xF1 signalize us protocol
+// read char
 	lds	r0,0xfe
-	st	Z+,r0
-	dec	r25
+	st	z+,r0
+	adiw	r26,1	// byte counter (bit 15 protocol)
+	sbiw	r24,1
 	brne	card_io_rx_loop
+1:
+	movw	r24,r26
+// return r25:r24 - length of data (bit 15 is protocol)
 	ret
 
 .global card_io_start_null
@@ -72,36 +84,7 @@ card_io_start_null:
 .type card_io_init, @function
 
 card_io_init:
-	ldi	r24,0
-	sts	0xff,r24	//reset output fifo
-
-	ldi	r24,0x3f
-	sts	0xfe,r24	// out 3f
-	ldi	r24,0xf5
-	sts	0xfe,r24	// out f5
-	ldi	r24,0x18
-	sts	0xfe,r24	// out 18
-	ldi	r24,0x00
-	sts	0xfe,r24	// out 00
-	ldi	r24,0x02
-	sts	0xfe,r24	// out 02
-	ldi	r24,0x10
-	sts	0xfe,r24	// out 10
-	ldi	r24,0x80
-	sts	0xfe,r24	// out 80
-	ldi	r24,0x4f
-	sts	0xfe,r24	// out 4f
-	ldi	r24,0x73
-	sts	0xfe,r24	// out 73
-	ldi	r24,0x45
-	sts	0xfe,r24	// out 45
-	ldi	r24,0x49
-	sts	0xfe,r24	// out 49
-	ldi	r24,0x44
-	sts	0xfe,r24	// out 44
-
-	ldi	r24,1
-	sts	0xff,r24	// print fifo
+// ATR is managed in patched simulavr...
 	ret
 
 .global card_io_stop_null

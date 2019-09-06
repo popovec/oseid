@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -49,7 +49,7 @@ static uint8_t sd[SECSIZE];
 
 
 static uint8_t
-device_writeback ()
+device_writeback (void)
 {
   int f;
   int size, xsize;
@@ -79,7 +79,7 @@ device_writeback ()
 }
 
 static uint8_t
-device_init ()
+device_init (void)
 {
   int f;
   int size, xsize;
@@ -113,6 +113,7 @@ device_init ()
       return 1;
     }
   initialized = 1;
+  close (f);
   return 0;
 }
 

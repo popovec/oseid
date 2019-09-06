@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,6 +26,8 @@
 // 0x10000 .. 0x1FF00 for data
 // 0x1FF00 .. 0x1FFFF SPM code
 
+// EEPROM 0x000-0x7ff - constants (used in constants.c)
+//        0x800-0xfff - sec memory(pins..)
 */
 
 osccal_min:
@@ -68,6 +70,7 @@ sec_device_write_block:
 sec_device_block:
 	movw	r30,r24		// RAM pointer
 	movw	r26,r22		// EEPROM pointer
+	ori	r27,0x08	// offset 2048 byte in EEPROM
 
 	mov	r24,r20         //size
 	dec	r20

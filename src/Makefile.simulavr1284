@@ -2,6 +2,8 @@
 # apt-get install avrdude srecord avr-libc gcc-avr
 CC=avr-gcc
 OBJCOPY=avr-objcopy
+# Select atmega1284 CPU for testing 5 bits window (OsEID patch for simulavr
+# support 16kB RAM), to check memory usage, select atmega128
 CPU=atmega1284
 
 CFLAGS=  -Wall -Os -mmcu=$(CPU) -g -ffunction-sections
@@ -36,7 +38,7 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
-all:	$(BUILD)card.hex
+all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
 builddir:
 	@rm -rf $(BUILD)
@@ -169,11 +171,17 @@ $(BUILD)card_orig.hex:	$(BUILD)card.elf
 
 #insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+		cp $(BUILD)card_orig.hex $(BUILD)card.hex
 
-$(BUILD)card.eeprom.hex:	$(BUILD)card.elf
+#		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+
+$(BUILD)card_orig.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
-		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card.eeprom.hex
+		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card_orig.eeprom.hex
+
+$(BUILD)card.eeprom.hex:	$(BUILD)card_orig.eeprom.hex
+		cp	 $(BUILD)card_orig.eeprom.hex $(BUILD)card.eeprom.hex
+		srec_cat $(BUILD)card_orig.eeprom.hex -Intel `srec_cat $(BUILD)card_orig.eeprom.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.eeprom.hex -Intel
 
 $(BUILD)card.fuses.hex:		$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .fuse --set-section-flags=.fuses="alloc,load" --change-section-lma .fuse=0 \

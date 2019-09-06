@@ -44,6 +44,11 @@ typedef struct rsa_num
   uint8_t value[RSA_BYTES];	//128bytes for 2048 RSA modulus + reserve for carry
 } rsa_num;
 
+typedef struct rsa_half_num
+{
+  uint8_t value[RSA_BYTES/2];
+} rsa_half_num;
+
 // allow use rsa_long_num as two rsa_num
 typedef struct rsa_long_num
 {
@@ -106,10 +111,12 @@ struct rsa_crt_key
 
 uint8_t rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size);
 uint8_t rsa_keygen (uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint16_t size);
+uint8_t rsa_modulus(void *m);
 
 #ifdef USE_P_Q_INV
-void rsa_inv_mod_N (rsa_num * n_, rsa_num * modulus);
+void rsa_inv_mod_N (rsa_half_num * n_, rsa_num * modulus);
 void rsa_mod (rsa_long_num * result, rsa_num * mod);
+void barrett_constant(rsa_num * Bc, rsa_num * modulus);
 #endif
 #endif
 

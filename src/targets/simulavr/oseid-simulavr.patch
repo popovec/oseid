@@ -29,10 +29,10 @@ index f9e3efb..0ad2a34 100644
  	defn/43usb326.h    \
 diff --git a/src/OsEID.c b/src/OsEID.c
 new file mode 100644
-index 0000000..69018d3
+index 0000000..88e49aa
 --- /dev/null
 +++ b/src/OsEID.c
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,471 @@
 +/*
 + * $Id: stack.c,v 1.15 2004/01/30 07:09:56 troth Exp $
 + *
@@ -99,6 +99,9 @@ index 0000000..69018d3
 +// OsEID
 +typedef struct _Oseid Oseid;
 +
++#define OSEID_ATR "< 3b:f5:18:00:02:80:01:4f:73:45:49:44:1a\n"
++// full APDU (extended) for rsa 2048 sign = 5+2+257+2
++#define FIFO_LEN 266
 +struct _Oseid
 +{
 +  VDevice parent;
@@ -116,8 +119,9 @@ index 0000000..69018d3
 +  uint8_t FIFO;
 +  uint8_t FIFOCTRL;
 +
-+  uint8_t fifo[256];
-+  uint8_t flen;
++  uint8_t fifo[FIFO_LEN];
++  uint16_t flen;
++  uint8_t protocol;
 +};
 +
 +static Oseid *oseid_new (int addr, char *name);
@@ -169,17 +173,26 @@ index 0000000..69018d3
 +oseid_read (VDevice * dev, int addr)
 +{
 +  Oseid *oseid = (Oseid *) dev;
-+  uint8_t len = oseid->flen;
 +
-+  if (addr == (oseid->addr) + 1)
++// 0xF1 or 0xF0 - signalize protocol and character is available
++// 0 no character is available
++
++  if (addr == (oseid->addr) + 1)	// AVR IO REG 0xff
 +    {
-+      avr_message ("input len %d\n", oseid->flen);
-+      oseid->flen = 0;
-+      return len;
++      if (oseid->flen)
++	return oseid->protocol;
++      return 0;
 +    }
-+  if (addr == (oseid->addr) + 0)
-+    return oseid->fifo[oseid->flen++];
 +
++  if (addr == (oseid->addr) + 0)	// AVR IO REG 0xfe
++    {
++      uint8_t c;
++
++      c = oseid->fifo[0];
++      memmove (oseid->fifo, oseid->fifo + 1, FIFO_LEN - 1);
++      oseid->flen--;
++      return c;
++    }
 +  avr_error ("Bad address: 0x%04x", addr);
 +  return 0;
 +}
@@ -194,6 +207,7 @@ index 0000000..69018d3
 +    {
 +      if (val == 0)
 +	oseid->flen = 0;
++
 +      if (val == 1)
 +	{
 +	  printf ("< ");
@@ -202,26 +216,78 @@ index 0000000..69018d3
 +	  printf ("\n");
 +	  oseid->flen = 0;
 +	}
++
 +      if (val == 2)
 +	{
-+	  char buffer[1024];
++	  char buffer[4096];
 +	  int val;
 +	  char *pos;
-+	  printf ("> ");
 +
-+	  oseid->flen = 0;
-+	  fflush (stdin);
-+	  while (buffer != fgets (buffer, 1024, stdin));
-+	  pos = buffer;
++	  for (;;)
++	    {
++	      oseid->flen = 0;
++	      fflush (stdin);
 +
++	      for (;;)
++		{
++		  while (buffer != fgets (buffer, 1024, stdin));
++		  fprintf (stderr, "%s", buffer);
++		  if (buffer[0] == '>')
++		    break;
++		}
++	      // check special cases:
++	      if (0 == strncmp ("> R\n", buffer, 4))
++		{
++		  // card reset
++//                fprintf (stderr, "card reset, sending ATR\n");
++		  fprintf (stdout, OSEID_ATR);
++		  oseid->protocol = 0xf0;
++		  continue;
++		}
++	      if (0 == strncmp ("> D\n", buffer, 4))
++		{
++//                fprintf (stderr, "power down\n");
++		  continue;
++		}
++	      if (0 == strncmp ("> P\n", buffer, 4))
++		{
++		  // power up
++//                fprintf (stderr, "power up, sending ATR\n");
++		  fprintf (stdout, OSEID_ATR);
++		  oseid->protocol = 0xf0;
++		  continue;
++		}
++	      if (0 == strncmp ("> 0\n", buffer, 4))
++		{
++		  // protocol 0
++//                fprintf (stderr, "protocol 0\n");
++		  fprintf (stdout, "< 0\n");
++		  oseid->protocol = 0xf0;
++		  continue;
++		}
++	      if (0 == strncmp ("> 1\n", buffer, 4))
++		{
++		  // protocol 1
++//                fprintf (stderr, "protocol 1\n");
++		  fprintf (stdout, "< 1\n");
++		  oseid->protocol = 0xf1;
++		  continue;
++		}
++	      break;
++	    }
++
++	  pos = buffer + 2;
 +	  while (1 == sscanf (pos, "%2x ", &val))
 +	    {
-+	      if (pos > buffer + 1024)
++	      if (pos > buffer + 4090)
 +		break;
 +	      pos += 3;
++	      if (oseid->flen >= FIFO_LEN)
++		break;
 +	      oseid->fifo[oseid->flen] = val;
 +	      oseid->flen++;
 +	    }
++	  return;
 +	}
 +      if (val == 3)
 +	{
@@ -235,7 +301,10 @@ index 0000000..69018d3
 +
 +    }
 +  else if (addr == (oseid->addr) + 0)
-+    oseid->fifo[oseid->flen++] = val;
++    {
++      if (oseid->flen <= FIFO_LEN)
++	oseid->fifo[oseid->flen++] = val;
++    }
 +  else
 +    avr_error ("Bad address: 0x%04x (want %x)", addr, oseid->addr);
 +}
@@ -281,7 +350,7 @@ index 0000000..69018d3
 +  uint16_t addr;
 +
 +  uint8_t EECR, EEDR, EEARL, EEARH;
-+  uint8_t mem[1024];		// atmega128 only...
++  uint8_t mem[4096];		// atmega128, atmega1284
 +};
 +#endif
 +static EEprom *ee_new (int addr, char *name);
@@ -293,6 +362,27 @@ index 0000000..69018d3
 +static void ee_add_addr (VDevice * vdev, int addr, char *name, int rel_addr,
 +			 void *data);
 +
++// dirty access to eeprom mem  from gdb
++uint8_t *ee_mem;
++uint8_t
++gdb_ee_read (int adr)
++{
++  if (!ee_mem)
++    return 0;
++  if (adr < 4096)
++    return (ee_mem[adr]);
++  return 0;
++}
++
++void
++gdb_ee_write (int adr, uint8_t data)
++{
++  if (!ee_mem)
++    return;
++  if (adr < 4096)
++    ee_mem[adr] = data;
++  return;
++}
 +
 +VDevice *
 +ee_create (int addr, char *name, int rel_addr, void *data)
@@ -308,6 +398,7 @@ index 0000000..69018d3
 +  ee = avr_new (EEprom, 1);
 +  ee_construct (ee, addr, name);
 +  class_overload_destroy ((AvrClass *) ee, ee_destroy);
++  ee_mem = ee->mem;
 +  return ee;
 +}
 +
@@ -342,7 +433,7 @@ index 0000000..69018d3
 +    return ee->EEARL;
 +
 +  if (addr == (ee->addr) + 3)
-+    return ee->EEARH & 3;
++    return ee->EEARH & 15;
 +
 +  if (addr == (ee->addr) + 0)
 +    {
@@ -369,19 +460,19 @@ index 0000000..69018d3
 +    {
 +      if (val == 1)
 +	{
-+	  ee->EEDR = ee->mem[((ee->EEARH << 8 | ee->EEARL) & 0x3ff)];
-+/*
++	  ee->EEDR = ee->mem[((ee->EEARH << 8 | ee->EEARL) & 0xfff)];
++#if 0
 +	  avr_message ("triggered read from  0x%04x (%02x)\n",
-+		       (ee->EEARH << 8 | ee->EEARL) & 0x3ff, ee->EEDR);
-+*/	  
++		       (ee->EEARH << 8 | ee->EEARL) & 0xfff, ee->EEDR);
++#endif
 +	  return;
 +	}
 +      if (val & 2)
 +	{
 +
 +	  avr_message ("triggered write to  0x%04x (%02x)\n",
-+		       (ee->EEARH << 8 | ee->EEARL) & 0x3ff, ee->EEDR);
-+	  ee->mem[((ee->EEARH << 8 | ee->EEARL) & 0x3ff)] = ee->EEDR;
++		       (ee->EEARH << 8 | ee->EEARL) & 0xfff, ee->EEDR);
++	  ee->mem[((ee->EEARH << 8 | ee->EEARL) & 0xfff)] = ee->EEDR;
 +	}
 +    }
 +  else
@@ -392,7 +483,7 @@ index 0000000..69018d3
 +ee_reset (VDevice * dev)
 +{
 +  EEprom *ee = (EEprom *) dev;
-+  memset (ee->mem, 0xff, 1024);
++  memset (ee->mem, 0xff, 4096);
 +  avr_message ("EEprom reset\n");
 +}
 +
@@ -415,16 +506,18 @@ index 0000000..69018d3
 +}
 diff --git a/src/OsEID.h b/src/OsEID.h
 new file mode 100644
-index 0000000..3c2f9fb
+index 0000000..eaba831
 --- /dev/null
 +++ b/src/OsEID.h
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,9 @@
 +#ifndef _OsEID
 +#define _OsEID
 +
 +extern VDevice *ee_create (int addr, char *name, int rel_addr, void *data);
 +extern VDevice *oseid_create (int addr, char *name, int rel_addr, void *data);
 +
++uint8_t gdb_ee_read(int adr);
++void    gdb_ee_write(int adr,uint8_t data);
 +#endif
 diff --git a/src/avrcore.c b/src/avrcore.c
 index 089b770..b991a99 100644
@@ -491,29 +584,6 @@ index 25ef71f..4a28cde 100644
  
  /* Private
   
-diff --git a/src/config-h.in b/src/config-h.in
-index 7f41e6d..1f112e9 100644
---- a/src/config-h.in
-+++ b/src/config-h.in
-@@ -137,6 +137,9 @@
- /* Define to the one symbol short name of this package. */
- #undef PACKAGE_TARNAME
- 
-+/* Define to the home page for this package. */
-+#undef PACKAGE_URL
-+
- /* Define to the version of this package. */
- #undef PACKAGE_VERSION
- 
-@@ -186,7 +189,7 @@
- /* Define to rpl_realloc if the replacement function should be used. */
- #undef realloc
- 
--/* Define to `unsigned' if <sys/types.h> does not define. */
-+/* Define to `unsigned int' if <sys/types.h> does not define. */
- #undef size_t
- 
- /* Define missing socklen_t. */
 diff --git a/src/decoder.c b/src/decoder.c
 index 2712f51..d4e80c3 100644
 --- a/src/decoder.c
@@ -544,7 +614,7 @@ index 2712f51..d4e80c3 100644
  
 diff --git a/src/defn/OsEID128.h b/src/defn/OsEID128.h
 new file mode 100644
-index 0000000..fcae933
+index 0000000..7744595
 --- /dev/null
 +++ b/src/defn/OsEID128.h
 @@ -0,0 +1,380 @@
@@ -928,26 +998,6 @@ index 0000000..fcae933
 +
 +/* *INDENT-ON* */
 +#endif /* IN_DEVSUPP_C */
-diff --git a/src/defn/mega128.h b/src/defn/mega128.h
-index 736bc16..16dddba 100644
---- a/src/defn/mega128.h
-+++ b/src/defn/mega128.h
-@@ -281,7 +281,14 @@ static DevSuppDefn defn_atmega128 = {
-             .rd_mask = 0x1f,
-             .wr_mask = 0x1f,
-         },
--        { .addr = 0x68, .name = "SPMCSR", },
-+        {
-+            .addr = 0x68,
-+            .name = "SPMCSR",
-+            .vdev_create = spm_create,
-+            .reset_value = 0x00,
-+            .rd_mask = 0xff,
-+            .wr_mask = 0xff,
-+        },
-         { .addr = 0x6a, .name = "EICRA", },
-         { .addr = 0x6c, .name = "XMCRB", },
-         { .addr = 0x6d, .name = "XMCRA", },
 diff --git a/src/devsupp.c b/src/devsupp.c
 index 7552b9c..0fd6d66 100644
 --- a/src/devsupp.c
@@ -977,6 +1027,166 @@ index 7552b9c..0fd6d66 100644
      &defn_at43usb351,
      &defn_at43usb353,
      &defn_at43usb355,
+diff --git a/src/eeprom.c b/src/eeprom.c
+index a6e4341..a96aaf9 100644
+--- a/src/eeprom.c
++++ b/src/eeprom.c
+@@ -392,7 +392,7 @@ eeprom_dump_core (EEProm *eeprom, FILE * f_core)
+             line[0] = '\0';
+         }
+         snprintf (buf, 80, "%02x ", storage_readb (eeprom->stor, i));
+-        strncat (line, buf, 80 - strlen(line) - 1);
++        strncat (line, buf, 80 - strnlen(line,79) - 1);
+     }
+     if (dup > 0)
+     {
+diff --git a/src/flash.c b/src/flash.c
+index 570986a..3a73e87 100644
+--- a/src/flash.c
++++ b/src/flash.c
+@@ -252,7 +252,7 @@ flash_dump_core (Flash *flash, FILE * f_core)
+             line[0] = '\0';
+         }
+         snprintf (buf, 80, "%04x ", flash_read (flash, i));
+-        strncat (line, buf, 80 - strlen(line) - 1);
++        strncat (line, buf, 80 - strnlen(line,79) - 1);
+     }
+     if (dup > 0)
+     {
+diff --git a/src/gdbserver.c b/src/gdbserver.c
+index e15610d..0d4bdea 100644
+--- a/src/gdbserver.c
++++ b/src/gdbserver.c
+@@ -65,6 +65,11 @@
+ #include "gdb.h"
+ #include "sig.h"
+ 
++// dirty access to EERPOM
++uint8_t gdb_ee_read(int adr);
++void    gdb_ee_write(int adr,uint8_t data);
++
++#define USE_EEPROM_SPACE
+ /* *INDENT-OFF* */
+ #ifndef DOXYGEN                 /* have doxygen system ignore this. */
+ enum
+@@ -594,11 +599,11 @@ gdb_read_memory (GdbComm_T *comm, int fd, char *pkt)
+ 
+     buf = avr_new0 (uint8_t, (len * 2) + 1);
+ 
+-    if ((addr & MEM_SPACE_MASK) == SRAM_OFFSET)
++    if (addr >= SRAM_OFFSET && addr < EEPROM_OFFSET)
+     {
+         /* addressing sram */
+ 
+-        addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
++        addr -= SRAM_OFFSET;
+ 
+         /* Return an error to gdb if it tries to read or write any of the 32
+            general purpse registers. This allows gdb to know when a zero
+@@ -622,12 +627,10 @@ gdb_read_memory (GdbComm_T *comm, int fd, char *pkt)
+             }
+         }
+     }
+-    else if ((addr & MEM_SPACE_MASK) == FLASH_OFFSET)
++    else if (addr < SRAM_OFFSET)
+     {
+         /* addressing flash */
+ 
+-        addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
+-
+         is_odd_addr = addr % 2;
+         i = 0;
+ 
+@@ -664,14 +667,17 @@ gdb_read_memory (GdbComm_T *comm, int fd, char *pkt)
+         }
+     }
+ #if defined(USE_EEPROM_SPACE)
+-    else if ((addr & MEM_SPACE_MASK) == EEPROM_OFFSET)
++    else if (addr >= EEPROM_OFFSET)
+     {
+         /* addressing eeprom */
+ 
+-        addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
++        addr -= EEPROM_OFFSET;
+ 
+-        avr_warning ("reading of eeprom not yet implemented: 0x%x.\n", addr);
+-        snprintf (buf, len * 2, "E%02x", EIO);
++        for(i=0;i<len;i++){
++                bval = gdb_ee_read (addr + i);
++                buf[i * 2] = HEX_DIGIT[bval >> 4];
++                buf[i * 2 + 1] = HEX_DIGIT[bval & 0xf];
++        }
+     }
+ #endif
+     else
+@@ -702,11 +708,11 @@ gdb_write_memory (GdbComm_T *comm, int fd, char *pkt)
+ 
+     pkt += gdb_get_addr_len (pkt, ',', ':', &addr, &len);
+ 
+-    if ((addr & MEM_SPACE_MASK) == SRAM_OFFSET)
++    if (addr >= SRAM_OFFSET && addr < EEPROM_OFFSET)
+     {
+         /* addressing sram */
+ 
+-        addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
++        addr -= SRAM_OFFSET;
+ 
+         /* Return error. See gdb_read_memory for reasoning. */
+         /* FIXME: [TRoth 2002/03/31] This isn't working quite the way I
+@@ -726,7 +732,7 @@ gdb_write_memory (GdbComm_T *comm, int fd, char *pkt)
+             }
+         }
+     }
+-    else if ((addr & MEM_SPACE_MASK) == FLASH_OFFSET)
++    else if (addr < SRAM_OFFSET)
+     {
+         /* addressing flash */
+ 
+@@ -735,7 +741,6 @@ gdb_write_memory (GdbComm_T *comm, int fd, char *pkt)
+         if (comm->write_flash && comm->write_flash_lo8
+             && comm->write_flash_hi8)
+         {
+-            addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
+ 
+             is_odd_addr = addr % 2;
+ 
+@@ -775,14 +780,19 @@ gdb_write_memory (GdbComm_T *comm, int fd, char *pkt)
+         }
+     }
+ #if defined (USE_EEPROM_SPACE)
+-    else if ((addr & MEM_SPACE_MASK) == EEPROM_OFFSET)
++    else if (addr >= EEPROM_OFFSET)
+     {
+         /* addressing eeprom */
+ 
+-        addr = addr & ~MEM_SPACE_MASK; /* remove the offset bits */
++        addr -= EEPROM_OFFSET;
+ 
+-        avr_warning ("writing of eeprom not yet implemented: 0x%x.\n", addr);
+-        snprintf (reply, sizeof (reply), "E%02x", EIO);
++        avr_warning ("Gdb asked to write eeprom address = %x len %d\n",addr,len);
++            for (i = addr; i < addr + len; i++)
++            {
++                bval = hex2nib (*pkt++) << 4;
++                bval += hex2nib (*pkt++);
++                gdb_ee_write (i, bval);
++            }
+     }
+ #endif
+     else
+diff --git a/src/memory.c b/src/memory.c
+index 0809f55..0e5ace4 100644
+--- a/src/memory.c
++++ b/src/memory.c
+@@ -416,7 +416,7 @@ mem_sram_display (Memory *mem, FILE * f_core, int base, int size)
+             line[0] = '\0';
+         }
+         snprintf (buf, 80, "%02x ", mem_read (mem, i));
+-        strncat (line, buf, 80 - strlen(line) - 1);
++        strncat (line, buf, 80 - strnlen(line,79) - 1);
+     }
+     if (dup > 0)
+     {
 diff --git a/src/spm_helper.c b/src/spm_helper.c
 new file mode 100644
 index 0000000..81f7e92

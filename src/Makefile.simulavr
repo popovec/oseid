@@ -4,7 +4,6 @@ CC=avr-gcc
 OBJCOPY=avr-objcopy
 # Select atmega1284 CPU for testing 5 bits window (OsEID patch for simulavr
 # support 16kB RAM), to check memory usage, select atmega128
-#CPU=atmega1284
 CPU=atmega128
 
 CFLAGS=  -Wall -Os -mmcu=$(CPU) -g -ffunction-sections
@@ -39,7 +38,7 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
-all:	$(BUILD)card.hex
+all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
 builddir:
 	@rm -rf $(BUILD)
@@ -50,6 +49,7 @@ builddir:
 
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=4
+HAVE +=		-DEC_MUL_WINDOW=4
 
 # ECC size (in bytes 24,32,48,72)
 CFLAGS += -DMP_BYTES=48
@@ -61,7 +61,7 @@ HAVE +=         -DRAM_LE32
 
 TARGET_SPEC +=  $(BUILD)mp_mul_24.o
 TARGET_SPEC +=	$(BUILD)mp_mul_192.o
-#TARGET_SPEC +=	$(BUILD)mp_mul_521.o
+TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
@@ -172,11 +172,17 @@ $(BUILD)card_orig.hex:	$(BUILD)card.elf
 
 #insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+		cp $(BUILD)card_orig.hex $(BUILD)card.hex
 
-$(BUILD)card.eeprom.hex:	$(BUILD)card.elf
+#		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
+
+$(BUILD)card_orig.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
-		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card.eeprom.hex
+		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card_orig.eeprom.hex
+
+$(BUILD)card.eeprom.hex:	$(BUILD)card_orig.eeprom.hex
+		cp	 $(BUILD)card_orig.eeprom.hex $(BUILD)card.eeprom.hex
+		srec_cat $(BUILD)card_orig.eeprom.hex -Intel `srec_cat $(BUILD)card_orig.eeprom.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.eeprom.hex -Intel
 
 $(BUILD)card.fuses.hex:		$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .fuse --set-section-flags=.fuses="alloc,load" --change-section-lma .fuse=0 \

@@ -7,6 +7,7 @@ CPU=atmega128
 #PRG=usbtiny -B 10
 #PRG=dapa_i2c
 PRG=avrispmkII
+PRGCPU=m128
 
 ifeq ($(CARD_SERIAL),)
 CARD_SERIAL:= $(shell date +%s)
@@ -44,7 +45,7 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
-all:	$(BUILD)card.hex
+all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
 builddir:
 	@rm -rf $(BUILD)
@@ -163,11 +164,17 @@ $(BUILD)card_orig.hex:	$(BUILD)card.elf
 
 #insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
-		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004\002\020"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string $(CARD_SERIAL) -o $(BUILD)card.hex -Intel
+		cp	$(BUILD)card_orig.hex	$(BUILD)card.hex
 
-$(BUILD)card.eeprom.hex:	$(BUILD)card.elf
+#		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string $(CARD_SERIAL) -o $(BUILD)card.hex -Intel
+
+$(BUILD)card_orig.eeprom.hex:	$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .eeprom --set-section-flags=.eeprom="alloc,load" \
-		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card.eeprom.hex
+		--change-section-lma .eeprom=0 --no-change-warnings $(BUILD)card.elf $(BUILD)card_orig.eeprom.hex
+
+$(BUILD)card.eeprom.hex:	$(BUILD)card_orig.eeprom.hex
+		cp	 $(BUILD)card_orig.eeprom.hex $(BUILD)card.eeprom.hex
+		srec_cat $(BUILD)card_orig.eeprom.hex -Intel `srec_cat $(BUILD)card_orig.eeprom.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.eeprom.hex -Intel
 
 $(BUILD)card.fuses.hex:		$(BUILD)card.elf
 		$(OBJCOPY) -O ihex -j .fuse --set-section-flags=.fuses="alloc,load" --change-section-lma .fuse=0 \
@@ -187,8 +194,9 @@ $(BUILD)card.efuse.hex:	$(BUILD)card.fuses.hex
 		srec_cat $(BUILD)card.fuses.hex -Intel -crop 0x02 0x03 -offset -2 -O $(BUILD)card.efuse.hex -Intel -address-length=2
 
 .PHONY:	program
-program:	$(BUILD)card.hex
-		avrdude -p m128 -c $(PRG) -v -U flash:w:$(BUILD)card.hex
+program:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
+		avrdude -p $(PRGCPU) -c $(PRG) -v -U flash:w:$(BUILD)card.hex
+		avrdude -p $(PRGCPU) -c $(PRG) -v -U eeprom:w:$(BUILD)card.eeprom.hex
 
 # original fuses atmega128a:
 # signature = 0x1e9702
@@ -200,24 +208,24 @@ fuses:	e_fuse l_fuse h_fuse
 
 .PHONY:	l_fuse h_fuse e_fuse
 l_fuse:	$(BUILD)card.lfuse.hex
-	avrdude -p m128 -c $(PRG) -v -U lfuse:w:$(BUILD)card.lfuse.hex
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U lfuse:w:$(BUILD)card.lfuse.hex
 
 h_fuse:	$(BUILD)card.hfuse.hex
-	avrdude -p m128 -c $(PRG) -v -U hfuse:w:$(BUILD)card.hfuse.hex
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U hfuse:w:$(BUILD)card.hfuse.hex
 
 e_fuse:	$(BUILD)card.efuse.hex
-	avrdude -p m128 -c $(PRG) -v -U efuse:w:$(BUILD)card.efuse.hex
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U efuse:w:$(BUILD)card.efuse.hex
 
 lock:	$(BUILD)card.lock.hex
-	avrdude -p m128 -c $(PRG) -v -U lock:w:$(BUILD)card.lock.hex
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U lock:w:$(BUILD)card.lock.hex
 
 programRead:
-	avrdude -p m128 -c $(PRG) -v -U flash:r:rom_asm_verify.bin:r
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U flash:r:rom_asm_verify.bin:r
 
-#	avrdude -p m128 -c $(PRG) -v -U flash:r:rom_asm_verify.hex:i
+#	avrdude -p $(PRGCPU) -c $(PRG) -v -U flash:r:rom_asm_verify.hex:i
 
 eepromRead:
-	avrdude -p m128 -c $(PRG) -v -U eeprom:r:eeprom_verify.bin:r
+	avrdude -p $(PRGCPU) -c $(PRG) -v -U eeprom:r:eeprom_verify.bin:r
 
 .PHONY:	clean
 clean:

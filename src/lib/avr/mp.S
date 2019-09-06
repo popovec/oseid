@@ -320,6 +320,9 @@ bn_add:
 	lsr	r24
 	rjmp	mp_add0
 
+	.global mp_add1
+	.type   mp_add1, @function
+	.section .text.mp_add1,"ax",@progbits
 
 mp_add0:
 //      clc			// CY is always cleared (mod_len is always even number)
@@ -332,9 +335,9 @@ mp_add1:
 	MP_ADD_BYTE
 	MP_ADD_BYTE
 	MP_ADD_BYTE   
-        dec r24
-        brne mp_add1
-        rol r24  
+        dec	r24
+        brne	mp_add1
+        rol	r24
         ret
 
         .global rsa_add_long

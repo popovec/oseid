@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015, 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -23,13 +23,14 @@
 */
 #include <stdint.h>
 #include <stdio.h>
+#include "rnd.h"
 
 void
 rnd_init (void)
 {
 }
 
-uint8_t
+void
 rnd_get (uint8_t * rnd, uint8_t size)
 {
   FILE *f;
@@ -39,14 +40,18 @@ rnd_get (uint8_t * rnd, uint8_t size)
   if (size == 0)
     xsize = 256;
 
-  f = fopen ("/dev/urandom", "r");
-  if (!f)
-    return 1;
+  for (;;)
+    {
+      f = fopen ("/dev/urandom", "r");
+      if (!f)
+	continue;
 
-  s = fread (rnd, sizeof (uint8_t), xsize, f);
-  fclose (f);
+      s = fread (rnd, sizeof (uint8_t), xsize, f);
 
-  if (s != xsize)
-    return 1;
-  return 0;
+      fclose (f);
+
+
+      if (s == xsize)
+	break;
+    }
 }

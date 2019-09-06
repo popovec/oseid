@@ -24,6 +24,7 @@
 
 
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -36,26 +37,35 @@
 #include <PCSC/debuglog.h>
 
 
+// use OsEID_DEBUG value to enable debug
+#define  DPRINT(msg...) {char *env_atr = getenv ("OsEID_DEBUG"); if (env_atr) { if (atoi(env_atr) & 2 ) fprintf(stderr, msg);}}
+
+
 #include "serial.h"
 
+int hex2bytes (char *from, int size, uint8_t * to);
 // communication timeout in seconds
 #define COMM_TIMEOUT 120
 
-#define RET_OK 0
-#define RET_FAIL 1
 
 
-int reader_fd;
-char *reader_device;
+static int reader_fd = -1;
+static char *reader_device;
 
 static void
-FlushPort ()
+FlushPort (void)
 {
   fd_set fdset;
   int fd = reader_fd;
   struct timeval t;
   uint8_t byte;
   int i;
+
+  if (fd < 0)
+    {
+      Log1 (PCSC_LOG_DEBUG, "FlushPort skipped (no open port)\n");
+      return;
+    }
 
   Log1 (PCSC_LOG_DEBUG, "doing flush");
 
@@ -84,9 +94,15 @@ WritePort (DWORD lun, DWORD length, PUCHAR buffer)
 {
   int rv;
 
+  if (reader_fd < 0)
+    {
+      Log1 (PCSC_LOG_DEBUG, "WritePort skipped (no open port)\n");
+      return RET_FAIL;
+    }
+
   FlushPort ();
 
-  log_xxd (PCSC_LOG_DEBUG, "sending:", buffer, length);
+  log_xxd (PCSC_LOG_INFO, "OsEIDsim: transmit to card: ", buffer, length);
   rv = write (reader_fd, buffer, length);
   if (rv < 0)
     {
@@ -98,24 +114,34 @@ WritePort (DWORD lun, DWORD length, PUCHAR buffer)
 
 //=======================================================================================
 
-
+#define ASCII_BUFF_SIZE 256000
 RESPONSECODE
 ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 {
-  uint8_t r_buffer[261 * 3];
+  uint8_t r_buffer[ASCII_BUFF_SIZE];
   uint8_t byte, flag = 0;
   int rv, already_read;
   int i;
+  int max_resp_size = *length;
 
   fd_set fdset;
   int fd = reader_fd;
   struct timeval t;
 
+  if (reader_fd < 0)
+    {
+      Log1 (PCSC_LOG_DEBUG, "ReadPort skipped (no open port)\n");
+      return RET_FAIL;
+    }
+
+  if (*length == 0)
+    return RET_FAIL;
+
   // error by default */
   *length = 0;
 
   // Read loop */
-  for (already_read = 0; already_read < 261 * 3;)
+  for (already_read = 0; already_read < ASCII_BUFF_SIZE;)
     {
       FD_ZERO (&fdset);
       FD_SET (fd, &fdset);
@@ -130,7 +156,8 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 	}
       else if (i == 0)
 	{
-	  log_xxd (PCSC_LOG_DEBUG, "serial read: ", r_buffer, already_read);
+	  log_xxd (PCSC_LOG_DEBUG, "OsEIDsim: serial read: ", r_buffer,
+		   already_read);
 	  Log2 (PCSC_LOG_DEBUG, "Timeout! (%d sec)", COMM_TIMEOUT);
 	  return RET_FAIL;
 	}
@@ -138,13 +165,14 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
       rv = read (fd, &byte, 1);
       if (rv < 0)
 	{
-	  log_xxd (PCSC_LOG_DEBUG, "serial read:", r_buffer, already_read);
+	  log_xxd (PCSC_LOG_DEBUG, "OsEIDsim: serial read:", r_buffer,
+		   already_read);
 	  Log2 (PCSC_LOG_DEBUG, "read error: %s", strerror (errno));
 	  return RET_FAIL;
 	}
       if (rv == 0)
 	continue;
-//      fprintf(stderr,"%c",byte);
+      DPRINT ("%c", byte);
 
       // start parsing input after '<' ...
       if (byte == '<')
@@ -161,59 +189,18 @@ ReadPort (DWORD lun, PDWORD length, PUCHAR buffer)
 	    break;
 	}
     }
-// very tolerant hex to binary  converter
-//(max 256 bytes)
-  {
-    uint8_t byte = 0;
-    uint8_t flag = 0;
-
-    for (i = 1; i < already_read; i++)
-      {
-	if (*length < 256)
-	  {
-	    if (!isxdigit (r_buffer[i]))
-	      {
-		if (flag)
-		  {
-		    // no hex digit but some hex digit already parsed
-		    // save byte
-		    buffer[*length] = byte;
-		    byte = 0;
-		    flag = 0;
-		    (*length)++;
-		  }
-		if (r_buffer[i] == 0x0d)
-		  break;
-		if (r_buffer[i] == 0x0a)
-		  break;
-		continue;
-	      }
-	    else
-	      {
-		flag++;
-		if (flag == 3)
-		  {
-		    // save byte
-		    buffer[*length] = byte;
-		    byte = 0;
-		    flag = 0;
-		    (*length)++;
-		  }
-		r_buffer[i] -= '0';
-		if (r_buffer[i] > 9)
-		  r_buffer[i] -= 7;
-		if (r_buffer[i] > 9)
-		  r_buffer[i] -= 32;
-		byte *= 16;
-		byte += r_buffer[i];
-		continue;
-	      }
-	  }
-	else
-	  break;
-      }
-    return RET_OK;
-  }
+  *length = hex2bytes ((char *) r_buffer, already_read, r_buffer);
+  if (*length <= max_resp_size)
+    {
+      memcpy (buffer, r_buffer, *length);
+      log_xxd (PCSC_LOG_INFO, "OsEIDsim: received from card: ", buffer,
+	       *length);
+      return RET_OK;
+    }
+  *length = 0;
+  Log2 (PCSC_LOG_CRITICAL,
+	"Received long long line  %" PRIu64 "  bytes, over buffer size",
+	*length);
   return RET_FAIL;
 }
 
@@ -224,6 +211,12 @@ RESPONSECODE
 OpenGBP (DWORD lun, LPSTR dev_name)
 {
   struct termios sparam;
+
+  if (reader_fd != -1)
+    {
+      Log1 (PCSC_LOG_DEBUG, "OpenGBP skipped (open already opened)\n");
+      return RET_FAIL;
+    }
 
   reader_fd = open (dev_name, O_RDWR | O_NOCTTY);
   if (reader_fd < 0)
@@ -341,11 +334,16 @@ OpenGBP (DWORD lun, LPSTR dev_name)
 
 
   //change immediately all parameters
-  tcsetattr (reader_fd, TCSANOW, &sparam);
+  if (tcsetattr (reader_fd, TCSANOW, &sparam))
+    {
+      Log2 (PCSC_LOG_INFO, "tcsetattr() function error: %s",
+	    strerror (errno));
+      close (reader_fd);
+      reader_fd = -1;
+      return RET_FAIL;
+    }
   //alternate call ioctl(sparam.fd, TCSETS, &sparam)
   /* ************************************************************************************ */
-
-
   return RET_OK;
 }
 
@@ -354,6 +352,12 @@ OpenGBP (DWORD lun, LPSTR dev_name)
 RESPONSECODE
 CloseGBP (DWORD lun)
 {
+  if (reader_fd < 0)
+    {
+      Log1 (PCSC_LOG_DEBUG, "CloseGBP skipped (no open port)\n");
+      return RET_FAIL;
+    }
+
   close (reader_fd);
   reader_fd = -1;
   free (reader_device);
@@ -381,7 +385,7 @@ OpenPort (DWORD lun, DWORD channel)
 {
   char dev_name[FILENAME_MAX];
 
-  if (channel > 0)
+  if (channel != 0)
     return IFD_COMMUNICATION_ERROR;
 
   sprintf (dev_name, "/dev/pcscd-test%d", (int) channel);

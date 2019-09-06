@@ -21,6 +21,9 @@
     linux serial port I/O for OsEID simulator (header file)
 
 */
+
+#define RET_OK 0
+#define RET_FAIL 1
 RESPONSECODE OpenGBP (DWORD lun, LPSTR dev_name);
 RESPONSECODE WritePort (DWORD lun, DWORD length, unsigned char *Buffer);
 RESPONSECODE ReadPort (DWORD lun, unsigned long *length, unsigned char *Buffer);

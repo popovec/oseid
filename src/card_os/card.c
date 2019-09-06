@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 
 */
 #include <stdint.h>
+#include <stdlib.h>
 #include "rnd.h"
 #include "card_io.h"
 #include "iso7816.h"
@@ -33,7 +34,7 @@
 #endif
 
 int
-main ()
+main (void)
 {
 #ifdef CARD_RESTART
 #include "restart.c"
@@ -44,7 +45,7 @@ main ()
   //initialize random number generator
   rnd_init ();
   //initialize myeid emulation (not valid security env)
-  security_env_set_reset (0, 0);
+  security_env_set_reset (NULL);
   // initialize iso part of card
   response_clear ();
   // initialize card IO and send ATR

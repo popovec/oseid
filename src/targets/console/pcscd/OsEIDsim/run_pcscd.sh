@@ -23,17 +23,30 @@
 #    not in simulavr)
 #
 
-mkdir -p tmp
+OsEID_DIR=`pwd`
+mkdir -p "${OsEID_DIR}/tmp"
+touch "${OsEID_DIR}/tmp/OsEIDsim.socket"
 DEV=$1
 if [ $? -lt 1 ]; then
-	socat -d -d pty,link=tmp/OsEIDsim.socket,raw,echo=0 "exec:build/console/console ...,pty,raw,echo=0" &
-	DEV=`pwd`/tmp/OsEIDsim.socket
+	socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:${OsEID_DIR}/build/console/console ...,pty,raw,echo=0" &
+	DEV="${OsEID_DIR}/tmp/OsEIDsim.socket"
 fi
-sleep 0.5
-echo 'FRIENDLYNAME      "OsEIDsim"' > tmp/reader.conf
-echo 'DEVICENAME        '$DEV >> tmp/reader.conf
-echo 'LIBPATH           '`pwd`/build/console/libOsEIDsim.so.0.0.1  >>tmp/reader.conf
-echo 'CHANNELID         1' >>  tmp/reader.conf
+sleep 1
+echo 'FRIENDLYNAME      "OsEIDsim"' > "${OsEID_DIR}/tmp/reader.conf"
+echo 'DEVICENAME        '$DEV >> "${OsEID_DIR}/tmp/reader.conf"
+echo 'LIBPATH           '${OsEID_DIR}/build/console/libOsEIDsim.so.0.0.1  >> "${OsEID_DIR}/tmp/reader.conf"
+echo 'CHANNELID         1' >>  "${OsEID_DIR}/tmp/reader.conf"
 
-/usr/sbin/pcscd -f -c `pwd`/tmp/reader.conf
 
+debug=0
+
+if [ x${OsEID_DEBUG} != x ]; then
+	v=$[${OsEID_DEBUG} + 0 ]
+	debug=$[$v % 2 ]
+fi
+
+if [ $debug -eq 1 ]; then
+	/usr/sbin/pcscd -d -f -c "${OsEID_DIR}/tmp/reader.conf"
+else
+	/usr/sbin/pcscd -f -c "${OsEID_DIR}/tmp/reader.conf"
+fi

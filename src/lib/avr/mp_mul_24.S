@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -1370,436 +1370,6 @@ rsa_mul_768_xloop2:
 	sbc	\RS5,\SIGN
 .endm
 
-// multiply 6 bytes pointed by X and 6 bytes pointed by Y, add resul to
-// RZ11.. RZ0,
-// all registers are used, X is incremented by 6, Y is not changed
-
-.macro RSA_MUL_96_MOD_ADD   RZ11 RZ10 RZ9 RZ8 RZ7 RZ6 RZ5 RZ4 RZ3 RZ2 RZ1 RZ0  TMP1 TMP0 TMP_Y4 TMP_Y2 TMP_Y0 TMP_X
-//=======================================================================
-#warning .. fixed registers (r10, r8, r6 ..)!!!!
-
-	ld	\TMP_X,X+		//A0
-
-	ldd	\TMP_Y0,Y+0
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-	ldd	\TMP_Y2,Y+2
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	ldd	\TMP_Y4,Y+4
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	ldd	r0,Y+6
-	mul	\TMP_X,r0
-	movw	r10,r0
-
-	ldd	r0,Y+8
-	mul	\TMP_X,r0
-	movw	r12,r0
-
-	ldd	r0,Y+10
-	mul	\TMP_X,r0
-
-	add	\RZ0,\TMP0
-	adc	\RZ1,\TMP1
-	adc	\RZ2,r6
-	adc	\RZ3,r7
-	adc	\RZ4,r8
-	adc	\RZ5,r9
-	adc	\RZ6,r10
-	adc	\RZ7,r11
-	adc	\RZ8,r12
-	adc	\RZ9,r13
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-//////////
-	ldd	r0,Y+1
-	mul	\TMP_X,r0
-	movw	\TMP0,r0
-
-	ldd	r0,Y+3
-	mul	\TMP_X,r0
-	movw	r6,r0
-
-	ldd	r0,Y+5
-	mul	\TMP_X,r0
-	movw	r8,r0
-
-	ldd	r0,Y+7
-	mul	\TMP_X,r0
-	movw	r10,r0
-
-	ldd	r0,Y+9
-	mul	\TMP_X,r0
-	movw	r12,r0
-
-	ldd	r0,Y+11
-	mul	\TMP_X,r0
-
-	add	\RZ1,\TMP0
-	adc	\RZ2,\TMP1
-	adc	\RZ3,r6
-	adc	\RZ4,r7
-	adc	\RZ5,r8
-	adc	\RZ6,r9
-	adc	\RZ7,r10
-	adc	\RZ8,r11
-	adc	\RZ9,r12
-	adc	\RZ10,13
-	adc	\RZ11,r0
-
-	push	\RZ0
-
-//=========================================================
-	ld	\TMP_X,x+		//A1
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	ldd	\RZ0,Y+6
-	mul	\TMP_X,\RZ0		//RZ0 is Y+6
-	movw	r10,r0
-
-	ldd	r0,Y+8
-	mul	\TMP_X,r0
-	movw	r12,r0
-
-	ldd	r0,Y+10
-	mul	\TMP_X,r0
-
-	add	\RZ1,\TMP0
-	adc	\RZ2,\TMP1
-	adc	\RZ3,r6
-	adc	\RZ4,r7
-	adc	\RZ5,r8
-	adc	\RZ6,r9
-	adc	\RZ7,r10
-	adc	\RZ8,r11
-	adc	\RZ9,r12
-	adc	\RZ10,13
-	adc	\RZ11,r0
-///
-#define _Y1 r12
-#define _Y3 r13
-	ldd	_Y1,Y+1
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	ldd	_Y3,Y+3
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	ldd	r0,Y+5
-	mul	\TMP_X,r0
-	movw	r8,r0
-
-	ldd	r0,Y+7
-	mul	\TMP_X,r0
-	movw	r10,r0
-
-	ldd	r0,Y+9
-	mul	\TMP_X,r0
-
-	add	\RZ2,\TMP0
-	adc	\RZ3,\TMP1
-	adc	\RZ4,r6
-	adc	\RZ5,r7
-	adc	\RZ6,r8
-	adc	\RZ7,r9
-	adc	\RZ8,r10
-	adc	\RZ9,r11
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-//=========================================================
-	ld	\TMP_X,x+		//A2
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	mul	\TMP_X,\RZ0        //RZ0 is Y+6
-	movw	r10,r0
-
-	ldd	r0,Y+8
-	mul	\TMP_X,r0
-
-	add	\RZ2,\TMP0
-	adc	\RZ3,\TMP1
-	adc	\RZ4,r6
-	adc	\RZ5,r7
-	adc	\RZ6,r8
-	adc	\RZ7,r9
-	adc	\RZ8,r10
-	adc	\RZ9,r11
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	ldd	r0,Y+5
-	mul	\TMP_X,r0
-	movw	r8,r0
-
-	ldd	r0,Y+7
-	mul	\TMP_X,r0
-	movw	r10,r0
-
-	ldd	r0,Y+9
-	mul	\TMP_X,r0
-
-	add	\RZ3,\TMP0
-	adc	\RZ4,\TMP1
-	adc	\RZ5,r6
-	adc	\RZ6,r7
-	adc	\RZ7,r8
-	adc	\RZ8,r9
-	adc	\RZ9,r10
-	adc	\RZ10,r11
-	adc	\RZ11,r0
-//=========================================================
-	ld	\TMP_X,x+		//A3
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	mul	\TMP_X,\RZ0        //RZ0 is Y+6
-	movw	r10,r0
-
-	ldd	r0,Y+8
-	mul	\TMP_X,r0
-
-	add	\RZ3,\TMP0
-	adc	\RZ4,\TMP1
-	adc	\RZ5,r6
-	adc	\RZ6,r7
-	adc	\RZ7,r8
-	adc	\RZ8,r9
-	adc	\RZ9,r10
-	adc	\RZ10,r11
-	adc	\RZ11,r0
-///
-#define _Y5 r11
-#define _Y7 r10
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	ldd	_Y5,Y+5
-	mul	\TMP_X,_Y5
-	movw	r8,r0
-
-	ldd	_Y7,Y+7
-	mul	\TMP_X,_Y7
-
-	add	\RZ4,\TMP0
-	adc	\RZ5,\TMP1
-	adc	\RZ6,r6
-	adc	\RZ7,r7
-	adc	\RZ8,r8
-	adc	\RZ9,r9
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-//=========================================================
-	ld	\TMP_X,x+		//A4
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	mul	\TMP_X,\RZ0        //RZ0 is Y+6
-
-	add	\RZ4,\TMP0
-	adc	\RZ5,\TMP1
-	adc	\RZ6,r6
-	adc	\RZ7,r7
-	adc	\RZ8,r8
-	adc	\RZ9,r9
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	mul	\TMP_X,_Y5
-	movw	r8,r0
-
-	mul	\TMP_X,_Y7
-
-	add	\RZ5,\TMP0
-	adc	\RZ6,\TMP1
-	adc	\RZ7,r6
-	adc	\RZ8,r7
-	adc	\RZ9,r8
-	adc	\RZ10,r9
-	adc	\RZ11,r0
-//=========================================================
-	ld	\TMP_X,x+		//A5
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-	movw	r8,r0
-
-	mul	\TMP_X,\RZ0        //RZ0 is Y+6
-
-	add	\RZ5,\TMP0
-	adc	\RZ6,\TMP1
-	adc	\RZ7,r6
-	adc	\RZ8,r7
-	adc	\RZ9,r8
-	adc	\RZ10,r9
-	adc	\RZ11,r0
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	mul	\TMP_X,_Y5
-
-	add	\RZ6,\TMP0
-	adc	\RZ7,\TMP1
-	adc	\RZ8,r6
-	adc	\RZ9,r7
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-//=========================================================
-	ld	\TMP_X,x+		//A6
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-
-	add	\RZ6,\TMP0
-	adc	\RZ7,\TMP1
-	adc	\RZ8,r6
-	adc	\RZ9,r7
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	movw	r6,r0
-
-	mul	\TMP_X,_Y5
-
-	add	\RZ7,\TMP0
-	adc	\RZ8,\TMP1
-	adc	\RZ9,r6
-	adc	\RZ10,r7
-	adc	\RZ11,r0
-//=========================================================
-	ld	\TMP_X,x+		//A7
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	movw	r6,r0
-
-	mul	\TMP_X,\TMP_Y4
-
-	add	\RZ7,\TMP0
-	adc	\RZ8,\TMP1
-	adc	\RZ9,r6
-	adc	\RZ10,r7
-	adc	\RZ11,r0
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-
-	add	\RZ8,\TMP0
-	adc	\RZ9,\TMP1
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-//=========================================================
-	ld	\TMP_X,x+		//A8
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-
-	add	\RZ8,\TMP0
-	adc	\RZ9,\TMP1
-	adc	\RZ10,r0
-	adc	\RZ11,r1
-///
-	mul	\TMP_X,_Y1
-	movw	\TMP0,r0
-
-	mul	\TMP_X,_Y3
-	add	\RZ9,\TMP0
-	adc	\RZ10,\TMP1
-	adc	\RZ11,r0
-//=========================================================
-	ld	\TMP_X,x+		//A9
-	mul	\TMP_X,\TMP_Y0
-	movw	\TMP0,r0
-
-	mul	\TMP_X,\TMP_Y2
-	add	\RZ9,\TMP0
-	adc	\RZ10,\TMP1
-	adc	\RZ11,r0
-///
-	mul	\TMP_X,_Y1
-	add	\RZ10,r0
-	adc	\RZ11,r1
-
-//=========================================================
-	ld	\TMP_X,x+		//A10
-	mul	\TMP_X,\TMP_Y0
-	add	\RZ10,r0
-	adc	\RZ11,r1
-///
-	mul	\TMP_X,_Y1
-	add	\RZ11,r0
-//=========================================================
-	ld	\TMP_X,x+		//A11
-	mul	\TMP_X,\TMP_Y0
-	add	\RZ11,r0
-
-	pop	\RZ0
-.endm
-
 // zero here     vvvvvvv
 .macro MUL_48_X  RS7 RS6 RS5 RS4 RS3 RS2 RS1 RS0  B5 B4 B3 B2 B1 B0    A5 A4 A3 A2 A1 A0
 // not enough registers, calculate RS0,RS1 into free register pairs
@@ -1988,32 +1558,558 @@ rsa_mul_768_xloop2:
 
 .endm
 
+// multiply 12 bytes pointed by X and 6 bytes pointed by Y, add resul to
+// RZ11.. RZ0, (truncated, low part only)  Karatsuba is slower (tested)
+.macro RSA_MUL_96_MOD_ADD   RZ11 RZ10 RZ9 RZ8 RZ7 RZ6 RZ5 RZ4 RZ3 RZ2 RZ1 RZ0	\
+			  TR11 ZERO TMP_X T_B6 T_B4 T_B2 T_B1 T_B0 TR9 TR8 TMP_Y4 TMP_Y2 TMP1 TMP0
+	clr	\ZERO
 
+	ld	\TMP_X,X+	// load A0
+	ldd	\T_B0,Y+0
+	ldd	\T_B1,Y+1
+	ldd	\T_B2,Y+2
+	ldd	\T_B4,Y+4
+	ldd	\T_B6,Y+6
+//pair!
+	ldd	\TR8,Y+8
+	ldd	\TR9,Y+10
+
+	mul	\T_B2,\TMP_X	//B2 A0
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TMP_X	//B0 A0
+	add	\RZ0,r0
+	adc	\RZ1,r1
+	adc	\RZ2,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\TMP_X     //B1 A0
+	add	\RZ1,r0
+	adc	\RZ2,r1
+	adc	\TMP1,\ZERO
+
+	mul	\T_B6,\TMP_X	//B6 A0
+	movw	\TMP_Y2,r0
+
+	mul	\T_B4,\TMP_X    //B4 A0
+	add	\RZ3,\TMP1
+	adc	\RZ4,r0
+	adc	\RZ5,r1
+	adc	\RZ6,\TMP_Y2
+	adc	\TMP_Y4,\ZERO
+
+	ldd	r0,Y+5		// not cached
+	mul	r0,\TMP_X    	//B5 A0
+	add	\RZ5,r0
+	adc	\RZ6,r1
+	adc	\TMP_Y4,\ZERO
+
+	mul	\TR8,\TMP_X     // B8 A0
+	movw	\TMP0,r0
+
+	mul	\TR9,\TMP_X	 // B10 A1
+
+	add	\RZ7,\TMP_Y4
+	adc	\RZ8,\TMP0
+	adc	\RZ9,\TMP1
+	adc	\RZ10,r0
+	adc	\RZ11,r1
+	ldd	r0,Y+11
+	mul	r0,\TMP_X	//B11,A0
+	add	\RZ11,r0
+
+// A0: missing 3,7,9
+// cache:
+//       A0:TMP_X
+//       B0:T_B0  B1:T_B1  B2:T_B2  B4:T_B4  B6:T_B6  B8:TR8  B10:TR9
+/////////////////////////////////////////////////////////////////////
+	ld	\TR11,X+	//load A1
+
+	mul	\T_B2,\TR11	//B2,A1
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TR11	//B0,A1
+	add	\RZ1,r0
+	adc	\RZ2,r1
+	adc	\RZ3,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\TR11	//B1,A1
+	add	\RZ2,r0
+	adc	\RZ3,r1
+	adc	\TMP1,\ZERO
+
+	mul	\T_B6,\TR11    //B6 A1
+	movw	\TMP_Y2,r0
+
+	mul	\T_B4,\TR11	//B4 A1
+	add	\RZ4,\TMP1
+	adc	\RZ5,r0
+	adc	\RZ6,r1
+	adc	\RZ7,\TMP_Y2
+	adc	\TMP_Y4,\ZERO
+
+	mul	\TR8,\TR11	//B8,A1
+	add	\RZ8,\TMP_Y4
+	adc	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\ZERO
+
+	mul	\TR9,\TR11	//B10,A1
+	add	\RZ11,r0
+
+// A0: missing 3,7,9
+// A1: missing 3,5,7,9
+// cache:
+//       A0:TMP_X A1:TR11
+//       B0:T_B0  B1:T_B1  B2:T_B2  B4:T_B4  B6:T_B6  B8:TR8
+////////////////////////////////////////////////////////////
+	ld	\TR9,X+		//load A2
+
+	mul	\T_B2,\TR9	//B2,A2
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TR9	//B0,A2
+	add	\RZ2,r0
+	adc	\RZ3,r1
+	adc	\RZ4,\TMP0
+	adc	\TMP1,\ZERO   //ZERO
+
+	mul	\T_B1,\TR9	//B1,A2
+	add	\RZ3,r0
+	adc	\RZ4,r1
+	adc	\TMP1,\ZERO   //ZERO
+
+	mul	\T_B6,\TR9	//B6,A2
+	movw	\TMP_Y2,r0
+
+	mul	\T_B4,\TR9	//B4,A2
+	add	\RZ5,\TMP1
+	adc	\RZ6,r0
+	adc	\RZ7,r1
+	adc	\RZ8,\TMP_Y2
+	adc	\TMP_Y4,\ZERO   //ZERO
+
+	mul	\TR8,\TR9	//B8,A2
+	add	\RZ9,\TMP_Y4
+	adc	\RZ10,r0
+	adc	\RZ11,r1
+// A0: missing 3,7,9
+// A1: missing 3,5,7,9
+// A2: missing 3,5,7,9
+// cache:
+//       A0:TMP_X A1:TR11 TR9:A2
+//       B0:T_B0  B1:T_B1  B2:T_B2  B4:T_B4  B6:T_B6  B8:TR8
+////////////////////////////////////////////////////////////
+	ldd	\TMP_Y2,Y+3
+	mul	\TMP_Y2,\TR9		//B3,A2
+	movw	\TMP0,r0
+
+	mul	\TMP_Y2,\TMP_X		//B3 A0
+	add	\RZ3,r0
+	adc	\RZ4,r1
+	adc	\RZ5,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_Y2,\TR11		//B3 A1
+	add	\RZ4,r0
+	adc	\RZ5,r1
+	adc	\TMP1,\ZERO
+
+	mov	\TMP_Y4,\TMP1
+	ldd	r0,Y+9		// no cache
+	mul	r0,\TMP_X 		//B9,A0
+	movw	\TMP0,r0
+
+	ldd	r0,Y+7		// no cache
+	mul	r0,\TMP_X		//B7 A0
+	add	\RZ6,\TMP_Y4
+	adc	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\RZ9,\TMP0
+	adc	\RZ10,\TMP1
+	adc	\RZ11,\ZERO
+
+// A0  ok
+// A1 missing 5,7,9
+// A2 missing 5,7,9
+// TMP_X:A0, TR11:A1, TR9:A2
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 T_B6:B6 TR8:B8
+/////////////////////////////////////////////////
+	ldd	\TMP_Y4,Y+5
+	ldd	\TMP_X,Y+7
+	mul	\TMP_X,\TR11	//B7 A1
+	movw	\TMP0,r0
+
+	mul	\TMP_Y4,\TR11	//B5 A1
+	add	\RZ6,r0
+	adc	\RZ7,r1
+	adc	\RZ8,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_Y4,\TR9	//B5 A2
+	add	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\TMP1,\ZERO
+
+	ldd	\TMP0,Y+9
+	mul	\TMP0,\TR11	//B9,A1
+	add	\RZ9,\TMP1
+	adc	\RZ10,r0
+	adc	\RZ11,r1
+
+	mul	\TMP0,\TR9	//B9,A2
+	add	\RZ11,r0
+
+	ld	\TR11,X+	//load A3
+	mul	\TR8,\TR11	//B8,A3
+	add	\RZ11,r0
+///
+//A0,A1 B11,B10,B9,B8   OK
+//A2 missing B7
+// TR9:A2, TR11:A3
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5  T_B6:B6 TMP_X:B7
+// free TMP0,TMP1, TR8
+
+//////////////////////////////////////////////////
+	mul	\T_B2,\TR11	//B2 A3
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TR11	//B0 A3
+	add	\RZ3,r0
+	adc	\RZ4,r1
+	adc	\RZ5,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\TR11     //B1 A3
+	add	\RZ4,r0
+	adc	\RZ5,r1
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_X,\TR9	//B7,A2
+// free TR9,TR8
+	movw	\TR8,r0
+
+	mul	\T_B4,\TR11     //B4 A3
+	add	\RZ6,\TMP1
+	adc	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\RZ9,\TR8
+	adc	\TR9,\ZERO   //ZERO
+
+	ld	\TR8,X+		// load A4
+	mul	\TMP_X,\TR8	// B7,A4
+	add	\RZ10,\TR9
+	adc	\RZ11,r0
+
+//A0,A1,A2 B11,B10,B9,B8   OK
+//A3 missing 3,5,6,7 A4: 0,1,2,3,4,5,6
+//
+// TR11:A3 TR8:A4
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5  T_B6:B6 TMP_X:B7
+// free TMP0,TMP1, TR9
+	mul	\TMP_Y2,\TR11	//B3,A3
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TR8	//B0,A4
+	add	\RZ4,r0
+	adc	\RZ5,r1
+	adc	\RZ6,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\TR8	//B1,A4
+	add	\RZ5,r0
+	adc	\RZ6,r1
+	adc	\TMP1,\ZERO
+
+	mov	\TR9,\TMP1
+	mul	\TMP_X,\TR11	//B7,A3
+	movw	\TMP0,r0
+
+	mul	\TMP_Y4,\TR11	//B5,A3
+	add	\RZ7,\TR9
+	adc	\RZ8,r0
+	adc	\RZ9,r1
+	adc	\RZ10,\TMP0
+	adc	\RZ11,\TMP1
+
+//A0,A1,A2 B11,B10,B9,B8,B7   OK
+//A3 missing 6  A4: 2,3,4,5,6
+//
+// TR11:A3 TR8:A4
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5  T_B6:B6
+// free TMP0,TMP1, TR9, TMP_X
+	ld	\TMP_X,X+	//load A5
+
+	mul	\T_B2,\TMP_X	//B2,A5
+	movw	\TMP0,r0
+
+	mul	\T_B0,\TMP_X	//B0 A5
+	add	\RZ5,r0
+	adc	\RZ6,r1
+	adc	\RZ7,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\TMP_X	//B1 A5
+	add	\RZ6,r0
+	adc	\RZ7,r1
+	adc	\TMP1,\ZERO
+
+	mul	\T_B6,\TMP_X	//B6,A5
+	mov	\TR9,r0
+
+	mul	\T_B6,\TR11	//B6,A3
+	add	\RZ8,\TMP1
+	adc	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\TR9
+
+//A0,A1,A2,A3 B11,B10,B9,B8,B7   OK
+//missing:   A4: 2,3,4,5,6   A5: 3,4,5
+//
+// TR8:A4 TMP_X:A5
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5 T_B6:B6
+// free TMP0,TMP1,TR9
+	mul	\T_B4,\TR8	//B4 A4
+	movw	\TMP0,r0
+
+	mul	\T_B2,\TR8	//B2 A4
+	add	\RZ6,r0
+	adc	\RZ7,r1
+	adc	\RZ8,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_Y2,\TR8	//B3 A4
+	add	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\TMP1,\ZERO
+
+	mul	\T_B6,\TR8	//B6 A4
+	add	\RZ9,\TMP1
+	adc	\RZ10,r0
+	adc	\RZ11,r1
+//A0,A1,A2,A3 B11,B10,B9,B8,B7,B6   OK
+//missing:   A4: 5   A5: 3,4,5
+//
+// TR8:A4 TMP_X:A5
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1,TR9
+	ld	\T_B6,X+	// load A6
+
+	mul	\TMP_Y2,\TMP_X	//B3 A5
+	movw	\TMP0,r0
+
+	mul	\T_B0,\T_B6	//B0 A6
+	add	\RZ6,r0
+	adc	\RZ7,r1
+	adc	\RZ8,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B1,\T_B6	//B1 A6
+	add	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_Y4,\TMP_X	//B5 A5
+	add	\RZ9,\TMP1
+	adc	\RZ10,r0
+	adc	\RZ11,r1
+//A0,A1,A2,A3 B11,B10,B9,B8,B7,B6   OK
+//missing:   A4: 5   A5: 4   A6: 2,3,4,5
+//
+// TR8:A4 TMP_X:A5 T_B6:A6
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1,TR9
+	ld	\TR9,X+	//load A7
+
+	mul	\TMP_Y4,\TR8	//B5,A4
+	movw	\TMP0,r0
+	mul	\T_B0,\TR9	//B0 A7
+	add	\RZ7,r0
+	adc	\RZ8,r1
+	adc	\RZ9,\TMP0
+	adc	\TMP1,\ZERO
+
+	mul	\T_B2,\T_B6	//B2 A6
+	add	\RZ8,r0
+	adc	\RZ9,r1
+	adc	\TMP1,\ZERO
+
+	mul	\TMP_Y4,\T_B6		//B5,A6
+	add	\RZ10,\TMP1
+	adc	\RZ11,r0
+//A0,A1,A2,A3,A4 B11,B10,B9,B8,B7,B6   OK
+//missing:    A5: 4   A6: 3,4 A7: 1,2,3,4
+//
+// TMP_X:A5 T_B6:A6 TR9:A7
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	mul	\T_B4,\T_B6	//B4,A6
+	movw	\TMP0,r0
+
+	mul	\T_B1,\TR9	//B1,A7
+	add	\RZ8,r0
+	adc	\RZ9,r1
+	adc	\RZ10,\TMP0
+	adc	\RZ11,\TMP1
+//A0,A1,A2,A3,A4 B11,B10,B9,B8,B7,B6   OK
+//missing:    A5: 4   A6: 3  A7: 2,3,4
+//
+// TMP_X:A5 T_B6:A6 TR9:A7
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	mul	\T_B4,\TR9	//B4,A7
+	mov	\TMP0,r0
+	mul	\T_B4,\TMP_X	//B4 A5
+	add	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\TMP0
+//A0,A1,A2,A3,A4,A5  B11,B10,B9,B8,B7,B6   OK
+//missing:     A6: 3  A7: 2,3
+//
+// T_B6:A6 TR9:A7
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	ld	\TR8,X+		//A8
+	mul	\TMP_Y2,\TR9	//B3 A7
+	movw	\TMP0,r0
+	mul	\T_B0,\TR8	//B0 A8
+	add	\RZ8,r0
+	adc	\RZ9,r1
+	adc	\RZ10,\TMP0
+	adc	\RZ11,\TMP1
+//A0,A1,A2,A3,A4,A5  B11,B10,B9,B8,B7,B6   OK
+//missing:     A6: 3  A7: 2  A8: 1,2,3
+//
+// T_B6:A6 TR9:A7 TR8:A8
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	mul	\TMP_Y2,\TR8	//B3,A8
+	mov	\TMP0,r0
+	mul	\TMP_Y2,\T_B6 	//B3,A6
+	add	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\TMP0
+//A0,A1,A2,A3,A4,A5  B11,B10,B9,B8,B7,B6   OK
+//missing:      A7: 2  A8: 1,2
+//
+// TR8:A4 TMP_X:A5 T_B6:A6 TR9:A7 TR8:A8
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	ld	\TR11,X+
+	mul	\T_B2,\TR11	//B2,A9
+	mov	\TMP0,r0
+	mul	\T_B2,\TR9	//B2,A7
+	add	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\TMP0
+//A0,A1,A2,A3,A4,A5  B11,B10,B9,B8,B7,B6   OK
+//missing:      A8: 1,2  A9: 0 1
+//
+// TR8:A4 TMP_X:A5 T_B6:A6 TR9:A7 TR8:A8  TR11:A9
+// T_B0:B0  T_B1:B1  T_B2:B2 TMP_Y2:B3 T_B4:B4 TMP_Y4:B5
+// free TMP0,TMP1
+	mul	\T_B1,\TR8	//B1,A8
+	add	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\ZERO
+
+	mul	\T_B2,\TR8	//B2,A8
+	add	\RZ10,r0
+	adc	\RZ11,r1
+
+	mul	\T_B0,\TR11	//B0,A9
+	add	\RZ9,r0
+	adc	\RZ10,r1
+	adc	\RZ11,\ZERO
+
+	mul	\T_B1,\TR11	//B1,A9
+	add	\RZ10,r0
+	adc	\RZ11,r1
+
+	ld	\TR11,X+
+	mul	\T_B0,\TR11
+	add	\RZ10,r0
+	adc	\RZ11,r1
+
+	mul	\T_B1,\TR11
+	add	\RZ11,r0
+
+	ld	\TR11,X+
+	mul	\T_B0,\TR11
+	add	\RZ11,r0
+.endm
+
+
+	.global	rsa_mul_192_mod
+	.type	rsa_mul_192_mod, @function
+	.section .text.rsa_mul_192_mod,"ax",@progbits
+
+rsa_mul_192_mod:
+//save registers
+	push	r2
+	push	r3
+	push	r4
+	push	r5
+	push	r6
+	push	r7
+	push	r8
+	push	r9
+	push	r10
+	push	r11
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	push	r16
+	push	r17
+	push	r28
+	push	r29
+
+	movw	r30,r24
+	movw	r26,r20
+	movw	r28,r22
+	call	rsa_mul_192_mod_no_abi
+
+	clr	r1
+// return registers
+	pop	r29
+	pop	r28
+	pop	r17
+	pop	r16
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
+	pop	r11
+	pop	r10
+	pop	r9
+	pop	r8
+	pop	r7
+	pop	r6
+	pop	r5
+	pop	r4
+	pop	r3
+	pop	r2
+	ret
+
+	.global	rsa_mul_192_mod_no_abi
+	.type	rsa_mul_192_mod_no_abi, @function
+	.section .text.rsa_mul_192_mod_no_abi,"ax",@progbits
+
+// clock cycles are not updated here! (about 18 clock cycles and about 10
+// bytes need to be added here, actual clock cycles - from old code old code
+// store result at stack not Z)
+
+// 1632 inclusive ret  2468 bytes
+// 1629 inclusive ret  2456 bytes (RAM_LE32)
 rsa_mul_192_mod_no_abi:
-// rsa_mul_192_mod_no_abi stores result to Z or on stack.
-// OsEID need result only on fixed stack position...
-// If you need this procedure "standalone" do not define OsEID
-#ifndef OsEID
+// rsa_mul_192_mod_no_abi stores result to Z
+
 #define S_OFF 0
 #define S0_OFF 0
 #define S1_OFF 0
 #define S2_OFF 0
-#else
-// base stack offset
-#define S0_OFF 7
-#if __AVR_3_BYTE_PC__ == 1
-//xmega
-#define S_OFF S0_OFF+2+1
-#elif __AVR_2_BYTE_PC__ == 1
-//atmega
-#define S_OFF S0_OFF+2+0
-#else
-#error unknown PC size
-#endif
-
-#define S1_OFF S0_OFF
-#define S2_OFF S_OFF+4
-#endif
 
 
 // karatsuba, calculate L
@@ -2053,10 +2149,9 @@ rsa_mul_192_mod_no_abi:
 	push	r27
 	push	r28
 	push	r29
-#ifndef OsEID
+
 	push	r30
 	push	r31
-#endif
 	ldd	r8,Y+6
 	ldd	r9,Y+7
 	ldd	r10,Y+8
@@ -2146,13 +2241,9 @@ rsa_mul_192_mod_no_abi:
 // restore back
 	pop	r13
 	pop	r12
-#ifndef OsEID
 	pop	r31
 	pop	r30
-#else
-	in      r30,0x3d
-	in      r31,0x3e
-#endif
+
 	ldd	r14,Z+0+S2_OFF
 	ldd	r15,Z+1+S2_OFF
 	ldd	r16,Z+2+S2_OFF
@@ -2172,12 +2263,16 @@ rsa_mul_192_mod_no_abi:
 	adc	r24,r4
 	adc	r25,r5
 // select add/sub by sign bit
+#ifdef RAM_LE32
+	rol	r31
+#endif
 	brts	rsa_mul_192_mod_no_abi_add
+#ifndef RAM_LE32
 // carry into T
 	rol	r5
 	bst	r5,0
 	ror	r5
-
+#endif
 	sub	r14,r6
 	sbc	r15,r7
 	sbc	r16,r26
@@ -2196,11 +2291,12 @@ rsa_mul_192_mod_no_abi:
 	rjmp	rsa_mul_192_mod_no_abi_final
 
 rsa_mul_192_mod_no_abi_add:
+#ifndef RAM_LE32
 // carry into T
 	rol	r5
 	bst	r5,0
 	ror	r5
-
+#endif
 	add	r14,r6
 	adc	r15,r7
 	adc	r16,r26
@@ -2219,10 +2315,14 @@ rsa_mul_192_mod_no_abi_add:
 	adc	r6,r6
 
 rsa_mul_192_mod_no_abi_final:
+#ifndef RAM_LE32
 // get carry back from T
 	bld	r8,0
 	asr	r8
 // propagate carry
+#else
+	lsr	r31
+#endif
 	adc	r12,r6
 	adc	r13,r7
 	adc	r2,r7
@@ -2243,32 +2343,25 @@ rsa_mul_192_mod_no_abi_final:
 	pop	r27
 	pop	r26
 //  sbiw r26,12
-#ifndef OsEID
 	push	r30
 	push	r31
-#endif
-	movw	r14,r12
 	// result of multipllication is added to output registers
-        // operands fom  X, Y pointers                                 temp  variables
-	RSA_MUL_96_MOD_ADD  r5 r4 r3 r2 r15 r14 r25 r24 r23 r22 r21 r20  r19 r18 r17 r16 r30 r31
+        // operands fom  X, Y pointers                                   temp  variables               free regs 
+
+	RSA_MUL_96_MOD_ADD  r5 r4 r3 r2 r13 r12 r25 r24 r23 r22 r21 r20  r19 r18 r17 r16 r30 r31   r15,r14,r11,r10,r9 r8 r7 r6
 	sbiw	r26,24
 	adiw	r28,12
-	RSA_MUL_96_MOD_ADD  r5 r4 r3 r2 r15 r14 r25 r24 r23 r22 r21 r20  r19 r18 r17 r16 r30 r31
-#ifndef OsEID
+	RSA_MUL_96_MOD_ADD  r5 r4 r3 r2 r13 r12 r25 r24 r23 r22 r21 r20  r19 r18 r17 r16 r30 r31   r15,r14,r11,r10,r9 r8 r7 r6
 	pop	r31
 	pop	r30
-#else
-	in      r30,0x3d
-	in      r31,0x3e
-#endif
 	std Z+12+S_OFF,r20
 	std Z+13+S_OFF,r21
 	std Z+14+S_OFF,r22
 	std Z+15+S_OFF,r23
 	std Z+16+S_OFF,r24
 	std Z+17+S_OFF,r25
-	std Z+18+S_OFF,r14
-	std Z+19+S_OFF,r15
+	std Z+18+S_OFF,r12
+	std Z+19+S_OFF,r13
 	std Z+20+S_OFF,r2
 	std Z+21+S_OFF,r3
 	std Z+22+S_OFF,r4
@@ -2281,10 +2374,10 @@ rsa_mul_192_mod_no_abi_final:
 
 #endif
 
-#ifdef HAVE_RSA_MUL_768_MOD
 // input in r22,r23 r26,27  result r30,31
 	.global	rsa_mul_384_mod
 	.type	rsa_mul_384_mod, @function
+	.section .text.rsa_mul_384_mod,"ax",@progbits
 
 rsa_mul_384_mod:
 //save registers
@@ -2334,6 +2427,10 @@ rsa_mul_384_mod:
 	pop	r2
 	ret
 
+	.global	rsa_mul_384_mod_no_abi
+	.type	rsa_mul_384_mod_no_abi, @function
+	.section .text.rsa_mul_384_mod_no_abi,"ax",@progbits
+
 rsa_mul_384_mod_no_abi:
 // create space on stack - 48 bytes TMP variable, 3x pointer
 // (there is enough to create 24 byte variable, but if HAVE_RSA_MUL_192_MOD
@@ -2364,13 +2461,9 @@ rsa_mul_384_mod_no_abi:
 	ldd	r26,Z+5	// OPERAND_A
 	ldd	r27,Z+6	
 
-#ifdef HAVE_RSA_MUL_192_MOD
-	// result is stored at SP + 7, Z register is not needed
-	call 	rsa_mul_192_mod_no_abi
-#else
 	adiw	r30,7
-	call	rsa_mul_192_no_abi
-#endif
+	call 	rsa_mul_192_mod_no_abi
+
 // load values back 
 	in	r30, 0x3d
 	in	r31, 0x3e
@@ -2400,13 +2493,8 @@ rsa_mul_384_mod_loop1:
 	ldd	r27,Z+6	
 	adiw	r26,24	//upper part
 	
-#ifdef HAVE_RSA_MUL_192_MOD
-        // result is stored at SP + 7, Z register is not needed
-	call 	rsa_mul_192_mod_no_abi
-#else
 	adiw	r30,7
-	call	rsa_mul_192_no_abi
-#endif
+	call 	rsa_mul_192_mod_no_abi
 	
 // load values back 
 	in	r30, 0x3d
@@ -2431,143 +2519,3 @@ rsa_mul_384_mod_loop2:
 	adiw 	r30,23
 	LOAD_SP r0, r30,r31
 	ret
-
-
-	.global rsa_mul_768_mod
-	.type   rsa_mul_768_mod, @function
-
-rsa_mul_768_mod:
-//save registers
-	push	r2
-	push	r3
-	push	r4
-	push	r5
-	push	r6
-	push	r7
-	push	r8
-	push	r9
-	push	r10
-	push	r11
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	push	r16
-	push	r17
-	push	r28
-	push	r29
-	
-	movw	r30,r24
-	movw	r26,r20
-	
-// create space on stack - 48 bytes TMP variable, 3x pointer
-	in	r28, 0x3d
-	in	r29, 0x3e
-	subi	r28, lo8(48+2+2+2)
-	sbci	r29, hi8(48+2+2+2)
-	LOAD_SP r0, r28,r29
-
-// save  pointers to stack
-	std	Y+1,r22	// A pointer
-	std	Y+2,r23
-	std	Y+3,r30	// Result
-	std	Y+4,r31
-	std	Y+5,r26	// B pointer
-	std	Y+6,r27
-
-	movw	r28,r22
-	call	rsa_mul_384_no_abi
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r22,Z+1	// OPERAND_B
-	ldd	r23,Z+2
-	subi	r22,lo8(-48)
-	sbci	r23,hi8(-48)
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6	
-
-	adiw	r30,7
-	call	rsa_mul_384_mod_no_abi
-	
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,48	// upper part
-	adiw	r30,7
-
-	ldi	r24,6
-	clc
-rsa_mul_768_mod_loop1:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_768_mod_loop1
-
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r22,Z+1	// OPERAND_B
-	ldd	r23,Z+2
-	ldd	r26,Z+5	// OPERAND_A
-	ldd	r27,Z+6	
-	adiw	r26,48	//upper part
-	
-	adiw	r30,7
-	call	rsa_mul_384_mod_no_abi
-	
-// load values back 
-	in	r30, 0x3d
-	in	r31, 0x3e
-	ldd	r28,Z+3	// result
-	ldd	r29,Z+4
-	adiw	r28,48	// upper part
-	adiw	r30,7
-
-	ldi	r24,6
-	sub	r1,r1	// clear carry and r1 too
-rsa_mul_768_mod_loop2:
-.rept	8
-	ld	r0,Y
-	ld	r25,Z+
-	adc	r25,r0
-	st	Y+,r25
-.endr
-	dec	r24
-	brne	rsa_mul_768_mod_loop2
-
-// return stack position (Z is used to point variable on stack, correct Z to get old SP)
-	sbiw 	r30,1
-	LOAD_SP r0, r30,r31
-
-
-// return registers
-	pop	r29
-	pop	r28
-	pop	r17
-	pop	r16
-	pop	r15
-	pop	r14
-	pop	r13
-	pop	r12
-	pop	r11
-	pop	r10
-	pop	r9
-	pop	r8
-	pop	r7
-	pop	r6
-	pop	r5
-	pop	r4
-	pop	r3
-	pop	r2
-// r1 is already cleared
-	ret
-	
-#endif  //HAVE_RSA_MUL_768_MOD
-

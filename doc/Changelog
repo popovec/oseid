@@ -1,4 +1,21 @@
-OsEID  20190102 (this release)
+OsEID  20190830 (planed)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date:
+
+	* APDU chaining (for security operation decrypt/sign, key upload)
+	* extended APDU support (partial, PSO and PUT DATA can handle Lc > 255)
+	* Ne/Le handling in T1 protocol
+	* RSA improved (speed up about 10%)
+	* support for 256 byte transfer in read binary (Case 2S from ISO7816-3)
+	* RSA generate key fixed (P,Q too close)
+	* AVR 256 bit multiplication, fixed error in carry propagation
+         (swapped carry in bytes 57,56 of result)
+	* DES 56 bits key support (56,64,128,192)
+	* MyEID compatibility: security operation does not depend
+          on current selected file.
+	* unwrap/wrap (RSA/AES/DES) (experimental, partial)
+
+OsEID  20190102 (relased)
 Author: Peter Popovec <popovec.peter@gmail.com>
 Date:   Wed Jan  2 07:30:32 CET 2019
 

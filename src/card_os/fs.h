@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -38,8 +38,11 @@ uint8_t fs_erase_card (uint8_t * acl);
 
 uint16_t fs_get_selected (void);
 
+uint16_t fs_get_selected_uuid (void);
+
 void fs_set_lifecycle(void);
 
+uint8_t fs_select_uuid (uint16_t uuid, struct iso7816_response * r);
 uint8_t fs_select_parent (struct iso7816_response *r);
 uint8_t fs_select_by_name (uint8_t * buffer, struct iso7816_response *r);
 uint8_t fs_select_0 (uint16_t id, struct iso7816_response *r);
@@ -57,8 +60,7 @@ uint16_t fs_key_read_part (uint8_t * key, uint8_t type);
 // 1st byte = key type, 2nd key part size, rest key part
 uint8_t fs_key_write_part (uint8_t * key);
 
-uint8_t fs_read_binary (uint16_t offset, uint16_t dlen,
-			 struct iso7816_response *r);
+uint8_t fs_read_binary (uint16_t offset, struct iso7816_response *r);
 uint8_t fs_update_binary (uint8_t * buffer, uint16_t offset);
 
 uint8_t fs_erase_binary(uint16_t offset);
@@ -68,13 +70,13 @@ uint8_t fs_delete_file (void);
 uint8_t fs_create_file (uint8_t * buffer);
 uint8_t fs_list_files (uint8_t type, struct iso7816_response *r);
 
-uint16_t fs_get_file_size ();
-uint8_t fs_get_file_type ();
+uint16_t fs_get_file_size (void);
+uint8_t fs_get_file_type (void);
 // this function does not check if file is selected!, returned value 0xffff
 // is prop flag of file is not selected ..
-uint16_t fs_get_file_proflag ();
+uint16_t fs_get_file_proflag (void);
 #ifndef NIST_ONLY
 // temp function to allow change file type for EC key to 0x23
-uint8_t fs_key_change_type ();
+uint8_t fs_key_change_type (void);
 #endif
 #endif

@@ -21,17 +21,14 @@
     iso7816 compatible filesystem routines
 
 */
-#ifdef DEBUG
-#include <stdio.h>
-#define  DPRINT(msg...) fprintf(stderr,msg)
-#else
-#define DPRINT(msg...)
-#endif
+#define DEBUG_FS
+#include "debug.h"
 
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <constants.h>
 #include "card_io.h"
 #include "mem_device.h"
 #include "iso7816.h"
@@ -97,7 +94,7 @@ struct sec_device
   struct pin pins[14];
   uint8_t lifecycle;		// 1 card in initialization state, 7 card is initialized
   uint8_t reserved;
-} __attribute__ ((__packed__));
+} __attribute__((__packed__));
 
 
 
@@ -116,17 +113,17 @@ struct fs_data
   uint8_t no_allocate:1;	// file is DF, do not allocate space
   uint8_t active:1;		// this flag is cleared if file is to be deleted
 
-} __attribute__ ((__packed__));
+} __attribute__((__packed__));
 
 
 struct fs_response
 {
   struct fs_data fs;
   uint16_t mem_offset;
-} __attribute__ ((__packed__));
+} __attribute__((__packed__));
 
 
-struct fs_response fci_sel __attribute__ ((section (".noinit")));
+struct fs_response fci_sel __attribute__((section (".noinit")));
 /*
 security_enable & 1 = pin 1 verified ..
 security_enable & 2 = pin 2 verified ..
@@ -141,9 +138,7 @@ security_enable & 0x8000 = admin state ON
 #define SEC_ENABLE_ADMIN 0x8000
 #define SEC_ENABLE_UNBLOCK 0x4000
 
-static uint16_t security_enable __attribute__ ((section (".noinit")));	//bit mapped security enabled levels (by pin 1..14)
-
-
+static uint16_t security_enable __attribute__((section (".noinit")));	//bit mapped security enabled levels (by pin 1..14)
 
 void
 fs_deauth (uint8_t pin)
@@ -151,9 +146,9 @@ fs_deauth (uint8_t pin)
   uint16_t sec;
 
   if (pin == 0xa0)
-    sec = (uint16_t) ~ 0x8000;
+    sec = (uint16_t) (~SEC_ENABLE_ADMIN & 0xffff);
   else if (pin == 0xb0)
-    sec = (uint16_t) ~ 0x4000;
+    sec = (uint16_t) (~SEC_ENABLE_UNBLOCK & 0xffff);
   else if (pin == 0)
     sec = 0;
   else if (pin < 15)
@@ -292,12 +287,18 @@ is_DF (struct fs_response *entry)
 #define S_1stEF	  13
 
 // search deleted space
-// entry - not relevant (id if entry is set ti "offset",  mem_offset is set to end ..)
+// entry - not relevant (id if entry is set to "offset",  mem_offset is set to end ..)
 // id    - not relevant
 // data  - not relevant (NULL)
 // type  - S_SPACE
 #define S_SPACE   14
 
+// search UUID
+// entry - not relevant (will be filled with data about searched file if found)
+// id    - file UUID
+// data  - not relevant (NULL)
+// type  - S_UUID
+#define S_UUID  15
 
 #define RET_SEARCH_FAIL 2
 #define RET_SEARCH_END  1
@@ -336,6 +337,8 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
   if (type == S_NAME)
     {
       data_count = *data;
+      if (data_count > 16)
+        return RET_SEARCH_FAIL;
       data++;
     }
   response.mem_offset = 0;
@@ -393,6 +396,14 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	  if (response.fs.uuid != p_uuid)
 	    goto fs_search_file_cont;
 	  DPRINT ("%s PARENT ok\n", __FUNCTION__);
+	  goto fs_search_file_ok;
+	}
+      // UUID
+      if (type == S_UUID)
+	{
+	  if (response.fs.uuid != id)
+	    goto fs_search_file_cont;
+	  DPRINT ("%s UUID %04x found\n", __FUNCTION__, id);
 	  goto fs_search_file_ok;
 	}
       // generate list if needed (assumes search run on DF)
@@ -542,7 +553,7 @@ skip_tag (uint8_t * buffer, uint8_t * end)
 *                      PIN / PUK functions
 *
 ****************************************************************************************/
-static int16_t __attribute__ ((noinline)) pin_position (uint8_t pin)
+static int16_t __attribute__((noinline)) pin_position (uint8_t pin)
 {
   int16_t position;
 
@@ -561,7 +572,7 @@ static int16_t __attribute__ ((noinline)) pin_position (uint8_t pin)
 }
 
 uint8_t
-fs_return_pin_info (uint8_t pin, struct iso7816_response * r)
+fs_return_pin_info (uint8_t pin, struct iso7816_response *r)
 {
   int16_t position;
   uint8_t len = (sizeof (struct pin) - offsetof (struct pin, pin_retry));
@@ -575,10 +586,7 @@ fs_return_pin_info (uint8_t pin, struct iso7816_response * r)
   if (sec_device_read_block
       (r->data, position + offsetof (struct pin, pin_retry), len))
       return S0x6581;		//memory fail
-
-  r->flag = R_RESP_READY;
-  r->len = len;
-  return S0x6100;
+  return resp_ready (r, len);
 }
 
 //change lifecycle, this enables all FS security ACL
@@ -608,8 +616,9 @@ compare_pins_with_padding (uint8_t * p1, uint8_t * p2)
       // padding can be on both sides, and padding byte is 0xff or 0x00..
       if (p1[c] == 0 && p2[c] == 0xff)
 	continue;
-      if (p2[c] == 0xff && p2[c] == 0)
+      if (p1[c] == 0xff && p2[c] == 0)
 	continue;
+      DPRINT ("PIN/PUK FAIL\n");
       return 1;
     }
   DPRINT ("PIN/PUK OK\n");
@@ -703,7 +712,7 @@ compare_pin (uint8_t pin, uint8_t * value)
   return compare_pin_puk (pin, value, 0);
 }
 
-static uint8_t __attribute__ ((unused))
+static uint8_t __attribute__((unused))
 compare_puk (uint8_t pin, uint8_t * value)
 {
   DPRINT ("%s\n", __FUNCTION__);
@@ -1041,57 +1050,74 @@ check_DF_security (uint8_t type)
 
 
 static uint16_t
-get_tag (uint8_t * buffer, uint8_t size)
+asn_get_uint_var (uint8_t * buffer, uint8_t size)
 {
   if (size == 1)
     return *buffer;
   return buffer[0] << 8 | buffer[1];
 }
 
+static uint16_t
+asn_get_uint16 (uint8_t * buffer)
+{
+  return buffer[0] << 8 | buffer[1];
+}
 
 static void
-fs_mkfs (uint8_t * acl)
+fs_mkfs (uint8_t * message)
 {
   DPRINT ("%s\n", __FUNCTION__);
 
-  fci_sel.fs.id = 0x3f00;
-  fci_sel.fs.parent_uuid = 0;
-  fci_sel.fs.uuid = 0;
-  fci_sel.fs.size = 32767;
-  fci_sel.fs.type = 0x38;
-  if (acl != NULL)
-    memcpy (fci_sel.fs.acl, acl, 3);
-  else
+  uint8_t buffer[S_FS_INIT_DATA];
+  uint8_t size = S_FS_INIT_DATA;
+  struct fs_data *f = (void *) buffer;
+
+  // init filesystem, MF and file 5015 is created
+  // MF and 5015 file ACL is set as define in acl (if acl is not NULL)
+  // if 'acl' is short (5 byets) file 5015 is not created
+  // (up to version 20190102, file 5015 was not created, now this is more compatible with MyEID)
+
+  // Warning, erase flash before fs_mkfs, or apply only to blank flash)
+
+  get_constant (buffer, N_FS_INIT_DATA);
+  memcpy (&fci_sel, buffer, sizeof (struct fs_data));
+
+// NULL is used for initialization from fs_init()
+  if (!message)
+    goto end;
+
+  // use default FS parameters if LC==0
+  if (*message == 0)
+    goto end;
+
+  // enough bytes to set ACL for MF - 3F00
+  if (*message >= 5)
     {
-      fci_sel.fs.acl[0] = 0x33;
-      fci_sel.fs.acl[1] = 0x3F;
-      fci_sel.fs.acl[2] = 0xFF;
+      size = sizeof (fci_sel);
+      memcpy (f->acl, message + 3, 3);
+      DPRINT ("acl for 3f00 updated\n");
     }
-  fci_sel.fs.prop = 0x0002;	// this DF can not be deleted
-#ifdef MFNAME
-  fci_sel.fs.name_size = 3;
-#else
-  fci_sel.fs.name_size = 0;
-#endif
-  fci_sel.fs.no_allocate = 1;
-  fci_sel.fs.tag_80_81 = 1;
-  fci_sel.fs.active = 1;
-  //TODO check return code!
-  device_write_block (&fci_sel.fs, 0, sizeof (struct fs_data));
-#ifdef MFNAME
-  {
-    uint8_t name[3];
-    name[0] = '\360';
-    name[1] = 'M';
-    name[2] = 'F';
-    device_write_block (name, sizeof (struct fs_data), 3);
-  }
-#endif
+  // enough bytes to set ACL for 5015
+  if (*message >= 8)
+    {
+      f++;
+      size = S_FS_INIT_DATA;
+      memcpy (f->acl, message + 6, 3);
+      DPRINT ("acl for 5015 updated\n");
+    }
+
+end:
+// write to device, if error, jump to newer ending loop
+  if (device_write_block (buffer, 0, size))
+    for(;;);
+
   uint16_t i;
   uint8_t e = 0xff;
 
+// write to sec_device, if error, jump to newer ending loop
   for (i = 0; i < 1024; i++)
-    sec_device_write_block (&e, i, 1);
+    if (sec_device_write_block (&e, i, 1))
+      for(;;);
 
   // lifecycle must be set to 1 because no pins exists..
 
@@ -1129,7 +1155,7 @@ fs_erase_card (uint8_t * acl)
 }
 
 void
-fs_init ()
+fs_init (void)
 {
   // test if some of security data are in tact
   uint16_t i;
@@ -1152,6 +1178,8 @@ fs_init ()
   security_enable = 0;		//nothing enabled
   // select MF after ATR (to conform ISO)
   fci_sel.fs.uuid = 0;
+  // TODO check return value
+  // coverity[check_return]
   fs_search_file (&fci_sel, 0x3f00, NULL, S_DF);
 
 //  fci_sel.fs.id = 0xffff;     //nothing is selected
@@ -1159,56 +1187,120 @@ fs_init ()
 
 // 0xffff if nothing is selected
 uint16_t
-fs_get_selected ()
+fs_get_selected (void)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fci_sel.fs.id;
 }
 
+// 0xffff if nothing is selected
+uint16_t
+fs_get_selected_uuid (void)
+{
+  DPRINT ("%s\n", __FUNCTION__);
+  if (fci_sel.fs.id != 0xffff)
+    return fci_sel.fs.uuid;
+  return fs_get_selected ();	// return 0xffff
+}
+
 static uint8_t
 fs_get_fci (struct iso7816_response *r)
 {
+#if 1
+// TODO  DER TLV  - sort response by tag value..
   DPRINT ("%s\n", __FUNCTION__);
 
-  r->data[0] = 0x6f;
-  r->data[1] = 23;
-  r->data[2] = 0x80 | (fci_sel.fs.tag_80_81 ? 1 : 0);
-  r->data[3] = 2;
-  r->data[4] = fci_sel.fs.size >> 8;
-  r->data[5] = fci_sel.fs.size & 255;
-  r->data[6] = 0x82;
-  r->data[7] = 1;
-  r->data[8] = fci_sel.fs.type;
-  r->data[9] = 0x83;
-  r->data[10] = 2;
-  r->data[11] = fci_sel.fs.id >> 8;
-  r->data[12] = fci_sel.fs.id & 255;
-  r->data[13] = 0x86;
-  r->data[14] = 3;
-  r->data[15] = fci_sel.fs.acl[0];
-  r->data[16] = fci_sel.fs.acl[1];
-  r->data[17] = fci_sel.fs.acl[2];
-  r->data[18] = 0x85;
-  r->data[19] = 2;
-  r->data[20] = fci_sel.fs.prop >> 8;
-  r->data[21] = fci_sel.fs.prop & 255;
-  r->data[22] = 0x8a;
-  r->data[23] = 1;
-  r->data[24] = get_lifecycle ();
+  if (r)
+    {
+      r->data[0] = 0x6f;
+      r->data[1] = 23;
+      r->data[2] = 0x80 | (fci_sel.fs.tag_80_81 ? 1 : 0);
+      r->data[3] = 2;
+      r->data[4] = fci_sel.fs.size >> 8;
+      r->data[5] = fci_sel.fs.size & 255;
+      r->data[6] = 0x82;
+      r->data[7] = 1;
+      r->data[8] = fci_sel.fs.type;
+      r->data[9] = 0x83;
+      r->data[10] = 2;
+      r->data[11] = fci_sel.fs.id >> 8;
+      r->data[12] = fci_sel.fs.id & 255;
+      r->data[13] = 0x86;
+      r->data[14] = 3;
+      r->data[15] = fci_sel.fs.acl[0];
+      r->data[16] = fci_sel.fs.acl[1];
+      r->data[17] = fci_sel.fs.acl[2];
+      r->data[18] = 0x85;
+      r->data[19] = 2;
+      r->data[20] = fci_sel.fs.prop >> 8;
+      r->data[21] = fci_sel.fs.prop & 255;
+      r->data[22] = 0x8a;
+      r->data[23] = 1;
+      r->data[24] = get_lifecycle ();
+      if (fci_sel.fs.name_size)
+	{
+	  r->data[1] += (fci_sel.fs.name_size) + 2;
+	  r->data[25] = 0x84;
+	  r->data[26] = fci_sel.fs.name_size;
+	  if (1 ==
+	      device_read_block (r->data + 27,
+				 fci_sel.mem_offset + sizeof (struct fs_data),
+				 fci_sel.fs.name_size))
+	    return S0x6581;	// memory fail
+	}
+      return resp_ready (r, r->data[1] + 2);
+    }
+  return S0x6100;
+#else
+#warning  below untested code (sorted Tags, but about 100 bytes bigger)
+  uint8_t *position = &r->data[0];
+
+  DPRINT ("%s\n", __FUNCTION__);
+
+  if (!r)
+    return S0x6100;
+
+// sort response by tag value..
+  *(position++) = 0x6f;
+  *(position++) = 23;
+  *(position++) = 0x80 | (fci_sel.fs.tag_80_81 ? 1 : 0);
+  *(position++) = 2;
+  *(position++) = fci_sel.fs.size >> 8;
+  *(position++) = fci_sel.fs.size & 255;
+  *(position++) = 0x82;
+  *(position++) = 1;
+  *(position++) = fci_sel.fs.type;
+  *(position++) = 0x83;
+  *(position++) = 2;
+  *(position++) = fci_sel.fs.id >> 8;
+  *(position++) = fci_sel.fs.id & 255;
+// name
   if (fci_sel.fs.name_size)
     {
       r->data[1] += (fci_sel.fs.name_size) + 2;
-      r->data[25] = 0x84;
-      r->data[26] = fci_sel.fs.name_size;
+      *(position++) = 0x84;
+      *(position++) = fci_sel.fs.name_size;
       if (1 ==
-	  device_read_block (r->data + 27,
+	  device_read_block (position,
 			     fci_sel.mem_offset + sizeof (struct fs_data),
 			     fci_sel.fs.name_size))
-	return -1;
+	return S0x6581;		// memory fail
+      position += fci_sel.fs.name_size;
     }
-  r->len = r->data[1] + 2;
-  r->flag = R_RESP_READY;
-  return S0x6100;
+  *(position++) = 0x85;
+  *(position++) = 2;
+  *(position++) = fci_sel.fs.prop >> 8;
+  *(position++) = fci_sel.fs.prop & 255;
+  *(position++) = 0x86;
+  *(position++) = 3;
+  *(position++) = fci_sel.fs.acl[0];
+  *(position++) = fci_sel.fs.acl[1];
+  *(position++) = fci_sel.fs.acl[2];
+  *(position++) = 0x8a;
+  *(position++) = 1;
+  *(position++) = get_lifecycle ();
+  return resp_ready (r, r->data[1] + 2);
+#endif
 }
 
 static uint8_t
@@ -1233,56 +1325,63 @@ fs_return_selected (struct iso7816_response *r, uint16_t id, uint8_t * data,
 }
 
 uint8_t
-fs_select_parent (struct iso7816_response * r)
+fs_select_uuid (uint16_t uuid, struct iso7816_response *r)
+{
+  DPRINT ("%s\n", __FUNCTION__);
+  return fs_return_selected (r, uuid, NULL, S_UUID);
+}
+
+uint8_t
+fs_select_parent (struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, 0, NULL, S_PARENT);
 }
 
 uint8_t
-fs_select_by_name (uint8_t * buffer, struct iso7816_response * r)
+fs_select_by_name (uint8_t * buffer, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, 0, buffer, S_NAME);
 }
 
 uint8_t
-fs_select_df (uint16_t id, struct iso7816_response * r)
+fs_select_df (uint16_t id, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, id, NULL, S_DF);
 }
 
 uint8_t
-fs_select_mf (struct iso7816_response * r)
+fs_select_mf (struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, 0x3f00, NULL, S_DF | 0x80);
 }
 
 uint8_t
-fs_select_0 (uint16_t id, struct iso7816_response * r)
+fs_select_0 (uint16_t id, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, id, NULL, S_0);
 }
 
 uint8_t
-fs_select_ef (uint16_t id, struct iso7816_response * r)
+fs_select_ef (uint16_t id, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, id, NULL, S_EF);
 }
 
 uint8_t
-fs_select_by_path_from_df (uint8_t * buffer, struct iso7816_response * r)
+fs_select_by_path_from_df (uint8_t * buffer, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, 0, buffer, S_PATH);
 }
 
 uint8_t
-fs_select_by_path_from_mf (uint8_t * buffer, struct iso7816_response * r)
+fs_select_by_path_from_mf (uint8_t * buffer, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
   return fs_return_selected (r, 0, buffer, S_PATH | 0x80);
@@ -1290,7 +1389,7 @@ fs_select_by_path_from_mf (uint8_t * buffer, struct iso7816_response * r)
 
 // 0xffff if fail, filesize if OK
 uint16_t
-fs_get_file_size ()
+fs_get_file_size (void)
 {
   if (fci_sel.fs.id == 0xffff)
     return 0xffff;		//file not found
@@ -1300,7 +1399,7 @@ fs_get_file_size ()
 
 // 0xff fail
 uint8_t
-fs_get_file_type ()
+fs_get_file_type (void)
 {
   if (fci_sel.fs.id == 0xffff)
     return 0xff;		//file not found
@@ -1309,7 +1408,7 @@ fs_get_file_type ()
 }
 
 uint16_t
-fs_get_file_proflag ()
+fs_get_file_proflag (void)
 {
   if (fci_sel.fs.id == 0xffff)
     return 0xffff;		//file not found
@@ -1415,7 +1514,7 @@ fs_key_read_part (uint8_t * key, uint8_t type)
 #ifndef NIST_ONLY
 // temp function to allow change file type for EC key to 0x23
 uint8_t
-fs_key_change_type ()
+fs_key_change_type (void)
 {
   DPRINT ("%s\n", __FUNCTION__);
   if (check_EF_security (SEC_UPDATE) && check_EF_security (SEC_GENERATE))
@@ -1498,7 +1597,7 @@ fs_key_write_part (uint8_t * key)
 }
 
 static uint8_t
-fs_transparent_file ()
+fs_transparent_file (void)
 {
   // do not test shareable file flag
   if ((fci_sel.fs.type & 0xbf) == 1)
@@ -1508,15 +1607,13 @@ fs_transparent_file ()
 }
 
 uint8_t
-fs_read_binary (uint16_t offset, uint16_t dlen, struct iso7816_response * r)
+fs_read_binary (uint16_t offset, struct iso7816_response *r)
 {
   DPRINT ("%s\n", __FUNCTION__);
 
-  if (dlen == 0)
-    dlen = 256;
+  uint16_t dlen = r->Ne;
 
   if (fci_sel.fs.id == 0xffff)
-//    return S0x6a82;            //file or application not found
     return S0x6986;		//Command not allowed,(co current EF)
 
   if (!fs_transparent_file ())
@@ -1525,20 +1622,25 @@ fs_read_binary (uint16_t offset, uint16_t dlen, struct iso7816_response * r)
   if (check_EF_security (SEC_READ))
     return S0x6982;		//security status not satisfied
 
+  // Ne (dlen) is checked to be not over 256 in parser, offset < 32768
+  // offset + dlen < 65535, it is enough to use 16 bit variables
   if (offset + dlen > fci_sel.fs.size)
-    return S0x6282;		//end of size before LE
+    {
+      // ISO7816-4: for Le 256/short 65536/ext apdu read up to file end
+      // in limit 256/65536...(here Le is in range 1..256)
+      if (dlen == 256 && offset < fci_sel.fs.size)
+	dlen = fci_sel.fs.size - offset;
+      else
+	return S0x6282;		//end of file before Le
+    }
 
   offset += fci_sel.mem_offset;
   offset += sizeof (struct fs_data);
   offset += fci_sel.fs.name_size;
 
-  memset (r->data, 0xff, dlen);	//prepare initialized data if device_read_block fail return
-  //fail data not old buffer (may be with security data)
-  r->len = dlen & 0xff;
-  r->flag = R_RESP_READY;
-  if (1 == device_read_block (r->data, offset, dlen))
-    return S0x6281;		//part of data is corrupted
-  return S0x6100;
+  if (1 == device_read_block (r->data, offset, dlen & 0xff))
+    return S0x6581;		// Memory failure, do not return 0x6281 - part of data is corrupted
+  return resp_ready (r, dlen);
 }
 
 uint8_t
@@ -1673,7 +1775,7 @@ fs_delete_df_subtree (struct fs_response *df)
 }
 
 uint8_t
-fs_delete_file ()
+fs_delete_file (void)
 {
   struct fs_response parent, file;
   uint16_t offset;
@@ -1711,6 +1813,7 @@ fs_delete_file ()
   // select parent
   memcpy (&fci_sel, &parent, sizeof (struct fs_response));
   // reclaim free space at end of filesystem
+  // coverity[check_return]
   fs_search_file (&file, 0, NULL, S_SPACE);
   offset = file.fs.id;
   if (offset != 0)
@@ -1786,7 +1889,9 @@ fs_create_file (uint8_t * buffer)
       DPRINT ("%s: tag=%02x len=%d\n", __FUNCTION__, tag, dlen);
 // TLV is too long?
       if (dlen > 16)
-	return S0x6984;		//maximal tag size is 16 (filename);
+	return S0x6984;		// maximal tag size is 16 (filename);
+      if (!dlen)
+	return S0x6984;		// tag len 0, not allowed here
 // if there is fewer bytes in buffer as tag size
       if (xlen < dlen)
 	return S0x6984;		//invalid data
@@ -1798,15 +1903,16 @@ fs_create_file (uint8_t * buffer)
 	  if (dlen != 2)
 	    return S0x6984;	//invalid data
 	  fs.tag_80_81 = 1;	// 1 = DF/EF key  0 = EF size
+	  // fall through
 // data bytes in file (excluding struct. info)
 	case 0x80:
-	  // ISO7816 allow var bytes here
+	  // ISO7816 allow var bytes here (here 1/2 bytes is accepted)
 	  if (dlen > 2)
 	    return S0x6984;	//invalid data
 	  if (flag & 1)
 	    return S0x6984;	//invalid data  (duplicate tag 0x80/0x81)
 	  flag |= 1;
-	  fs.size = get_tag (buffer, dlen);
+	  fs.size = asn_get_uint_var (buffer, dlen);
 // limit filesize
 	  if (fs.size > 32767)
 	    return S0x6984;	//invalid data
@@ -1815,7 +1921,6 @@ fs_create_file (uint8_t * buffer)
 	case 0x82:
 	  if (dlen > 6)
 	    return S0x6984;	//invalid data
-	  flag |= 2;
 	  type = *buffer;
 	  fs.type = type;
 	  // mask shareable bit
@@ -1825,14 +1930,14 @@ fs_create_file (uint8_t * buffer)
 	      type != 0x11 && type != 0x22 && type != 0x23 &&
 	      type != 0x19 && type != 0x29)
 	    return S0x6984;	//invalid data
+	  flag |= 2;
 	  break;
 // File identifier
 	case 0x83:
 	  // ISO7816 allow here exact two bytes for length
 	  if (dlen != 2)
 	    return S0x6984;	//invalid data
-	  flag |= 4;
-	  fs.id = get_tag (buffer, dlen);
+	  fs.id = asn_get_uint16 (buffer);
 	  if (fs.id == 0x3fff)	// current DF (ISO7816-4/5.3.1.1)
 	    return S0x6984;	//invalid data
 	  if (fs.id == 0)
@@ -1841,13 +1946,14 @@ fs_create_file (uint8_t * buffer)
 	    return S0x6984;	//invalid data
 	  if (fs.id == 0xffff)	// RFU
 	    return S0x6984;	//invalid data
+	  flag |= 4;
 	  break;
 // prop info
 	case 0x85:
 	  // request an exact length of 2 bytes, (ISO7816 allow var bytes here)
 	  if (dlen != 2)
 	    return S0x6984;	//invalid data
-	  fs.prop = get_tag (buffer, dlen);
+	  fs.prop = asn_get_uint16 (buffer);
 	  break;
 // ACL
 	case 0x86:
@@ -1860,9 +1966,7 @@ fs_create_file (uint8_t * buffer)
 	  break;
 // filename
 	case 0x84:
-	  if (dlen < 1)
-	    return S0x6984;	//invalid data
-	  // maximal tag len (16) is already checked
+	  // maximal tag len (16) is already checked, len is > 0 checked too
 	  fs.name_size = dlen;
 	  df_name = buffer - 1;
 	  break;
@@ -1945,7 +2049,7 @@ fs_create_file (uint8_t * buffer)
 
 
 uint8_t
-fs_list_files (uint8_t type, struct iso7816_response * r)
+fs_list_files (uint8_t type, struct iso7816_response *r)
 {
   struct fs_response fr;
   uint16_t code;
@@ -1990,10 +2094,8 @@ fs_list_files (uint8_t type, struct iso7816_response * r)
     {
       if (fr.fs.id == 0)
 	return S_RET_OK;
-      r->flag = R_RESP_READY;
-      DPRINT ("%d %d\n", r->len, fr.fs.id);
-      r->len = ((fr.fs.id << 1) & 0xff);
-      return S0x6100;
+      DPRINT ("%d %d\n", r->len16, fr.fs.id);
+      return resp_ready (r, (fr.fs.id << 1));
     }
   return S0x6a82;		//file not found
 }

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -98,7 +98,7 @@ static void __attribute__ ((noinline)) aes_shiftRows (uint8_t * state)
   state[11] = state[7];
   state[7] = tmp;
 
-  return aes_shiftRowsEnd (state);
+  aes_shiftRowsEnd (state);
 }
 
 static void __attribute__ ((noinline)) aes_shiftRows_inv (uint8_t * state)
@@ -117,7 +117,7 @@ static void __attribute__ ((noinline)) aes_shiftRows_inv (uint8_t * state)
   state[11] = state[15];
   state[15] = tmp;
 
-  return aes_shiftRowsEnd (state);
+  aes_shiftRowsEnd (state);
 }
 
 static void __attribute__ ((noinline)) aes_mixColumns (uint8_t * state)

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -19,7 +19,11 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
     definition of constant values for eliptic curves, oids etc
-    atmega helper
+
+    atmega128/1284  helper for read constants from eeprom or flash
+    now default is EEPROM for atmega
+    4kB eeprom, 0-0x7ff - constanst, 0x800-0xfff PINs (from mem_device.S)
+    (xmega uses flash to store constants)
 
 */
 #ifdef HAVE_GET_CONSTANTS
@@ -29,12 +33,70 @@
 #include <stdint.h>
 #include "constants.h"
 
+#if 1
+const uint8_t  __attribute__ ((section (".eeprom")))  eeprom_constants[] = {
+ C_CONSTANTS
+ 0xff
+};
+
+uint8_t
+get_constant (void *here, uint8_t id)
+{
+  register uint8_t ret asm ("r24");
+  asm volatile (		//
+                 "ldi	r30,0\n"	//
+                 "ldi	r31,0\n"	//
+                 "clr	r24\n"		//
+                 "1:\n"			//
+                 "out	0x1f,r31\n"	// set address
+                 "out	0x1e,r30\n"	//
+                 "sbi	0x1c,0\n"	// trigger read
+                 "adiw	r30,1\n"	// inc addr
+                 "in	r25,0x1d\n"	//
+//
+                 "out	0x1f,r31\n"	// set address
+                 "out	0x1e,r30\n"	//
+                 "sbi	0x1c,0\n"	// trigger read
+                 "adiw	r30,1\n"	// inc addr
+                 "in	r0,0x1d\n"	//
+//
+                 "cp	r25,r22\n"	// match constant ID?
+                 "breq	1f\n"		// ok found
+                 "cpi	r25,0xff\n"
+                 "breq	3f\n"		// fail, no constant found
+                 "in	r0,0x1d\n"	//
+                 "add	r30,r0\n"	//
+                 "adc	r31,r1\n"	//
+                 "rjmp	1b\n"		//
+// copy
+//
+                 "1:\n"
+                 "out	0x1f,r31\n"	// set address
+                 "out	0x1e,r30\n"	//
+                 "sbi	0x1c,0\n"	// trigger read
+                 "adiw	r30,1\n"	// inc addr
+                 "in	r25,0x1d\n"	//
+                 "st	X+,r25\n"
+                 "dec	r0\n"
+                 "brne	1b\n"
+//
+                 "2:\n"
+		 "ldi	r24,1\n"	//
+		 "3:\n"
+		 :"=r" (ret):"x" (here):);
+  return ret;
+}
+
+
+
+
+#else
+
 const uint8_t __flash constants[] = {
   C_CONSTANTS
 //last position
   0xff
 };
-
 
 // C code with pgm_read_byte 64 bytes
 // C code with named space   56 bytes
@@ -101,5 +163,7 @@ get_constant (void *here, uint8_t id)
 		 :"=r" (ret):"z" (constants), "x" (here):);
   return ret;
 }
-#endif
-#endif
+#endif // C/ASM
+
+#endif // EEPROM/FLASH
+#endif	// have get constants

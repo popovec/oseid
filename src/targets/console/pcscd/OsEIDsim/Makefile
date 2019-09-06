@@ -6,7 +6,8 @@ CFLAGS += -Wall -fPIC -I. `pkg-config libpcsclite --cflags`
 endif
 
 version="0.0.1"
-targets =  serial.o ifdhandler.o
+
+targets =  hex2bytes.c serial.c ifdhandler.c
 
 all: libOsEIDsim.so
 

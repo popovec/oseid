@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -35,6 +35,8 @@
 	.section .text.rsa_mod,"ax",@progbits
         .global mp_mod
         .type   mp_mod, @function
+        .global bn_mod_half
+        .type   bn_mod_half, @function
 
 // rsa_mod (rsa_long_num * result, rsa_num * mod)
 // warning, it is assumed, higest bit in modulus is 1
@@ -62,9 +64,13 @@
 #define M_TABLEh r13
 // normal unrol is 4x, if this is defined unrol is 8x (code size +34 bytes)
 #define UNROL
-
+bn_mod_half:
+	set
+	rjmp	1f
 mp_mod:
 rsa_mod:
+	clt
+1:
 	push	r2
 	push	r3
 	push	r4
@@ -158,7 +164,7 @@ rsa_mod_init_loop_3:
 
 // init variables
 	clr	INDEX
-
+// COUNTER is BYTES*256 not BYTES*8
 	mov	COUNTER_H,BYTES
 	clr	COUNTER
 //////////////////////////////////////////////
@@ -175,9 +181,13 @@ rsa_mod_init_loop_3:
 // 1st loop is diferent (one byte skipped)
 // M_TABLE index
 	ldi	r18,1
-	mov	LOOP,r4
-	rjmp	rsa_mod_subtract
-
+	brtc	rsa_mod_skip1
+// half reduction, change counter
+	lsr	COUNTER_H
+	rol	COUNTER
+	adiw	COUNTER,32	// + 1 bit
+// change M_table index - start from bit 0
+	ldi	r18,7
 rsa_mod_calculate:
 // set pointers
 	movw	r26,RESULT_PTR
@@ -203,12 +213,13 @@ rsa_mod_calculate:
 	add	r28,r12
 	adc	r29,r13
 
-	mov	LOOP,r4
-
         ld      TMP0,X+
         ld      TMP1,Y+
         sbc     TMP0,TMP1
         st      Z+,TMP0
+
+rsa_mod_skip1:
+	mov	 LOOP,r4
 rsa_mod_subtract:
 #ifdef UNROL
 .rept	8
@@ -278,16 +289,19 @@ rsa_mod_final_copy:
 	.type	rsa_inv_mod_N,@function
 	.section .text.rsa_inv_mod_N,"ax",@progbits
 
-//void rsa_inv_mod_N (rsa_num * n_, rsa_num * modulus);
-
+//void rsa_inv_mod_N (rsa_half_num * n_, rsa_num * modulus);
+// calculates 1/2 bits n_ = r - n^-1 mod r
 #if RSA_BYTES > 256
 #error This code is designed for RSA_BYTES <=256
 #endif
-// clock cycles (constant time)
-//  512bits |  768  |  1024
-//   188300 | 400684| 694988
+//
 
-#define ALLOC  8*RSA_BYTES+512
+// modulus:        384  |  512  |  768  |  1024
+// n_ bits:        192  |  256  |  384  |   512
+// clock cycles:  34939 | 54755 | 109747| 185219
+
+// TODO allocated space is bigger ..
+#define ALLOC  4*RSA_BYTES+512
 rsa_inv_mod_N:
 	movw	r20,r24	// save result position
 	push	r28
@@ -314,6 +328,7 @@ rsa_inv_mod_full_0:
 // create table with rotated modulus (8x)
 // 1st copy modulus
 	lds	r24,mod_len
+	lsr	r24			// only half of bytes
 	mov	r1,r24
 	movw	r30,r28
 	movw	r26,r22	// modulus position
@@ -323,7 +338,7 @@ rsa_inv_mod_full_1:
 	dec	r1
 	brne	rsa_inv_mod_full_1
 
-// X is pointer to table start
+// X is pointer to modulus table start
 	movw	r26,r30
 	sub	r26,r24
 	sbci	r27,0
@@ -414,108 +429,6 @@ rsa_inv_mod_full_add_loop:
 	pop	r28
 	ret
 #undef ALLOC
-
-        .global monPro0
-        .type   monPro0, @function
-	.section .text.monPro0,"ax",@progbits
-
-#define PTR_t	r12
-#define PTR_n	r14
-#define PTR_n0	r16
-
-//monPro0 (rsa_num * a, rsa_long_num * t, rsa_long_num * tmp,rsa_num * n, n0_t n0)
-monPro0:
-	push	r12
-	push	r13
-	push	r14
-	push	r15
-	push 	r16
-	push	r17
-
-	push	r28
-	push	r29
-
-	movw	PTR_t,r22	//t
-	movw	PTR_n,r18	//n
-	movw	r28,r20		//tmp
-
-// a = t_low * n0
-// PTR_A = PTR_t * PTR_n0
-// r24   =  r22  * r16
-	movw	r20,PTR_n0
-#undef PTR_n0
-#define PTR_A	r16
-// reuse r16,17 - call saved reg - as PTR_A
-	movw	PTR_A,r24
-	call	rsa_mul_mod
-// tmp = a * n
-	movw	r24,r28
-	movw	r22,PTR_A
-	movw	r20,PTR_n
-	call	rsa_mul
-
-// do adding .. help = help + t (do not store low part back)
-	lds	r24,mod_len
-	lsr	r24
-	lsr	r24
-	lsr	r24
-	mov	r1,r24
-
-	movw	r30,PTR_t	//t
-	movw	r26,PTR_n	//n
-//18,19,20,21,22,23
-
-//      clc                     // CY is always cleared (mod_len is return  always even number)
-monPro0_add_loop_a:
-.rept 8
-	ld	r0,Y+
-	ld	r25,Z+
-	adc	r0,r25
-.endr
-	dec	r1
-	brne	monPro0_add_loop_a
-// from low part only carry is relevant for us
-
-//upper part 
-	mov	r1,r24
-	clr	r24	//carry switcher (do not clear carry flag!)
-monPro0_add_loop_b:
-
-.irp pos 12,13,14,15,16,17,18,19
-	ld	r\pos,Y
-	ldd	r0,Z+(\pos-12)
-	adc	r\pos,r0
-	st	Y+,r\pos	//sum back into help
-.endr
-	ror	r24	//save "add" carry, renew "sub" carry
-
-.irp pos,12,13,14,15,16,17,18,19
-	ld	r0,X+		//
-	sbc	r\pos,r0
-	st	Z+,r\pos
-.endr
-	rol	r24	//renew "add" carry, save "sub" carry
-	dec	r1
-	brne	monPro0_add_loop_b
-
-// add and sub carry in bit 0 and CY, do XOR
-	adc	r24,r1	// 00 ->0 10 -> 1 01 ->1 11 ->0
-	com	r24
-	andi	r24,1
-
-	pop	r29
-	pop	r28
-	pop	r17
-	pop	r16
-	pop	r15
-	pop	r14
-	pop	r13
-	pop	r12
-	ret
-
-#undef PTR_A
-#undef PTR_t
-#undef PTR_n
 
 	.global	bn_abs_sub
 	.type	bn_abs_sub,@function
@@ -731,3 +644,574 @@ prime_gcd_loop:
 #undef TMP
 #undef TMPh
 
+	.global	rsa_mul_var_no_abi
+	.type	rsa_mul_var_no_abi,@function
+	.section .text.rsa_mul_var_no_abi,"ax",@progbits
+
+
+//r30 - result r28,r26 operands
+rsa_mul_var_no_abi:
+/*
+// TODO, no "no_abi" version only ..
+// for now this is not needed
+1:	cpi	r24,128
+	brne	1f
+	jmp	rsa_mul_1024_no_abi
+1:	cpi	r24,96
+	brne	1f
+	jmp	rsa_mul_768_no_abi
+*/
+
+1:	cpi	r24,64
+	brne	1f
+// adapt .. r30 - result r28,r26 operands
+	movw	r22,r28
+	movw	r28,r30
+// result r28, operands r22,r26
+	jmp	rsa_mul_512_no_abi
+1:	cpi	r24,48
+	brne	1f
+	jmp	rsa_mul_384_no_abi
+1:	cpi	r24,32
+	brne	1f
+	jmp	rsa_mul_256_no_abi
+1:	cpi	r24,24
+	brne	1f
+	jmp	rsa_mul_192_no_abi
+1:
+	movw	r24,r30
+	movw	r22,r28
+	movw	r20,r26
+//	jmp	rsa_mul_128
+
+        .global rsa_mul_128
+        .type   rsa_mul_128,@function
+        .section .text.rsa_mul_128,"ax",@progbits
+// this is used only in RSA512 .. the speed of this code is not important
+// use small codeto save flash
+rsa_mul_128:
+	clt
+	movw	r30,r24
+	movw	r24,r20
+
+rsa_mul_128_trunc_no_abi:
+
+	push	r16
+	push	r17
+	push	r28
+	push	r29
+
+	clr	r16
+	clr	r17
+	movw	r18,r16
+	clr	r20
+1:
+	inc	r20
+	mov	r21,r20
+	movw	r28,r22
+	adiw	r24,1
+	movw	r26,r24
+2:
+	ld	r0,Y+
+	ld	r1,-X
+	mul	r1,r0
+
+	add	r16,r0
+	adc	r17,r1
+	adc	r18,r19	//zero
+
+	dec	r21
+	brne	2b
+
+	st	Z+,r16
+	mov	r16,r17
+	mov	r17,r18
+	clr	r18
+
+	cpi	r20,16
+	brne	1b
+	brts	3f		// truncated mul
+// calculate end position of operand
+	mov	r20,r22
+	subi	r20,(-16)
+
+	ldi	r21,15
+1:
+	subi	r22,0xff
+	sbci	r23,0xff
+	movw	r28,r22
+	movw	r26,r24
+2:
+	ld	r0,Y+
+	ld	r1,-X
+	mul	r1,r0
+
+	add	r16,r0
+	adc	r17,r1
+	adc	r18,r19	//zero
+
+	cp	r28,r20
+	brne	2b
+
+	st	Z+,r16
+	mov	r16,r17
+	mov	r17,r18
+	clr	r18
+
+	dec	r21
+	brne	1b
+
+	st	Z,r16
+3:
+	pop	r29
+	pop	r28
+	pop	r17
+	pop	r16
+	clr	r1
+	ret
+
+
+//uint8_t monPro0 (rsa_long_num * t, rsa_long_num * help1, rsa_num * n, rsa_half_num * Mc, rsa_num * Bc)
+
+	.global	monPro0
+	.type	monPro0,@function
+	.section .text.monPro0,"ax",@progbits
+
+// input r22,r26, result r30
+rsa_mul_trunc_var_no_abi:
+	cpi     r24,128
+	brne	1f
+        jmp	rsa_mul_512_mod_no_abi
+1:
+	cpi     r24,96
+	brne	1f
+        jmp	rsa_mul_384_mod_no_abi
+1:
+	cpi     r24,64
+	brne	2f
+// create space on stack - 64 bytes TMP variable, 3x pointer
+	in	r28, 0x3d
+	in	r29, 0x3e
+	sbiw	r28,(32+6)	// rsa_mul_256_mod_no_abi result in stack!
+	LOAD_SP r0, r28,r29
+
+// save  pointers to stack
+	std	Y+3,r30	// Result
+	std	Y+4,r31
+
+	movw	r28,r22
+	call	rsa_mul_256_mod_no_abi	// result to stack
+//copy result from stack to real position
+// load values back
+	ldi	r24,32
+
+	in	r30, 0x3d
+	in	r31, 0x3e
+	ldd	r28,Z+3	// result
+	ldd	r29,Z+4
+	adiw	r30,7
+1:
+	ld	r25,Z+
+	st	Y+,r25
+	dec	r24
+	brne	1b
+
+// return registers
+	sbiw	r30,1
+	LOAD_SP r0, r30,r31
+	ret
+
+2:
+	cpi	r24,48
+	brne	1f
+//adapt
+	movw	r28,r22
+	jmp	rsa_mul_192_mod_no_abi
+1:
+	movw	r24,r26
+	set
+	rjmp	rsa_mul_128_trunc_no_abi
+
+// carry in r25 bit 1,0
+mpro_add2:
+	ror	r25
+1:
+	ldd	r4,Z+0
+	ldd	r5,Z+1
+	ldd	r6,Z+2
+	ldd	r7,Z+3
+
+	ld	r8,X+
+	ld	r9,X+
+	ld	r10,X+
+	ld	r11,X+
+
+	adc	r4,r8
+	adc	r5,r9
+	adc	r6,r10
+	adc	r7,r11
+	ror	r25
+
+	ld	r8,Y+
+	ld	r9,Y+
+	ld	r10,Y+
+	ld	r11,Y+
+
+	adc	r4,r8
+	adc	r5,r9
+	adc	r6,r10
+	adc	r7,r11
+	rol	r25
+
+	st	Z+,r4
+	st	Z+,r5
+	st	Z+,r6
+	st	Z+,r7
+	
+	dec	r24
+	brne	1b
+	ret
+
+monPro0:
+//save registers
+	push	r2
+	push	r3
+	push	r4
+	push	r5
+	push	r6
+	push	r7
+	push	r8
+	push	r9
+	push	r10
+	push	r11
+	push	r12
+	push	r13
+	push	r14
+	push	r15
+	push	r28
+	push	r29
+
+	push	r17
+	push	r16		//Bc
+
+	push	r19
+	push	r18		//Mc
+
+	push	r21
+	push	r20		// n
+
+	push	r23
+	push	r22		// help1
+
+	push	r25
+	push	r24		// t
+
+	movw	r28,r24		// operand
+	movw	r26,r16		// operand
+	movw	r30,r22		// result
+
+// t - from parts D,C,B,A	-> T[D|C|B|A]
+// help1                       	-> help1[D|C|B|A]
+// Bc				-> Bc[H|L]
+
+// calculate T[D] * Bc[L] into help[C|B]
+
+// calculate opernad size, positions
+	lds	r24,mod_len
+	push	r24
+
+	mov	r25,r24
+	lsr	r24
+
+	add	r30,r24		// help1  D|C|B|A, result to C|B
+	adc	r31,r1
+
+	add	r25,r24		//
+	add	r28,r25		// t D|C|B|A,  operand "D"
+	adc	r29,r1
+
+	rcall	rsa_mul_var_no_abi
+
+// load values back
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r30,Y+2	// t
+	ldd	r31,Y+3
+	ldd	r26,Y+4	// help1
+	ldd	r27,Y+5
+	ldd	r24,Y+1  // mod_len
+	clr	r1
+	lsr	r24
+	add	r26,r24
+	adc	r27,r1
+
+// T[A] += help1[B]
+
+// Z = Z + X  (r23,r25 clamped, r24 counter, clear c before call)
+	lsr	r24
+	lsr	r24		// only low part ..
+	lsr	r24
+	call	mp_add1
+	push	r24		// save carry here
+
+////////// Montgomery part
+
+// calculate coeficient for Montgomery reduction into help[D]
+
+// input r22,r26, result r30
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r26,Y+3	// t
+	ldd	r27,Y+4
+	ldd	r30,Y+5	// help1
+	ldd	r31,Y+6
+	ldd	r22,Y+9	// Mc
+	ldd	r23,Y+10
+// TODO fixed position at RSA_BYTES*1.5 ...
+	ldd	r24,Y+2		// mod_len
+	mov	r25,r24
+	lsr	r25
+	add	r25,r24
+	clr	r1
+	add	r30,r25
+	adc	r31,r1	// D part of help1
+	call	rsa_mul_trunc_var_no_abi
+///////  calculate Montg.
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r30,Y+5	// help1
+	ldd	r31,Y+6
+	ldd	r26,Y+7	// n
+	ldd	r27,Y+8
+
+	ldd	r24,Y+2		// mod len
+	mov	r25,r24
+	lsr	r25
+	add	r25,r24
+	clr	r1
+	movw	r28,r30
+	add	r28,r25	// D part of help1
+	adc	r29,r1
+	lsr	r24
+	rcall	rsa_mul_var_no_abi
+
+// load values back
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r30,Y+3	// t
+	ldd	r31,Y+4
+	ldd	r26,Y+5	// help1
+	ldd	r27,Y+6
+
+// summarize low part (only carry is needed)
+	ldd	r24,Y+2		//mod_len
+	lsr	r24
+	mov	r23,r24		// mod_len/2
+	lsr	r24
+	lsr	r24
+	mov	r1,r24
+	lsr	r24
+1:
+	ld	r0,Z+
+	ld	r25,X+
+	adc	r0,r25
+	ld	r0,Z+
+	ld	r25,X+
+	adc	r0,r25
+	ld	r0,Z+
+	ld	r25,X+
+	adc	r0,r25
+	ld	r0,Z+
+	ld	r25,X+
+	adc	r0,r25
+	dec	r1
+	brne	1b
+
+	pop	r25
+	rol	r25		// carry in r25 bit 1,0
+
+// Z=Z+X+Y
+	movw	r28,r26
+	mov	r24,r23		// mod_len/2
+	add	r28,r24
+	adc	r29,r1
+	lsr	r24
+	lsr	r24
+	rcall	mpro_add2
+// summarize carry
+	adc	r25,r1
+	mov	r24,r25
+//
+// propagate carry (already Z point to proper place in 't')
+	ld	r0,Z
+	add	r0,r24
+	rjmp	2f
+1:
+	ld	r0,Z
+	adc	r0,r1
+2:
+	st	Z+,r0
+	ld	r0,Z
+	adc	r0,r1
+	st	Z+,r0
+	ld	r0,Z
+	adc	r0,r1
+	st	Z+,r0
+	ld	r0,Z
+	adc	r0,r1
+	st	Z+,r0
+	subi	r23,4	// half number only r23 is already modlen/2
+	brne	1b
+
+	clr	r2
+	rol	r2
+	
+//////
+// load values back
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r26,Y+6	// n
+	ldd	r27,Y+7
+	ldd	r30,Y+4	// help
+	ldd	r31,Y+5
+	ldd	r24,Y+1	// mod_len
+	movw	r28,r30
+
+	mov	r25,r24
+	clr	r1
+	lsr	r24
+//
+	add	r26,r24	// n[H]
+	adc	r27,r1
+//
+	add	r25,r24
+
+	add	r28,r25
+	adc	r29,r1	// D part of help1
+	push	r2		// carry
+	call	rsa_mul_var_no_abi
+
+//////////////////////////////////////////////////// 	
+// load values back
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r26,Y+11	// Bc
+	ldd	r27,Y+12
+	ldd	r30,Y+5		// help
+	ldd	r31,Y+6
+	ldd	r22,Y+3		// t
+	ldd	r23,Y+4
+	ldd	r24,Y+2		// mod_len
+	movw	r28,r22
+
+	mov	r25,r24
+	clr	r1
+	lsr	r24
+//
+	add	r26,r24	// Bc[H]
+	adc	r27,r1
+	
+	add	r30,r25	// help1 [D|C] part
+	adc	r31,r1
+//
+	add	r25,r24
+	add	r28,r25
+	adc	r29,r1	// D part of t
+
+	call	rsa_mul_var_no_abi
+
+// load values back
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r26,Y+3	// t
+	ldd	r27,Y+4
+	ldd	r30,Y+5	// help
+	ldd	r31,Y+6
+	ldd	r24,Y+2		// mod_len
+// sumarize Z = Z+X+Y  (help1 = help1 + help1 upper part + t)
+
+	movw	r28,r30
+	clr	r1
+	add	r28,r24
+	adc	r29,r1
+	lsr	r24
+	add	r26,r24
+	adc	r27,r1
+	lsr	r24
+
+	clr	r25		// initial carry
+	rcall	mpro_add2	
+	adc	r25,r1		// summarize carry
+
+	pop	r17		// carry (from carry propagation)
+	add	r17,r25
+
+// subtract
+	in	r28, 0x3d
+	in	r29, 0x3e
+	ldd	r24,Y+2	// t
+	ldd	r25,Y+3
+	ldd	r22,Y+4	// help
+	ldd	r23,Y+5
+	ldd	r20,Y+6	// n
+	ldd	r21,Y+7
+
+	call	rsa_sub
+	sub	r17,r24
+
+// posible values of carry in r23: 0xff,0,1
+// create value 0 or 2 (used to select propper operand help1/t)
+	mov	r16,r17
+	com	r16
+	andi	r16,2
+
+// carry = 0xff ? -> 	t=t-n, result help1, return 0
+// else  help1= t-n
+//       if carry=0xff, -> return 1 else 0
+
+	ldd	r22,Y+2	// t
+	ldd	r23,Y+3
+	ldd	r20,Y+6	// n
+	ldd	r21,Y+7
+
+// exponent is blinded, there is problem to get power trace from this point
+// TODO if someone need mask this ..
+	add	r28,r16
+	adc	r29,r1
+	ldd	r24,Y+2	// help or t
+	ldd	r25,Y+3
+
+	call	rsa_sub
+	sub	r17,r24
+	mov	r24,r17
+// posible values in r24 0xff,0
+// r16 is 0 or 2 here,  0 -> return value must be set to 0,
+//          	           2 -> return value is based on r24 (carry)
+	lsr	r16
+	and	r24,r16
+
+	in	r28, 0x3d
+	in	r29, 0x3e
+	adiw	r28,9
+	LOAD_SP	r0, r28,r29
+
+// return registers
+	pop	r16
+	pop	r17
+	pop	r29
+	pop	r28
+	pop	r15
+	pop	r14
+	pop	r13
+	pop	r12
+	pop	r11
+	pop	r10
+	pop	r9
+	pop	r8
+	pop	r7
+	pop	r6
+	pop	r5
+	pop	r4
+	pop	r3
+	pop	r2
+	ret

@@ -27,22 +27,23 @@
     void card_io_init(void)
      - I/O subsystem is initialized and ATR is send to reader
 
-    uint8_t card_io_tx (uint8_t * data, uint8_t len);
+    uint8_t card_io_tx (uint8_t * data, uint16_t len);
      - transmit data from buffer pointed by "data", length is
        defined in "len" variable. Minimal transmit size is 1 byte,
-       if len==0 then 256 bytes are transmitted.
+       if len==0 then 65536 bytes are transmitted.
      - return 255 on error (T0 protocol, reader signalize
        error in parity.. )
      - return 0 - all ok
 
-     uint8_t card_io_rx (uint8_t * data, uint8_t len);
+     uint16_t card_io_rx (uint8_t * data, uint16_t len);
      - read data from reader, store to buffer pointed by "data"
        maximal number of received bytes in "len". If reader transmit
        more data as expected in "len", rest of data are discarded.
        (transmit end is detected by timeout after latest received char)
      - if len == 0, no character are stored into buffer (T0 protocol allow
        only 255 character to be transmitted, here 0 is not interpreted as 256)
-     - return numbers of received chars (0..255).
+     - return numbers of received chars (0..32767), bit 15 is used to signalize protocol T0/1
+       Of cource maximal sice is limited by Hw.
 
      void card_io_start_null (void);
      - setup I/O subsystem to transmit NULL bytes
@@ -69,8 +70,8 @@
 
 */
 void card_io_init (void);
-uint8_t card_io_rx (uint8_t * data, uint8_t len);
-uint8_t card_io_tx (uint8_t * data, uint8_t len);
+uint16_t card_io_rx (uint8_t * data, uint16_t len);
+uint8_t card_io_tx (uint8_t * data, uint16_t len);
 uint8_t card_io_reset (void);
 void card_io_start_null (void);
 void card_io_stop_null (void);
