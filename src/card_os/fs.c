@@ -339,6 +339,8 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
       data_count = *data;
       if (data_count > 16)
         return RET_SEARCH_FAIL;
+      if (data_count == 0)
+        return RET_SEARCH_FAIL;
       data++;
     }
   response.mem_offset = 0;
@@ -428,6 +430,8 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
       // test filename
       if (response.fs.name_size && type == S_NAME)
 	{
+	  // data_count is already checked to be in range 1..16
+	  // coverity[overrun-buffer-val]
 	  if (0 ==
 	      device_read_block (fname,
 				 response.mem_offset +
