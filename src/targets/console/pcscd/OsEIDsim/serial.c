@@ -222,6 +222,9 @@ OpenGBP (DWORD lun, LPSTR dev_name)
   if (reader_fd < 0)
     {
       Log3 (PCSC_LOG_CRITICAL, "open %s: %s", dev_name, strerror (errno));
+      // return value from "open" is always -1 on error,
+      // but force this value into reader_fd to make coverity scan happy
+      reader_fd = -1;
       return RET_FAIL;
     }
 
