@@ -1064,8 +1064,7 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
   rsa_num *Bc = &(tmp->H);
   rsa_half_num Mc;
 
-  uint8_t i, ret;
-  int8_t reti;
+  uint8_t i;
   uint16_t count;
   uint16_t d = 0;
 
@@ -1074,12 +1073,11 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
 // clear whole exponent 1st
   memset (&exponent, 0, sizeof (rsa_exp_num));
 
-// assume: n-1 = e * (2 pow (d)),  "exp" is ODD
-//         n-1 = e,  p is always odd, only clear bit 0
+// exponent = n-1  "n" is always odd, only clear bit 0
   memcpy (e, n, rsa_get_len ());
   e->value[0] &= 0xfe;
 
-// make "e" odd  (and calculate d)
+// exponent = e * (2 pow (d)), make "e" odd, calculate "d"
   do
     {
       d++, rsa_shiftr (e);
@@ -1096,7 +1094,6 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
 
 // calculate number of loops (based on bit len of prime)
 // 3 runs for 1024 bit, 6 runs for 512, 12 runs for 256 bit ..
-
   i = 0, count = bn_real_bit_len;
   while (count <= 3072)
     count += bn_real_bit_len, i++;
@@ -1107,17 +1104,11 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
     {
       DPRINT ("miller loop %d\n", i);
 
-      // get random "a" in range <2 .. n-2> (here minimal 256 bites prime is tested)
-      // minimal "n" is 2^128+1, make "a" in range < (2^120)
+      // get random "a" in range <2 .. n-2>
+      // minimal "n" is 2^128+1, (rsa key 512) make "a" in range < (2^120)
       memset (a, 0, RSA_BYTES);
       rnd_get ((uint8_t *) a, 15);	// 120 bits
       a->value[0] |= 2;		// minimal value 2
-
-#ifdef RSA_DEBUG
-      DPRINT ("a=");
-      print_rsa_num (a);
-      DPRINT ("\n");
-#endif
 
 // do not use exponent blinding here ..
 #if E_BITS == 5
@@ -1140,46 +1131,51 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
 #ifdef RSA_GEN_DEBUG
       debug_rm_count++;
 #endif
+// result must be compared to n-1, n is odd,  n-1 into t[0]...
+      memcpy (&t[0], n, RSA_BYTES);
+      t[0].value[0] &= 0xfe;
 
-// test if "a"==1 invert bit 1 in "a" to use bn_test_zero()
+// if exp. result "a"==1, then "n" is candidate for probably prime number
+// invert bit 1 in "a" to use bn_test_zero()
       a->value[0] ^= 1;
-      ret = bn_is_zero (a);
-      a->value[0] ^= 1;
-      if (ret)
-	continue;		// "n" is candidate for probably prime number
+      if (bn_is_zero (a))
+	continue;		// OK, candidate, do next iteration
 
-// make (n-1) from n, test if "a"==(n-1)
-      n->value[0] &= 0xfe;
-      reti = memcmp (a, n, rsa_get_len ());
-      n->value[0] |= 1;
-      if (reti == 0)		// "n" is candidate for probably prime number
-	continue;
+// keep squaring "a", test "a" pow 2 mod "n"
+// a >= n-1  composite (use "d" for this test)
+// 1         composite
+// n-1       candidate for probably prime
 
       count = d;
-      while (--count)
-	{
-	  rsa_square (&t[1], a);
-	  rsa_mod (&t[1], n);
-	  memcpy (a, &t[1], rsa_get_len ());
 
-// test if "a"==1
-// invert bit 1 in "a" to use bn_test_zero()
-	  a->value[0] ^= 1;
-	  ret = bn_is_zero (a);
-	  a->value[0] ^= 1;
-	  if (ret)
-	    return 1;		// definitively composite
+// use goto for this loop ================================================
+    mr_squaring_loop:
 
-// make (n-1) from n, test if "a"==(n-1)
-	  n->value[0] &= 0xfe;
-	  reti = memcmp (a, n, rsa_get_len ());
-	  n->value[0] |= 1;
-	  if (reti == 0)		// "n" is candidate for probably prime number
-	    break;
-	}
-      if (count == 0)
+// return 'a' value back
+      a->value[0] ^= 1;
+
+// if result "a"==(n-1) then "n" is candidate for probably prime number
+      if (0 == memcmp (a, &t[0], rsa_get_len ()))
+	continue;		// OK, candidate, do next iteration
+// squaring needed ?
+      if (--count == 0)
 	return 1;		// definitively composite
+// square ..
+      rsa_square (&t[1], a);
+      partial_barret (&t[1], Bc);
+      bn_mod_half (&t[1], n);
+      memcpy (a, &t[1], rsa_get_len ());
+
+// test if squared result of exp. "a"==1
+// invert bit 1 in "a" to use bn_test_zero()
+      a->value[0] ^= 1;
+      if (bn_is_zero (a))
+	return 1;		// definitively composite
+
+      goto mr_squaring_loop;
+// =======================================================================
     }
+// probably prime
   return 0;
 }
 
