@@ -118,105 +118,97 @@ static void mul_mod (bignum_t * result, bignum_t * a, bignum_t * b,
 /**************************************************************************
 *                     basic multiple precision arithmetic                *
 ***************************************************************************/
-uint8_t __attribute__ ((weak)) mp_is_zero (bignum_t * a)
+uint8_t __attribute__((weak)) mp_is_zero (bignum_t * a)
 {
   return bn_is_zero (a);
 }
 
-uint8_t __attribute__ ((weak)) mp_add (bignum_t * r, bignum_t * a)
+uint8_t __attribute__((weak)) mp_add (bignum_t * r, bignum_t * a)
 {
   return bn_add (r, a);
 }
 
 uint8_t
-  __attribute__ ((weak)) mp_sub (bignum_t * r, bignum_t * a, bignum_t * b)
+  __attribute__((weak)) mp_sub (bignum_t * r, bignum_t * a, bignum_t * b)
 {
   return bn_sub (r, a, b);
 }
 
-uint8_t __attribute__ ((weak)) mp_cmpGE (bignum_t * c, bignum_t * d)
+uint8_t __attribute__((weak)) mp_cmpGE (bignum_t * c, bignum_t * d)
 {
   return bn_cmpGE (c, d);
 }
 
 void
-  __attribute__ ((weak)) add_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
+  __attribute__((weak)) add_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
 {
   bn_add_mod (r, a, mod);
 }
 
 void
-  __attribute__ ((weak)) sub_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
+  __attribute__((weak)) sub_mod (bignum_t * r, bignum_t * a, bignum_t * mod)
 {
   bn_sub_mod (r, a, mod);
 }
 
-uint8_t __attribute__ ((weak)) mp_shiftl (bignum_t * r)
+uint8_t __attribute__((weak)) mp_shiftl (bignum_t * r)
 {
   return bn_shiftl (r);
 }
 
-void __attribute__ ((weak)) mp_shiftl2 (bignum_t * r)
+void __attribute__((weak)) mp_shiftl2 (bignum_t * r)
 {
   mp_shiftl (r);
   mp_shiftl (r);
 }
 
-void __attribute__ ((weak)) mp_shiftl4 (bignum_t * r)
+void __attribute__((weak)) mp_shiftl4 (bignum_t * r)
 {
   mp_shiftl2 (r);
   mp_shiftl2 (r);
 }
 
-uint8_t __attribute__ ((weak)) mp_shiftr (bignum_t * r)
+uint8_t __attribute__((weak)) mp_shiftr (bignum_t * r)
 {
   return bn_shiftr (r);
 }
 
-uint8_t __attribute__ ((weak)) mp_shiftr_c (bignum_t * r, uint8_t carry)
+uint8_t __attribute__((weak)) mp_shiftr_c (bignum_t * r, uint8_t carry)
 {
   return bn_shiftr_c (r, carry);
 }
 
-void __attribute__ ((weak)) mp_mod (bigbignum_t * result, bignum_t * mod)
+void __attribute__((weak)) mp_mod (bigbignum_t * result, bignum_t * mod)
 {
   bn_mod (result, mod);
 }
 
 uint8_t
-  __attribute__ ((weak)) mp_inv_mod (bignum_t * result, bignum_t * a,
-				     bignum_t * mod)
+  __attribute__((weak)) mp_inv_mod (bignum_t * result, bignum_t * a,
+				    bignum_t * mod)
 {
-  uint8_t ret;
-
-// TODO fix this in bn_inv_mod ?
-#if MP_BYTES >= 66
-  memset (&(result->value[66]), 0, MP_BYTES - 66);
-  result->value[65] &= 1;
-#endif
-  ret = bn_inv_mod (result, a, mod);
-  return ret;
+  return bn_inv_mod (result, a, mod);
 }
 
-void __attribute__ ((weak))
+void __attribute__((weak))
 mp_mul_192 (bigbignum_t * r, bignum_t * a, bignum_t * b)
 {
   bn_mul_v (r, a, b, 24);
 }
 
-void __attribute__ ((weak))
+void __attribute__((weak))
 mp_mul_256 (bigbignum_t * r, bignum_t * a, bignum_t * b)
 {
   bn_mul_v (r, a, b, 32);
 }
 
-void __attribute__ ((weak))
+void __attribute__((weak))
 mp_mul_384 (bigbignum_t * r, bignum_t * a, bignum_t * b)
 {
   bn_mul_v (r, a, b, 48);
 }
 
-void __attribute__ ((weak))
+void __attribute__((weak))
 mp_mul_521 (bigbignum_t * r, bignum_t * a, bignum_t * b)
 {
   bn_mul_v (r, a, b, 72);
@@ -232,10 +224,10 @@ static void mp_square (bigbignum_t * r, bignum_t * a);
 
 
 // to fast access prime, A, curve_type .. fill this in any public fcion!
-bignum_t *field_prime __attribute__ ((section (".noinit")));
-static bignum_t *param_a __attribute__ ((section (".noinit")));
-static uint8_t curve_type __attribute__ ((section (".noinit")));
-static bigbignum_t bn_tmp __attribute__ ((section (".noinit")));
+static bignum_t *field_prime __attribute__((section (".noinit")));
+static bignum_t *param_a __attribute__((section (".noinit")));
+static uint8_t curve_type __attribute__((section (".noinit")));
+static bigbignum_t bn_tmp __attribute__((section (".noinit")));
 
 //Change point from affine to projective
 static void
@@ -1130,8 +1122,8 @@ ec_set_param (struct ec_param *ec)
 #error too many blinding bytes
 #endif
 static void
-  __attribute__ ((noinline)) ec_blind_key (uint8_t * blind_key,
-					   bignum_t * order)
+  __attribute__((noinline)) ec_blind_key (uint8_t * blind_key,
+					  bignum_t * order)
 {
   uint8_t blind_val[sizeof (bignum_t) * 2];
   uint8_t blind_rnd[sizeof (bignum_t)];
@@ -1191,7 +1183,7 @@ ec_calc_key (bignum_t * k, ec_point_t * point, struct ec_param *ec)
 
 
 uint8_t
-ec_derive_key (ec_point_t * pub_key, struct ec_param * ec)
+ec_derive_key (ec_point_t * pub_key, struct ec_param *ec)
 {
   DPRINT ("%s\n", __FUNCTION__);
   ec_set_param (ec);
@@ -1204,7 +1196,7 @@ ec_derive_key (ec_point_t * pub_key, struct ec_param * ec)
 
 
 uint8_t
-ec_key_gener (ec_point_t * pub_key, struct ec_param * ec)
+ec_key_gener (ec_point_t * pub_key, struct ec_param *ec)
 {
   uint8_t i, *key;
   key = (uint8_t *) & (ec->working_key);
@@ -1230,7 +1222,7 @@ ec_key_gener (ec_point_t * pub_key, struct ec_param * ec)
 }
 
 uint8_t
-ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param * ec)
+ecdsa_sign (uint8_t * message, ecdsa_sig_t * ecsig, struct ec_param *ec)
 {
   uint8_t i;
   ec_point_t *R = &(ecsig->signature);

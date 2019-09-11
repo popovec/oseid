@@ -337,10 +337,6 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
   if (type == S_NAME)
     {
       data_count = *data;
-      if (data_count > 16)
-        return RET_SEARCH_FAIL;
-      if (data_count == 0)
-        return RET_SEARCH_FAIL;
       data++;
     }
   response.mem_offset = 0;
@@ -428,17 +424,26 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	  goto fs_search_file_cont;
 	}
       // test filename
-      if (response.fs.name_size && type == S_NAME)
+      if (type == S_NAME)
 	{
+	  uint8_t name_size = response.fs.name_size;
+
+	  // TODO partial filename
+
 	  // data_count is already checked to be in range 1..16
-	  // coverity[overrun-buffer-val]
-	  if (0 ==
-	      device_read_block (fname,
-				 response.mem_offset +
-				 sizeof (struct fs_data), data_count))
+	  // this is done in iso7816.c:iso7816_select_file()
+	  // device_read_block() into fname can not overrrun
+
+	  if (name_size == data_count)
 	    {
-	      if (0 == memcmp (data, fname, data_count))
-		goto fs_search_file_ok;
+	      if (0 ==
+		  device_read_block (fname,
+				     response.mem_offset +
+				     sizeof (struct fs_data), name_size))
+		{
+		  if (0 == memcmp (data, fname, name_size))
+		    goto fs_search_file_ok;
+		}
 	    }
 	  goto fs_search_file_cont;
 	}
@@ -1113,7 +1118,7 @@ fs_mkfs (uint8_t * message)
 end:
 // write to device, if error, jump to newer ending loop
   if (device_write_block (buffer, 0, size))
-    for(;;);
+    for (;;);
 
   uint16_t i;
   uint8_t e = 0xff;
@@ -1121,7 +1126,7 @@ end:
 // write to sec_device, if error, jump to newer ending loop
   for (i = 0; i < 1024; i++)
     if (sec_device_write_block (&e, i, 1))
-      for(;;);
+      for (;;);
 
   // lifecycle must be set to 1 because no pins exists..
 
@@ -1342,6 +1347,7 @@ fs_select_parent (struct iso7816_response *r)
   return fs_return_selected (r, 0, NULL, S_PARENT);
 }
 
+// caller is responsible to check input buffer (1..16 bytes)
 uint8_t
 fs_select_by_name (uint8_t * buffer, struct iso7816_response *r)
 {
