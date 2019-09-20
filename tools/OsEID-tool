@@ -506,7 +506,7 @@ while read curve oid ;do
 			(
 			echo "00 a4 08 00 04 $P"
 			echo "00 20 00 01 08 31 31 31 31 31 31 31 31"
-			echo "80 da 00 00 00"
+			echo "80 da 00 00 01 23"
 			)|scriptor "${SCReaderFlag}" "${SCReader}" -p ${PROTO}
 		else
 			E=0
@@ -921,9 +921,8 @@ fi
 if [ $mode == "CSR" ] || [ $mode == "CRT" ]; then
 V=0
 openssl version -v | fgrep -q 'OpenSSL 1.1' && V=11
-openssl version -v | fgrep -q 'OpenSSL 1.0' && V=10
 if [ $V -eq 0 ]; then
-	echo "Unable to determine openssl version"
+	echo "Unable to determine openssl version, or your openssl is too old"
 	exit 1
 fi
 
@@ -968,13 +967,6 @@ engine_id = pkcs11
 EOP
 echo "MODULE_PATH = /usr/lib/`uname -m`-linux-gnu/opensc-pkcs11.so" >> tmp/openssl.conf
 DP="/usr/lib/`uname -m`-linux-gnu/openssl-1.0.1/engines/libpkcs11.so"
-if [ $V -eq 10 ]; then
-	if [ ! -f $DP ]; then
-		echo "Please install libengine-pkcs11-openssl package"
-		exit 1
-	fi
-	echo "dynamic_path = $DP" >> tmp/openssl.conf
-fi
 cat <<EOP >>tmp/openssl.conf
 init = 0
 
@@ -987,7 +979,7 @@ EOP
 if [ $mode == "CSR" ]; then
 echo "generating CSR for key ID ${keyID} into file ${keyID}.csr with subject ${SUBJ}"
 rm -f ${keyID}.csr
-warnecho "Please ignore message 'No private keys found.'"
+#warnecho "Please ignore message 'No private keys found.'"
 openssl req -config tmp/openssl.conf -new \
 -engine pkcs11 \
 -key slot_${SCSlot}-id_${keyID} \
@@ -1012,11 +1004,11 @@ echo ".........................................................."
 else
 echo "generating self signed CRT for key ID ${keyID} into file ${keyID}.crt with subject ${SUBJ}"
 rm -f ${keyID}.crt
-warnecho "Please ignore message 'No private keys found.'"
+#warnecho "Please ignore message 'No private keys found.'"
 openssl req -config tmp/openssl.conf -new \
 -x509 \
 -engine pkcs11 \
--key slot_=${SCSlot}-id_${keyID} \
+-key slot_${SCSlot}-id_${keyID} \
 -keyform engine \
 -out ${keyID}.crt -text \
 -multivalue-rdn \

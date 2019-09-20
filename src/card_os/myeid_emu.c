@@ -448,7 +448,7 @@ sign_ec_raw (uint8_t * message, struct iso7816_response *r, uint16_t size)
   ecdsa_sig_t *e = alloca (sizeof (ecdsa_sig_t));
   struct ec_param *c = alloca (sizeof (struct ec_param));
 #else
-// reuse "message" buffer for ecdsa_sig_t (warning, this is realy only for max 48 bytes in bignum_t)
+// reuse "message" buffer for ecdsa_sig_t (warning, this is really only for max 48 bytes in bignum_t)
   ecdsa_sig_t *e = (ecdsa_sig_t *) (message + sizeof (bignum_t));
 // reuse result buffer for ec_param structure
   struct ec_param *c = (struct ec_param *) r->data;
@@ -732,15 +732,17 @@ Key wrap/unwrap
 	      s_env |= SENV_TARGET_ID;
 	      DPRINT ("added target file reference s_env=%02x\n", s_env);
 	    }
-	  else if (taglen != 1)
-	    return S0x6a81;	//Function not supported      // change to wrong arg ?
-
-	  DPRINT ("reference for key=%d\n", *data);
-	  if (*data != 0)
+	  else if (taglen == 1)
 	    {
-	      // MyEID support only one key per file, then this reference must be 0
-	      return S0x6a81;	//Function not supported // change to wrong arg ?
+	      DPRINT ("reference for key=%d\n", *data);
+	      if (*data != 0)
+		{
+		  // MyEID support only one key per file, then this reference must be 0
+		  return S0x6a81;	//Function not supported // change to wrong arg ?
+		}
 	    }
+	  else
+	    return S0x6a81;	//Function not supported // change to wrong arg ?
 	  break;
 	case 0x87:
 	  // maximal taglen 16 is already checked
@@ -790,6 +792,7 @@ security_operation_rsa_ec_sign (struct iso7816_response *r)
   DPRINT ("sec environment %0x2 valid sign algo = 0x%02x, message len %d\n",
 	  sec_env_valid, sec_env_reference_algo, size);
 
+// SIGN operation posible values for reference algo: 0,2,4,0x12
   if (sec_env_reference_algo == 4)
     {
       DPRINT ("RAW-ECDSA-PKCS algo %02x\n", sec_env_reference_algo);
@@ -798,24 +801,24 @@ security_operation_rsa_ec_sign (struct iso7816_response *r)
       // in buffer RAW data to be signed
       return sign_ec_raw (r->input + 5, r, size);
     }
-
-// 0x02 - remove padding, 0x0a need padding remove too ? (used in UWRAP)
-// TODO test bit 2?
-  if (sec_env_reference_algo == 2 || sec_env_reference_algo == 0x0a)
+  else if (sec_env_reference_algo == 2)
     {
       DPRINT ("Digest Info data in paket\n");
       flag = 2;
     }
-  if (sec_env_reference_algo == 0x12)
+  else if (sec_env_reference_algo == 0x12)
     {
       DPRINT ("SHA1 message in buffer\n");
       flag = 1;
     }
-  if (sec_env_reference_algo == 0)
+  else if (sec_env_reference_algo == 0)
     {
       DPRINT ("RAW message in buffer\n");
       flag = 0;
     }
+  else
+    return S0x6985;		//    Conditions not satisfied
+
   if (flag != 0xff)
     {
       // this is  long operation, start sending NULL
@@ -921,8 +924,9 @@ decipher (uint8_t * message, struct iso7816_response *r, uint16_t size)
       DPRINT ("decrypt fail\n");
       return S0x6985;		// command not satisfied
     }
-// remove padding
-  if (sec_env_reference_algo == 2)
+
+// 0x0a UNWRAP, 0x02 decipher, in both cases remove PKCS#1 padding
+  if ((sec_env_reference_algo & 2) == 2)
     {
       // return error for not correct padding
       // allowed padding is: 00 || 02 || random data[8+] || 00 || real data
@@ -989,6 +993,7 @@ security_operation_encrypt (struct iso7816_response *r)
 static uint8_t
 security_operation_decrypt (struct iso7816_response *r)
 {
+  uint8_t ret;
   DPRINT ("%s\n", __FUNCTION__);
 
   // if this is end of chain or single APDU, run operation ..
@@ -1002,7 +1007,38 @@ security_operation_decrypt (struct iso7816_response *r)
       return S0x6985;		//    Conditions not satisfied
     }
 
-  return decipher (r->input, r, r->tmp_len);
+  ret = decipher (r->input, r, r->tmp_len);
+  // for Unwrap operation write data to file
+  if (ret == S_RET_OK && sec_env_valid & SENV_TARGET_ID)
+    {
+      uint8_t type;
+      uint8_t *keydata;
+
+      DPRINT ("storing decrypted data to target file\n");
+
+      fs_select_uuid (target_file_uuid, NULL);
+      type = fs_get_file_type ();
+
+      if ((type == 0x41 || type == 0x19 || type == 0x29) && r->len16 < 254)
+	{
+	  memcpy (r->input + 5, r->data, r->len16);
+	  // copy data, experimental, how is stored data in original MyEID card?
+	  keydata = r->input + 3;
+	  keydata[0] = 0xa0;	// TAG
+	  keydata[1] = r->len16 & 0xff;	// LEN
+
+	  HPRINT ("data for file: \n", keydata, r->len16 + 2);
+
+	  // TODO error checking
+	  if (type == 0x41)
+	    fs_update_binary (keydata + 1, 0);	// do not store TAG, LEN
+	  else
+	    fs_key_write_part (keydata);
+	}
+      else
+	ret = S0x6985;		//    Conditions not satisfied
+    }
+  return ret;
 }
 
 
@@ -1247,39 +1283,11 @@ security_operation (uint8_t * message, struct iso7816_response *r)
       ret = security_operation_encrypt (r);
       break;
     case 0:
+      // for UNWRAP operation - only SW is returned, clear Ne
+      if (!ret_data)
+	r->Ne = 0;
       ret = security_operation_decrypt (r);
       break;
-    }
-
-  // handle wrapping/unwrapping - save data into file
-  if (ret == S0x6100 && ret_data == 0)
-    {
-      // result is to be stored into file
-      if (sec_env_valid & SENV_TARGET_ID)
-	{
-	  uint8_t type;
-	  uint8_t *keydata;
-
-	  // save result into target file
-	  fs_select_uuid (target_file_uuid, NULL);
-	  type = fs_get_file_type ();
-	  if ((type == 0x41 || type == 0x19 || type == 0x29)
-	      && r->len16 < 254)
-	    {
-	      // copy data, make space for TLV (255+5 bytes available)
-	      memcpy (r->input + 4, r->data, r->len16);
-	      keydata = r->input + 3;
-	      *keydata = r->len16;
-	      // TODO error checking
-	      fs_update_binary (keydata, 0);
-	      ret = S_RET_OK;
-	      r->flag = R_NO_DATA;
-	    }
-	  else
-	    ret = S0x6985;	//    Conditions not satisfied
-	}
-      else
-	ret = S0x6985;		//    Conditions not satisfied
     }
 
   // return back old selected file
@@ -1920,7 +1928,7 @@ myeid_put_data (uint8_t * message, struct iso7816_response *r)
 
 
 uint8_t
-myeid_activate_applet (__attribute__((unused)) uint8_t * message)
+myeid_activate_applet ( __attribute__((unused)) uint8_t * message)
 {
   //TOTO check applet name
   fs_set_lifecycle ();

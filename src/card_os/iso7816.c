@@ -59,10 +59,13 @@ struct iso7816_response iso_response __attribute__((section (".noinit")));
 uint8_t
 resp_ready (struct iso7816_response *r, uint16_t len)
 {
+  r->len16 = len;
+  r->flag = R_NO_DATA;
+
   if (r->Ne == 0)
     return S_RET_OK;
+
   r->flag = R_RESP_READY;
-  r->len16 = len;
   if (r->Ne >= len)
     return S0x6100;
   else
@@ -613,7 +616,7 @@ static const struct f_table __flash cla80[] = {
 static struct f_table cla80[] = {
 #endif
   {APDU_Nc | ATTR_T0_Le_present | APDU_LONG, 0x2a, w_security_operation},	// iso7816-8....???
-  {APDU_Le_empty, 0xda, w_fs_key_change_type},	// proprietary ..
+  {APDU_Nc | APDU_Le_empty, 0xda, w_fs_key_change_type},	// proprietary ..
   {0xff}
 };
 
@@ -835,7 +838,6 @@ parse_apdu (uint16_t input_len)
 	  DPRINT ("APDU chaining: no data in APDU?\n");
 	  iso_response.chaining_active = 0;
 	  return S0x6700;	// wrong length
-//	  return S0x6884;	// chaning not allowed
 	}
       if (iso_response.chaining_active == 0)
 	{
@@ -861,7 +863,6 @@ parse_apdu (uint16_t input_len)
 	{
 	  iso_response.chaining_active = 0;
 	  return S0x6700;	// wrong length
-//	  return S0x6884;	// chaning not allowed
 	}
       // copy data into temp buffer
       memcpy (iso_response.data + iso_response.tmp_len, message + 5, Nc);
@@ -880,7 +881,6 @@ parse_apdu (uint16_t input_len)
 	      if (iso_response.tmp_len + Nc > APDU_RESP_LEN)
 		{
 		  return S0x6700;	// wrong length
-//		  return S0x6884;	// chaning not allowed
 		}
 	      // copy data into temp buffer
 	      memcpy (iso_response.data + iso_response.tmp_len,
@@ -891,13 +891,12 @@ parse_apdu (uint16_t input_len)
 	    {
 	      DPRINT ("APDU chaining: no data in APDU?\n");
 	      return S0x6700;	// wrong length
-//	      return S0x6884;	// chaning not allowed
 	    }
 	  // OK whole APDU in iso_response.data
 	  // Ne is already set
 	  Nc = iso_response.tmp_len;
-//	  message[4] = 0;
 	  memcpy (message + 5, iso_response.data, Nc);
+	  // P3 is fixed below (for APDUs where Nc < 256)
 	}
     }
 

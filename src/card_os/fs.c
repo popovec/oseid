@@ -436,6 +436,7 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 
 	  if (name_size == data_count)
 	    {
+	      // coverity[overrun-buffer-val]
 	      if (0 ==
 		  device_read_block (fname,
 				     response.mem_offset +

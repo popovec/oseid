@@ -109,11 +109,14 @@ OsEID disadvantages to MyEID card applet version 4.X:
 
 - RSA - only value 65537 is allowed as public exponent
 - experimental support for symmetric encrypt/decrypt - DES and AES
+- experimental support for key unwrap
+- experimental support for key wrap
 - experimental challenge response PIN
 - experimental Admin state and Global unblocker state
 - no PIV/CIV emulation
 - no Auto size files (only auto size DF)
 - no 224 bit NIST curve
+- no support for session objects (please read MyEID 2.3.0 referene manual)
 - slow RSA
 - slow ECC
 
@@ -121,9 +124,9 @@ OsEID disadvantages to MyEID card applet version 4.X:
   maximum is 2048 bits for RSA, and there is no way to run RSA with longer
   keys in this hardware.
 
-(experimental = feature is supported by OsEID card, but original MyEID
-card function can work differently. There is no enough information in 
-MyEID applet reference manual 2.1.4 and no OpenSC implementation to test
+experimental = feature is supported by OsEID card, but original MyEID card
+function can work differently.  There is no enough information in MyEID
+applet reference manual 2.1.4/2/2.3.0 and no OpenSC implementation to test
 all functions.
 
 OsEID disadvantages to MyEID card, applet version below 3.5:
@@ -133,12 +136,14 @@ OsEID disadvantages to MyEID card, applet version below 3.5:
 - slow RSA
 
 For a comparison, here is table showing the execution time of RSA decrypt
-operation (time in seconds) for MyEID (3.3.3), OsEID and OsEID with exponent
-blinding turned on:
+operation (time in seconds) for MyEID (3.3.3), OsEID (with exponent blinding
+turned on):
 
 ....
 pkcs11-tool --decrypt --slot 1 -m RSA-PKCS ..
 ....
+
+.OsEID/MyEID RSA speed comparation
 [cols="3,1,1,1,1,1",width="80%",options="header"]
 |=========================================================
 |  key size               | 512 | 768 | 1024 | 1536 | 2048
@@ -161,6 +166,7 @@ Time depends on card reader too.  Both cards allow the same communication speed 
 
 - ECC speed is comparable to MyEID
 
+.OsEID/MyEID ECC speed comparation
 [cols="3,1,1,1,1",width="80%",options="header"]
 |========================================================
 |  key size               | 192   | 256    | 192   | 256
@@ -931,26 +937,32 @@ know a priori the direction of transfer... How this can be fulfilled ?
 From reader view (only short cases of APDU):
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-*CASE 1* (APDU length 4 bytes) - no Lc, no Le.  (Nc=0, Ne=0).  Because header
-length is 5 bytes, P3 byte is set to 00.  Header is sent to card.  Expected
-response is 2 bytes SW1,SW2.  After receiving procedure byte, reader test
-this byte (NULL,INS,SW), and if this is not SW, new procedure byte is
-waiting.
+*CASE 1* (APDU length 4 bytes) - no *Lc*, no *Le*.  (Nc = 0, Ne = 0).
+Because header length is 5 bytes, P3 byte is set to 00.  Header is sent to
+card.  Card does not expect data field of APDU because P3 must be
+interpreted as *Le* field (*Lc* field is not allowed to be zero).  T0
+protocol does not allow us to inform card about Ne = 0 - P3 is interpreted
+as *Le* field and card accept this as Ne = 256.
 
-*CASE 2* (APDU length 5 bytes), header is sended to card, P3 represent the Le,
-Lc is not present.  Expected response length is P3 + 2 (SW1,SW2) bytes, for
-P3=0, 256 +2 bytes.  After receiving procedure byte, reader test this byte,
-and if this is INS, reader reads expected response bytes. Of course, card
-may return different size of response as expected, this is not an error.
+Expected response is 2 bytes SW1,SW2.  After receiving procedure byte,
+reader test this byte (NULL,INS,SW), and if this is not SW, new procedure
+byte is waiting.
 
-*CASE 3* (APDU length 5 + P3 bytes), header is sended to card, P3 represent
-the Lc, Le is not present.  Expected response is 2 bytes (SW1,SW2).  After
-receiving procedure byte, reader test this byte, and if this is INS, reader
-transmit P3 bytes (DATA field of APDU) to card, then new procedure byte is
-waiting.
+*CASE 2* (APDU length 5 bytes), header is sent to card, P3 represent the
+*Le*, *Lc* is not present.  Expected response length is P3 + 2 (SW1,SW2)
+bytes, for P3=0, 256 +2 bytes.  After receiving procedure byte, reader test
+this byte, and if this is INS, reader reads expected response bytes.  Of
+course, card may return different size of response as expected, this is not
+an error.
 
-*CASE 4* (APDU length 5 + P3 + 1 bytes) - same as for CASE 3 (there is no way
-to transport Le to card).
+*CASE 3* (APDU length 5 + P3 bytes), header is sent to card, P3 represent
+the *Lc*, *Le* is not present.  Expected response is 2 bytes (SW1,SW2).
+After receiving procedure byte, reader test this byte, and if this is INS,
+reader transmit P3 bytes (DATA field of APDU) to card, then new procedure
+byte is waiting.
+
+*CASE 4* (APDU length 5 + P3 + 1 bytes) - same as for CASE 3 (there is no
+way to transport *Le* to card).
 
 Card assumes that *Ne* = 256 in this case.  Card prepares response
 data and signalize back to reader how many data bytes can be returned in
@@ -961,10 +973,11 @@ data, and *Ne* is handled in procedure that generated GET RESPONSE command.
 
 From card view:
 ^^^^^^^^^^^^^^^
-Header 5 bytes, card receives header. If P3 is 0, this can not be a *Lc*
-field, P3 is then accepted as *Le*. If *Lc* is not present in APDU, then
-DATA field is absent too. This correspond to CASE 1 or CASE 2 APDU with
-*Ne*= 256.
+
+Card is waiting for 5 bytes from reader.  These bytes represent the header
+of APDU.  If P3 is 0, this can not be a *Lc* field, P3 is then accepted as
+*Le*.  If *Lc* is not present in APDU, then DATA field is absent too.  This
+correspond to CASE 1 or CASE 2 APDU with *Ne*= 256.
 
 If P3 != 0, this is CASE 2 or CASE 3 or CASE 4.  We need INS to determine
 APDU CASE 2 - only this case need transfer from card to reader.  For CASEs
@@ -977,7 +990,7 @@ From ISO7816-4 all commands where Nc=0 can be assumed as candidate for APDU
 CASE 2.
 
 <<<
-Table of allowed cases for INS. (OsEID = supported INS in OsEID card)
+.Allowed cases for INS byte
 [cols="1,5,1,3,1"]
 |=========================================================================
 |INS | command name                   |OsEID| allowed cases  |card to ICC
@@ -1034,6 +1047,8 @@ Table of allowed cases for INS. (OsEID = supported INS in OsEID card)
 |FE  |TERMINATE CARD USAGE            |     |CASE 1          |
 |==================================================================
 
+OsEID column is checked for all INS supported by OsEID.
+
 Some CASEs are marked by ?, if you need exact explanation about this
 INS/APDU CASE, you need to read whole ISO7816.  ISO7816 is not precise
 enough, for example:
@@ -1055,6 +1070,11 @@ Extended APDU in T0 protocol
 Card does not have enough information about APDU case after header is
 received.  Still INS and P3 can be used to allow transport of extended APDUs
 over T0 protocol.
+
+There is no way to transport command APDU with data field > 255.  Response
+APDU can trasport at maximum 256 byte of response in one APDU.  In some
+cases (Nc<256, Ne>256), extended APDU can be mapped to multiple APDUs to
+allow receive more than 256 bytes of response.
 
 From card view:
 
@@ -1223,7 +1243,8 @@ about this, please read ISO7816-3/11.  APDU is splitted into *I* frames and
 then reassembled in card back to original APDU.  State machine for this can
 be found in opensource project <<CCIDusb>>, in directory src/towitoko/ and
 src/openct/proto-t1.c.  Reverse joining of *I* frames can be found in OsEID
-sources, in file targets/xmega128a4u/ccid.c.
+sources, in file targets/xmega128a4u/ccid.c. Of course, response APDU is
+splitted in card and reassembed in reader/host.
 
 
 If command APDU uses short case 4 (described above), reader must support at
@@ -1239,11 +1260,6 @@ transport (dwMaxCCIDMsgLen = 271). CCID header need 10 bytes overhead, then
 maximal message length is 261 bytes. Because *I* frames are chained, there
 is no limitation in transport of extended APDU over T1 protocol, T0 is
 limited - max 255 bytes in DATA field.
-
-OsEID card internally uses only T0 protocol, OsEID token uses wrapper that
-transform T1 protocol to T0 protocol, i.e. automatically inject *GET RESPONSE*
-command after card generated 0x61XX response. *Le* from APDU is not used for
-now.
 
 In this documentation APDU - TPDU mapping is described for all commands (T0
 protocol).  Bytes CLA, INS, P1, P2 from APDU is mapped to TPDU without
@@ -1386,46 +1402,58 @@ OsEID return only status bytes.  ISO7816-4:2005(E)/7.1.1: "If the Le field
 is absent, ..  the response data field shall also be absent."
 
 Select file is controlled by P1, P2 parameters. There are several P1, P2
-valid combinations. For some of combinations LC != 0 and data field must
+valid combinations. For some of combinations Lc != 0 and data field must
 contain specific data
 
 
-- P1 = 0, P2 == 0, LC = 0:
+- P1 = 0, P2 == 0, P3 = 0, no Lc field
+  T0 protocol: CASE 2 APDU, P3 must be set to 0 - corresponds to Ne=256
+  T1 protocol: CASE 1 APDU, there is no Lc/DATA/Le field
+  T1 protocol: CASE 2 APDU, P3 correspond to Le field
   Select MF (0x3f00)
 
-- P1 = 3, LC = 0:
+For rest of commands P2 is 0 or 0x0c:
+
+- P1 = 3, P3 = 0, no Lc field
+  T0 protocol: CASE 2 APDU, P3 must be set to 0 - corresponds to Ne=256
+  T1 protocol: CASE 1 APDU, there is no Lc/DATA/Le field
+  T1 protocol: CASE 2 APDU, P3 correspond to Le field
   Select parent DF of the current DF
 
-- P1 = 8, LC >=2, LC even, Data represents IDs of path to file:
-  Select by path from MF
+- P1 = 8, P3/Lc >=2, Lc even, Data represents IDs of path to file:
+  Select by path from MF (CASE 3/4)
 
-- P1 = 9, LC >=2, LC even, Data represents IDs of path to file:
-  Select by path from current DF
+- P1 = 9, P3/Lc >=2, Lc even, Data represents IDs of path to file:
+  Select by path from current DF (CASE 3/4)
 
-- P1 = 4, LC >0, LC < 17, Data represents filename:
-  Select DF by name
+- P1 = 4, P3/Lc >0, Lc < 17, Data represents filename:
+  Select DF by name (CASE 3/4)
 
-- P1 = 1, LC = 2, Data file ID:
-  Select child DF
+- P1 = 1, P3/Lc = 2, Data file ID:
+  Select child DF (CASE 3/4)
 
-- P1 = 2, LC = 2, Data file ID:
-  Select EF under current DF
+- P1 = 2, P3/Lc = 2, Data file ID:
+  Select EF under current DF (CASE 3/4)
 
-- P1 = 0, P2 = 0, LC = 2, Data = 0x3f00:
-  Select MF
+- P1 = 0, P2 = 0, P3/Lc = 2, Data = 0x3f00:
+  Select MF (CASE 3/4)
 
-- P1 = 0, LC = 2, Data = ID:
+- P1 = 0, P3=Lc = 2, Data = ID:
   Firstly the file with ID in all children of selected DF is searched, if ID is found,
   FCI/status is returned.  If previous search fails, test if parent of selected
   file matches ID.  If this fails too, file in neighbors of selected
-  file is searched.
+  file is searched. (CASE 3/4)
 
-- P2 = 0x0c - do not return <<FCI>>/<<FCP>>/<<FMD>>
+- P2 = 0x0c - do not return <<FCI>>/<<FCP>>/<<FMD>>. This is usefull for T0
+  protocol, where Ne is assumed to be 256.  Same functionality can be achieved
+  if T1 protocol is used and *Le* is not present in APDU.
 
 If select command failed, last correctly selected file remains selected.
 
 MyEID difference: MyEID (according MyEID reference manual 2.1.4) does not
 support values 1,2,3 for P1.  MyEID does not support P2 = 0x0c.
+MyEID uses T1 protocol, FCI is always returned even Le is not present in
+APDU (tested on MyEID 3.3.3/4.0.1).
 
 
 <<<
@@ -1557,7 +1585,16 @@ can be marked as valid, but not all parts of key are in file.  For EC key
 this is no problem if public part is missing, but incomplete RSA key then
 generates error in RSA security operation.
 
-2nd byte: 0x00 RFU
+2nd byte:
+00h	- default
+
+OsEID support is planed for next releases (2020XXXX):
+
+bit 0:  if set, object is marked as session object, after card reset
+        object is automatycaky removed from card
+bi7 3:  for extractable keys, if set, key can be wrapped
+
+
 ----
 
 .EF
@@ -1611,10 +1648,10 @@ attributes set to 01 1F FF:
 *if P1 != 0 or P2 != 0* ::
 -  0x6a86 - Incorrect parameters P1-P2
 
-*if LC = 0* ::
+*if Lc = 0* ::
 -  0x6700 - Incorrect length
 
-*if transport of LC bytes of data fail* ::
+*if transport of Lc bytes of data fail* ::
 - 0x6984 invalid data
 
 *if there is not selected DF* ::
@@ -1645,6 +1682,8 @@ of the current DF, the parent DF and the immediate children of the parent
 DF.  Function *CREATE FILE* allows to create files with same ID in these
 three environments.  Please check *SELECT* command to find how the file
 selection is handled.
+
+
 
 
 
@@ -1698,7 +1737,7 @@ OsEID card for now.
 *if P1 != 0 or P2 != 0* ::
 - 0x6a86 - Incorrect parameters P1-P2
 
-*if LC != 0* ::
+*if Lc != 0* ::
 - 0x6700 - Incorrect length
 
 *if there is not selected file* ::
@@ -1754,7 +1793,7 @@ filled up to end.
 *if P1,P2 is over 0x7fff* ::
 - 0x6a86 - Incorrect parameters P1-P2
 
-*if LC = 0* ::
+*if Lc = 0* ::
 - 0x6700 - Incorrect length
 
 *if there is not selected file* ::
@@ -1772,8 +1811,8 @@ filled up to end.
 *memory subsystem error* ::
 - 0x6581 memory fail
 
-ISO7816-4/7.2.7 allow LC=2, and in data field end of fill arrea in file can
-be specified.  OsEID does not allow LC=2 for now.
+ISO7816-4/7.2.7 allow Lc=2, and in data field end of fill arrea in file can
+be specified.  OsEID does not allow Lc=2 for now.
 
 
 
@@ -1800,7 +1839,7 @@ APDU:
 
 The UPDATE BINARY command updates data in selected transparent EF. Start
 of update is selectable by P1, P2 parameters. P1 represents bits 14..8, P2
-represents bit 7..0 of offset. LC represents number of updated bytes.
+represents bit 7..0 of offset. Lc represents number of updated bytes.
 
 
 *Responses*
@@ -1814,7 +1853,7 @@ represents bit 7..0 of offset. LC represents number of updated bytes.
 *if LE = 0* ::
 - 0x6700 - Incorrect length
 
-*if transport of LC bytes of data fail* ::
+*if transport of Lc bytes of data fail* ::
 - 0x6984 invalid data
 
 *if there is not selected file* ::
@@ -1852,7 +1891,7 @@ READ BINARY
 
 APDU:
 
-- LC  empty
+- Lc  empty
 - Data empty
 - Le Number of bytes to read.
 
@@ -2033,31 +2072,31 @@ INITIALIZE APPLET
 ^^^^^^^^^^^^^^^^^
 [cols="1,1,1,1,1,8,1",width="85%"]
 |=======================================================================
-|CLA  | INS  | P1 | P2 | LC | Data                               | Le
+|CLA  | INS  | P1 | P2 | Lc | Data                               | Le
 |0x00 | 0xDA | 01 | E0 | 00 |                                    | empty
 |0x00 | 0xDA | 01 | E0 | 08 | XX XX ACL0 ACL1 ACL2 ACL3 ACL4 ACL5| empty
 |0x00 | 0xDA | 01 | E0 | 05 | XX XX ACL0 ACL1 ACL2               | empty
 |=======================================================================
 
 - LE empty
-- data lenght must correspond to LC value.
+- data lenght must correspond to Lc value.
 - XX XX in data field are ignored by OsEID card.
 
 This function can be used to erase card and return card into creation state
 (Lifecycle = 1).  All PINs are erased, filesystem is erased.  Then MF and DF
-5015 is recreated.  For LC<5 MF and DF 5015 is created, default ACL are used
+5015 is recreated.  For Lc<5 MF and DF 5015 is created, default ACL are used
 for this files: MF [11 3F FF], DF 5015 [11 1F FF]
 
-If ACL0, ACL1, ACL2, are present in data (LC >=5), MF access conditions are
+If ACL0, ACL1, ACL2, are present in data (Lc >=5), MF access conditions are
 set to values specified by ACL0, ACL1, ACL2.
 
-If ACL4, ACL5, ACL6, are present in data (LC >=8), DF 5015 access conditions are
+If ACL4, ACL5, ACL6, are present in data (Lc >=8), DF 5015 access conditions are
 set to values specified by ACL4, ACL5, ACL6.
 
 If APDU provide only ACL0, ACL1, ACL2 and ACL4, ACL5, ACL6 bytes are not
-available (LC in rande 5..7), DF 5015 is not created.
+available (Lc in rande 5..7), DF 5015 is not created.
 
-If LC> 8, unspecified data bytes will be ignored.
+If Lc> 8, unspecified data bytes will be ignored.
 
 If card is already in creation state, no access condition is checked, card
 is erased.  If card is in activated state, access condition is checked first
@@ -2100,7 +2139,7 @@ Key load operations
 
 - Le empty
 - Part = key part identification
-- LC corresponding to data field length
+- Lc corresponding to data field length
 
 Key part identification numbers:
 ....
@@ -2230,10 +2269,10 @@ RSA key generation APDU:
 P1,P2=0, this indicate proprietary format of data field (ISO7816-8).
 
 RSA key for now uses fixed public exponent 65537.  For RSA key, user can set
-LC to 0 or set LC and data field with this public exponent:
+Lc to 0 or set Lc and data field with this public exponent:
 
 All three formats are identical. First format  does not define public
-exponent, the card then uses default public exponent. If LC is not 0, data 
+exponent, the card then uses default public exponent. If Lc is not 0, data
 field contain ASN1 formated data for public exponent. Only value 65537 is
 accepted.
 
@@ -2255,7 +2294,7 @@ ECC key generation APDU:
 
 - P1,P2=0, this indicate proprietary format of data field (ISO7816-8).
 - P3 = 0
-- LC = empty
+- Lc = empty
 - Data empty
 - LE 3 + [key size in bites] * 2 / 8
 
@@ -2318,16 +2357,16 @@ For more about PIN LOCK feature check CHANGE REFERENCE DATA command.
 (CASE 3S)
 
 - P2 must specify PIN number
-- LC 0 to 255
-- Data - length corresponding to LC
+- Lc 0 to 255
+- Data - length corresponding to Lc
 - LE empty
 
 
-If LC is 0, this command returns how many authorization retries are left for
+If Lc is 0, this command returns how many authorization retries are left for
 PIN specified by parameter P2 in APDU.
 
-If LC != 0, data in APDU are used as verification data. Normally exact 8
-bytes are present in APDU Data section and LC is set to 8.  PIN in Data
+If Lc != 0, data in APDU are used as verification data. Normally exact 8
+bytes are present in APDU Data section and Lc is set to 8.  PIN in Data
 section of APDU is padded by 0xff or 0x00.  If APDU present more data, rest
 of data is ignored.  If APDU presents data below 8 bytes, data are internally
 padded with 0xff.
@@ -2340,19 +2379,19 @@ Responses::
 *if P2 <1 or >14* ::
 -  0x6a86 - Incorrect parameters P1-P2
 
-*if LC = 0* ::
+*if Lc = 0* ::
 -  0x6983 - PIN fail, no more auth retries, PIN is blocked
 -  0x6985 - PIN is locked
 -  0x63cX - X present number of retries left
 
-*if LC != 0* ::
+*if Lc != 0* ::
 -  0x6983 - PIN fail, no more auth retries, PIN is blocked
 -  0x6985 - PIN is locked
 -  0x63cX - PIN fail, X present number of retries left
 -  0x9000 - PIN ok, access is enabled for all functions controlled by pin P2
 
 NOTE: MyEID - from reference manual Ver 1.7.7,  APDU need exact 0 or 8 bytes
-in data (LC = 0 or 8).
+in data (Lc = 0 or 8).
 NOTE: response codes are organized in same order as tests in code
 
 
@@ -2366,7 +2405,7 @@ ACTIVATE APPLET
 |==============================================
 (CASE 3S)
 
-- P1, P2, LC, Data, - arbitrary data are accepted
+- P1, P2, Lc, Data, - arbitrary data are accepted
 
 This command activates card security mechanism of card, all access conditions
 become active.
@@ -2469,7 +2508,7 @@ OsEID allow only limited set of P1/P2 values:
 |  0x81 | 0xB8 | set SE for encipher operation
 |=====================================================
 
-If P2 != 0 there is LC != 0, LE = 0 and corresponding template must be
+If P2 != 0 there is Lc != 0, LE = 0 and corresponding template must be
 filled in data field.
 
 Data field represents concatenated Tag Len Value objects.
@@ -2577,7 +2616,7 @@ PERFORM SECURITY OPERATION
 
 [cols="1,1,1,1,1,8,1",width="85%",options="header"]
 |=========================================
-|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|CLA  | INS  | P1 | P2  | Lc  | Data | LE
 |...  | 0x2A |... | ... | ... | ...  | ...
 |=========================================
 (CASE 4S)
@@ -2597,7 +2636,7 @@ More types of security operations exists:
 *   CLA = 00h or 80h
 *   P1 = 9Eh perform digital signature
 *   P2 = 9Ah data to be signed in data field (plain data)
-*   LC = length of data
+*   Lc = length of data
 
 MyEID as described in reference manual 2.1.4 does not support RSA 2048 raw
 sign operation, but this operation is identical to raw decipher operation.
@@ -2615,7 +2654,7 @@ Alternatives not supported by OsEID:
 
 *   P2 = ACh BER-TLV data (only value field is to be signed) in data field
 *   P2 = BCh BER-TLV to be signed in data field
-*   LC = 0 data already present in card
+*   Lc = 0 data already present in card
 
 . Encipher plaintext (DES/3DES/AES128/AES192/AES256)
 
@@ -2623,7 +2662,7 @@ Alternatives not supported by OsEID:
 *   P1 = 84h - return encrypted data
 *   P2 = 80h - plaintext in data field
 *   P2 = 00h - data field absent, use data from file (wrap)
-*   LC = length of plaintext
+*   Lc = length of plaintext
 
 +
 Alternatives not supported by OsEID:
@@ -2639,7 +2678,7 @@ Alternatives not supported by OsEID:
 *  P1 = 80h - return plain value
 *  P2 = 84h - data field contain ciphertext (Experimental)
 *  P2 = 86h - data field contain padding indicator, then partial or full ciphertext
-*  LC = length of ciphertext/ciphertext part + length of padding indicator if used
+*  Lc = length of ciphertext/ciphertext part + length of padding indicator if used
 
 APDU chaining is available in OsEID card, for 2048 decipher operation  this
 transport is preferred.  (MyEID from version 4.5.X allow use of APDU
@@ -2723,7 +2762,7 @@ indicators for 2048 bit keys.
 WARNING!  OsEID support for DES and AES security operation is experimental.
 If selected key file contain AES/DES key, security operation is allowed only
 for CLA = 0x80.  Digital signature security operation is not supported if
-AES/DES key is selected. Data size (LC) must match block size of DES /AES
+AES/DES key is selected. Data size (Lc) must match block size of DES /AES
 block.
 
 OsEID does not support templates for now, but for completeness:
@@ -2757,7 +2796,7 @@ GENERAL AUTHENTICATE
 
 [cols="1,1,1,1,1,8,1",width="85%",options="header"]
 |=========================================
-|CLA  | INS  | P1 | P2  | LC  | Data | LE
+|CLA  | INS  | P1 | P2  | Lc  | Data | LE
 | 0   | 0x86 | 0  |  0  | ... | ...  | ..
 |=========================================
 (CASE 4S)
@@ -2765,8 +2804,8 @@ GENERAL AUTHENTICATE
 This command is used to provide ECDH operation. Before calling this command,
 correct security environment must be set and key file must be selected.
 
-LC   - correspond to length of data field
-Data - peer public key in format:  0x7c, LC-2 0x85 LC-4 0x04 point_data
+Lc   - correspond to length of data field
+Data - peer public key in format:  0x7c, Lc-2 0x85 Lc-4 0x04 point_data
 Here: 0x7c is Dynamic Authentication Template tag
       0x85 public key in data field
       0x04 uncompressed key indicator
@@ -2842,20 +2881,20 @@ CLASS 0
 
 *VERIFY* ::
 - 00 20 00 P2 00  (P2 in range 1 to 0x0e)
-- 00 20 00 P2 LC [data] (P2 in range 1 to 0x0e)
+- 00 20 00 P2 Lc [data] (P2 in range 1 to 0x0e)
 
 *MANAGE SECURITY ENVIRONMENT* ::
 - 00 22 F3 00 00	reset sec env
-- 00 22 41 B6 LC [data] perform digital signature
-- 00 22 41 B8 LC [data] perform decipher
-- 00 22 81 B8 LC [data] perform encipher
-- 00 22 41 A4 LC [data] perform ECDH operation
+- 00 22 41 B6 Lc [data] perform digital signature
+- 00 22 41 B8 Lc [data] perform decipher
+- 00 22 81 B8 Lc [data] perform encipher
+- 00 22 41 A4 Lc [data] perform ECDH operation
 
 *CHANGE REFERENCE DATA* ::
 - 00 24 00 P2 10 [data] (P2 in range 1 to 0x0e)
 
 *PERFORM SECURITY OPERATION* ::
--00 2A 9E 9A LC [data]
+-00 2A 9E 9A Lc [data]
 
 *RESET RETRY COUNTER* ::
 - 00 2C 00 P2 00  (P2 in range 1 to 0x0e)
@@ -2865,19 +2904,19 @@ CLASS 0
 - 00 2E 00 P2 00  (P2 in range 0 to 0x0e)
 
 *ACTIVATE APPLET* ::
-- 00 44 P1 P2 LC [data](P1,P2,LC, does not matter to values)
+- 00 44 P1 P2 Lc [data](P1,P2,Lc, does not matter to values)
 
 *GENERATE PUBLIC KEY PAIR* ::
-- 00 46 00 00 LC
+- 00 46 00 00 Lc
 
 *GET CHALLENGE* ::
 - 00 84 00 00 LE [data] (LE in range 1 - 255)
 
 *GENERAL AUTHENTICATE* ::
-- 00 86 00 00 LC [data]
+- 00 86 00 00 Lc [data]
 
 *SELECT FILE* ::
-- 00 A4 P1 P2 LC [data]
+- 00 A4 P1 P2 Lc [data]
 
 *READ BINARY* ::
 - 00 B0 P1 P2 LE (P1 0-0x7f, P2 0-0xff, LE 1..0xff)
@@ -2907,10 +2946,10 @@ CLASS 0
 - 00 CA 01 BX 00 Get PIN parameters (X in range 1 - 0x0e)
 
 *UPDATE BINARY* ::
-- 00 D6 P1 P2 LC [data] (P1 0-0x7f, P2 0-0xff, LC 1..0xff)
+- 00 D6 P1 P2 Lc [data] (P1 0-0x7f, P2 0-0xff, Lc 1..0xff)
 
 *PUT DATA/initialize pin* ::
-- 00 DA 01 P2 LC [data] (P2 in range 1..14)
+- 00 DA 01 P2 Lc [data] (P2 in range 1..14)
 
 *PUT DATA/INITIALISE PIV EMULATION
 - 00 DA 01 50 14 [data] not supported by OsEID /planed in future release
@@ -2920,25 +2959,25 @@ CLASS 0
 NOTE: only CRT algo is supported, loading modulus and private exponent does
 nothing (return code 0x9000)
 
-- 00 DA 01 80 LC [data] private modulus
-- 00 DA 01 81 LC [data] public exponent
-- 00 DA 01 82 LC [data] private exponent (not CRT)
-- 00 DA 01 83 LC [data] prime P
-- 00 DA 01 84 LC [data] prime Q
-- 00 DA 01 85 LC [data] d^-1^ mod (p-1)
-- 00 DA 01 86 LC [data] d^-1^ mod (q-1) /EC publickey
-- 00 DA 01 87 LC [data] q^-1^ mod p /EC private key
-- 00 DA 01 88 LC [data] modulus (1st part for 2048 key)
-- 00 DA 01 89 LC [data] modulus (2nd part for 2048 key)
-- 00 DA 01 8A LC [data] private exponent 1st part for 2048 key (not CRT)
-- 00 DA 01 8B LC [data] private exponent 2nd part for 2048 key (not CRT)
-- 00 DA 01 A0 LC [data] symmetric key (DES/3DES/AES128/AES192/AES256)
+- 00 DA 01 80 Lc [data] private modulus
+- 00 DA 01 81 Lc [data] public exponent
+- 00 DA 01 82 Lc [data] private exponent (not CRT)
+- 00 DA 01 83 Lc [data] prime P
+- 00 DA 01 84 Lc [data] prime Q
+- 00 DA 01 85 Lc [data] d^-1^ mod (p-1)
+- 00 DA 01 86 Lc [data] d^-1^ mod (q-1) /EC publickey
+- 00 DA 01 87 Lc [data] q^-1^ mod p /EC private key
+- 00 DA 01 88 Lc [data] modulus (1st part for 2048 key)
+- 00 DA 01 89 Lc [data] modulus (2nd part for 2048 key)
+- 00 DA 01 8A Lc [data] private exponent 1st part for 2048 key (not CRT)
+- 00 DA 01 8B Lc [data] private exponent 2nd part for 2048 key (not CRT)
+- 00 DA 01 A0 Lc [data] symmetric key (DES/3DES/AES128/AES192/AES256)
 
 *PUT DATA/initialize applet* ::
-- 00 DA 01 E0 LC [data]
+- 00 DA 01 E0 Lc [data]
 
 *CREATE FILE* ::
-- 00 E0 00 00 LC [data] (LC in range 25 to 49 bytes)
+- 00 E0 00 00 Lc [data] (Lc in range 25 to 49 bytes)
 
 *DELETE FILE* ::
 - 00 E4 00 00 00
@@ -2953,7 +2992,7 @@ CLASS 80
 ~~~~~~~~
 
 Proprietary, change file type of EC key from 0x22 to 0x23 ::
-- 80 DA 00 00 00
+- 80 DA 00 00 Lc [data]
 
 Proprietary, DES and AES ciphers ::
 - 80 2A xx xx xx
@@ -3149,7 +3188,7 @@ calculate truncated multiplication (low part of result) too. Another 128 bit
 multiplication (karatsuba based) is integrated inside truncated 256 bit
 multiplication.
 
-
+.Multiplication speed
 [width="80%"]
 |=================================================================
 |operands size|  192 |  256 |  384 |  512  |X  521 |X  768 |X 1024
@@ -3163,7 +3202,12 @@ NOTE: clock cycles are measured by *simulavr*. More info in
 
 
 Truncated multiplication speed
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Result of this multiplication is in same length as operand length. Only low
+bits from result are available at end of this operation.
+
+.Trucnated multiplication speed
 [width="80%"]
 |==========================================
 |operands size|  128 |  192 |  256 |  384
@@ -3178,6 +3222,7 @@ Squaring
 described in <<AVR_SQUARING>>.  Code is designed as non branched.  Squaring
 code is interrupt safe too.
 
+.Squaring speed
 [width="80%"]
 |=================================================================
 |operand size |  192 |  256 |  384 |  512  |X 521  |  768  |  1024
@@ -3374,7 +3419,7 @@ multiplication and some addition (using the AND instruction for one more bit
 in operand), it will introduce more overhead as in explained algorithm.
 Then there is '1+n' and 'n' operand size in final part of folding, this
 introduce second overhead.  It can be guessed, that currently implemented
-algorithm is faster (on 8 bit AVR platform)
+algorithm is faster (on 8 bit AVR platform).
 
 
 
@@ -3425,33 +3470,26 @@ makes no sense to optimize 512/768 bit calculation for window size 5 bits.
  2+|             2+|    no blinding        2+|   precalc, blinding
    |key size|window| precalc    |no precalc  |            | Bellcore.prot
  6+|
-.3+|  512   |   2  |  20,58     |  20,80     |  22,45     |  23,38
-            |   4  |  17,60     |  17,82     |  19,14     |  16,35.
-            |   5  |  14,61.    |  18,23     |  19,52     |  16,66.
+.3+|  512   |   2  |  16,17     |  16,81     |  18,22     |  19.01
+            |   4  |  14,29     |  14,43     |  15,57     |  16,35
+            |   5  |  14,61     |  14,75     |  15,87     |  16,66
  6+|
-.3+|  768   |   2  |  30,43     |  30,65     |  32,30     |  33,23
-            |   4  |  25,67     |  25,89     |  27,21     |  25,32.
-            |   5  |  22,97.    |  25,76     |  27,34     |  25,44.
+.3+|  768   |   2  |  27,47     |  27,67     |  29,17     |  30,01
+            |   4  |  23,08     |  23,38     |  24,48     |  25,32
+            |   5  |  22,97     |  23,26     |  24,61     |  25,44
  6+|
-.3+|  1024  |   2  |  63,36     |  63,73     |  66,30     |  67,75
-            |   4  |  53,14     |  53,51     |  55,56     |  51,32.
-            |   5  |  47,29.    |  52,93     |  54,93     |  50,75.
+.3+|  1024  |   2  |  57,16     |  57,66     |  59.83     |  61,14
+            |   4  |  47,81     |  48,32     |  50,01     |  51,32
+            |   5  |  47,29     |  47,79     |  49,45     |  50,75
  6+|
-.3+|  1536  |   2  | 199,4      | 200,2      | 205,6      | 208,7
-            |   4  | 165,8      | 166,6      | 170,9      | 155,1.
-            |   5  | 144,4.     | 162,8      | 167,0      | 151,6.
+.3+|  1536  |   2  | 178,4      | 179,5      | 184,0      | 186,7
+            |   4  | 147,8      | 148,9      | 152,4      | 155,1
+            |   5  | 144,4      | 145,5      | 148,9      | 151,6
  6+|
-.3+|  2048  |   2  | 410,9      | 412,3      | 420,5      | 425,3
-            |   4  | 340,9      | 342,3      | 348,8      | 313,9.
-            |   5  | 293,8.     | 332,5      | 340,4      | 306,4.
+.3+|  2048  |   2  | 365,7      | 367,6      | 374,3      | 378,5
+            |   4  | 302,7      | 304,6      | 309,7      | 313,9
+            |   5  | 293,8      | 295,7      | 302,1      | 306,4
 |=========================================================================
-
-New  speeds 4 bits window, blinding, belcore prot.
- 16347718
- 25310092
- 51311640
-155087960
-313883155
 
 To reach this, lot of  assembler routines are used, especially Montgomery
 algo and function like mul256 mod 2^256^ (truncated multiplication).  To get
@@ -3461,7 +3499,8 @@ in AVR.
 
 Code size: about 20 000 lines in AVR assembler, about 10000 lines in C. AVR
 flash in ATmega128 is occupied by ~ 63kB code, 64Kb is used as data space for
-card filesystem.
+card filesystem. RAM is almost full, there is approximately 80 bytes free in
+atmnega128 (4kB RAM space).
 
 
 <<<
@@ -3576,7 +3615,7 @@ value is one operand in GCD, second operand is tested number).
 Number is considered to be a prime number if pass the Rabin-Miller test.
 Rabin-Miller test consider number to be a prime after several loops with
 different parameter 'A'.  Number of loops is based on length of a tested
-prime.  (Listed in row  "RM loop pass").
+prime.  (Listed in row  "MR loop pass").
 
 .RSA key generation statistics (for 10 000 keys)
 
@@ -3588,7 +3627,7 @@ prime.  (Listed in row  "RM loop pass").
 |rejected P,Q too close        |   249 |   270 |   269 |  238  |   258
 |average GCD op. for one prime | 73.83 |110.64 |146.83 |222.95 |295.65
 |average MR op. for one prime  | 13.97 | 22.53 | 28.87 | 44.7  | 59.18
-|RM loop pass                  |  12   |   8   |   6   |  4    |  3
+|MR loop pass                  |  12   |   8   |   6   |  4    |  3
 |=====================================================================
 
 When both primes are found, they are tested if they are not too close to
@@ -3614,10 +3653,10 @@ together).
 
 
 For one prime (512 bit) we need in average 147 GCD operations, total time
-147*0.148 = about 22 seconds.  Then 29 Miller-Rabin test (one about 1.8 sec)
-= about 52 seconds.  For one prime we need in average 74 seconds.
+147*0.148 = about 22 seconds.  Then 29+6 Miller-Rabin test (one about 1.9 sec)
+= about 66.5 seconds.  For one prime we need in average 89 seconds.
 
-Generation of 1024 bit key (4 primes ) then take in average about 5 minutes,
+Generation of 1024 bit key (4 primes ) then take in average about 6 minutes,
 but in worst case over 30 minutes.
 
 When generating a 2048 bit key you have to be very patient.  Count with time
@@ -3631,6 +3670,10 @@ DPA or IPA can be used to extract some informations about generated key.
 Therefore it is recommended to generate key only in secure environment, if
 key security is important.
 
+OsEID project does not use strong primes for P and Q.  Strong primes can
+protect us from faktorization of modulus using Pollard's algorithm, but
+strong primes do not protect us against new methods of modulus factorization
+for example Lenstra elliptic curve factorization or Number Field Sieve.
 
 
 _RSA key generation is not resistant to side channels attack_
@@ -4367,6 +4410,64 @@ plaintext = m2 + h * q
 # *****************************************************************
 .
 ....
+
+Fermat primality test and Miller-Rebin test
+....
+# use internal test to determine if number is prime
+# prime
+IsPrime(41051)
+# no prime
+IsPrime(41053)
+# prime
+IsPrime(41057)
+#
+# Carmichael number (no prime, but fails in Fermat test)
+IsPrime(41041)
+#
+# Fermat tests of abowe numbers (result is always 1)
+# you can use differenst bases, here 2 is used as base
+2^41050 mod 41051
+2^41052 mod 41053
+2^41056 mod 41057
+2^41040 mod 41041
+#
+# Miller-Rabin test (base 10, one loop)
+#
+# initialization:
+N=41057
+E=N-1
+D=1
+#
+# calculate squaring loops
+do D=D+1;E=trunc(E/2) while IsOdd(E)!=true
+#
+# do exponentation (here base 10 is used)
+EE = 10^E mod N
+if ((EE == 1 or EE == N-1)) then (
+	print ("prime candidate")
+) else (
+	print("squaring");
+	while D>0 do (
+		D=D-1;
+		EE=EE^2 mod N;
+		print(EE);
+		if(EE==N-1) then (
+			print("prime candidate");
+			break;
+			);
+		if(EE==1) then (
+			print ("no prime");
+			break;
+			);
+	);
+	if(D==0) then print("no prime")
+)
+# you can repeat this with N=41051,41053,41041 and observe intermediate results
+....
+
+
+
+
 
 
 [[appendixZ]]

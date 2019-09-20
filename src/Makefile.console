@@ -13,6 +13,8 @@ CFLAGS+= -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
 #CFLAGS+= -DRSA_GEN_DEBUG
 #grep -v close rsa_gen_debug.stat |grep -v 0x| awk '{g+=$2;r+=$4}END{print g/NR" "r/NR}
 #grep close rsa_gen_debug.stat |awk '{c+=$2;s+=$4}END{print s" "c}'
+# to test prime generator:
+#grep 0x rsa_gen_debug.stat|awk '{print "IsPrime("$1")"}' |genius|grep -v true
 
 CC= gcc
 ##CFLAGS+= -D_FORTIFY_SOURCE=2
