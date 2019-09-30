@@ -603,16 +603,19 @@ Key wrap/unwrap
 //                              0x0A WRAP/UNWRAP operation (with RSA or AES)
 //                              0x12 insert OID of SHA1 before data, then do PKCS#1 padding
 //                              0x80 perform PKCS#7 padding (for AES)
+//                              0x8A wrap/unwrap and pkcs#7 padding op
 // from MyEID manual 2.1.4:
 //                              0xX0 - compute signature/decipher
 //                              0xX1 - RFU
-//                              0xX2 - pad data to match modulus
+//                              0xX2 - pad data to match modulus/ remove padding PKCS#1 v1.5
 //                              0xX3 - RFU
 //                              0xX4 - ECDSA/ECDH
 //                              0x0X - no hash algo
 //                              0x1X - SHA1
 //                              0x2X - 0x6X RFU (RIMEMP160, SHA224,SHA256,SHA384,SHA512)
-//
+//  added in 2.3.0 ref man:
+//                              0x8X - Symmetric operations: PKCS#7 padding
+//                              0xXA - Key wrapping or unwrapping
 // 0x81 = 2 byte file reference
 // 0x83 = 1 byte key reference in file (always 0 for MyEID/OsEID) (symetric keys)
 // 0x83 = 2 byte target key file reference for wrap/unwrap  (from opensc..)
@@ -621,8 +624,12 @@ Key wrap/unwrap
 // tags used .. for EC  operations   : 0x80, 0x81, 0x84
 //              for RSA operations   : 0x80, 0x81, 0x84
 //              for RSA + WRAP/UNWRAP: 0x80, 0x81, 0x84, 0x87
-//              for AES + WRAP/UNWRAP: 0x80, 0x81, 0x83, 0x87
-//              for AES/DES          : 0x80, 0x81, 0x83, 0x87
+//              for AES + WRAP/UNWRAP: 0x80, 0x81, 0x83?/0x84?, 0x87
+//              for AES/DES          : 0x80, 0x81, 0x83?/0x84?, 0x87
+
+// tests on MyEID 4.0.1: AES 256 key in 4d 04
+// 00 22 81 b8 19 80 01 00 81 02 4d 04 87 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  -> 90 00 encipher
+// 00 22 41 b6 19 80 01 00 81 02 4d 04 87 10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  -> 90 00 decipher
 
 #if 0
 // MyEID manual 2.1.4: P1 must be set to 0xA4 for ECDH, but opensc 0.17 set
@@ -701,6 +708,7 @@ Key wrap/unwrap
 	    case 0x12:		// SHA1 ...
 	    case 0x04:		// ECDSA (DATA in RAW format)
 	    case 0x0A:		// WRAP/UNWRAP
+	    case 0x80:		// remove/add PKCS#7 padding
 	    case 0x8A:		// WRAP/UNWRAP (PKCS#7 padding)
 	      break;
 	    default:
@@ -1018,7 +1026,7 @@ security_operation_decrypt (struct iso7816_response *r)
 
       fs_select_uuid (target_file_uuid, NULL);
       type = fs_get_file_type ();
-
+      // TODO better checking of key sizes  etc...
       if ((type == 0x41 || type == 0x19 || type == 0x29) && r->len16 < 254)
 	{
 	  memcpy (r->input + 5, r->data, r->len16);

@@ -116,7 +116,8 @@ OsEID disadvantages to MyEID card applet version 4.X:
 - no PIV/CIV emulation
 - no Auto size files (only auto size DF)
 - no 224 bit NIST curve
-- no support for session objects (please read MyEID 2.3.0 referene manual)
+- no support for automatic delete of session objects
+  (please read MyEID 2.3.0 referene manual)
 - slow RSA
 - slow ECC
 
@@ -235,9 +236,9 @@ image:images/atmega128A_small.png[Atmega128A]
 
 ATmega 128A microcontroller is available with a number of vendors.  You can
 buy ATMEGA128A-AU in TQFP64 package from http://www.farnell.com by sale code
-1773397 (about 4.8E / Dec 31 2017).  Alternatively you can buy ATMEGA128A-AU from
+1773397 (about 5E / Sep 30 2019).  Alternatively you can buy ATMEGA128A-AU from
 https://www.tme.eu/en/details/atmega128a-au/8-bit-avr-family/microchip-atmel/
-(price about 5.5E / Dec 31 2017).
+(price about 6E / Sep 30 2019).
 
 The second component is single sided printed circuit board (PCB) in the form of plastic
 payment card.
@@ -814,7 +815,7 @@ You can contact me (author) by email <popovec.peter@gmail.com>
 
 
 
-
+<<<
 Card communication protocol
 ---------------------------
 
@@ -1456,7 +1457,7 @@ MyEID uses T1 protocol, FCI is always returned even Le is not present in
 APDU (tested on MyEID 3.3.3/4.0.1).
 
 
-<<<
+
 CREATE FILE
 ~~~~~~~~~~~
 
@@ -1686,7 +1687,7 @@ selection is handled.
 
 
 
-
+<<<
 DELETE FILE
 ~~~~~~~~~~~
 
@@ -1757,7 +1758,7 @@ OsEID card for now.
 
 
 
-
+<<<
 ERASE BINARY
 ~~~~~~~~~~~~
 
@@ -1816,7 +1817,7 @@ be specified.  OsEID does not allow Lc=2 for now.
 
 
 
-
+<<<
 UPDATE BINARY
 ~~~~~~~~~~~~~
 
@@ -1873,7 +1874,7 @@ represents bit 7..0 of offset. Lc represents number of updated bytes.
 
 
 
-
+<<<
 READ BINARY
 ~~~~~~~~~~~
 
@@ -1930,7 +1931,7 @@ over file end.
 - 0x6281 part of data is corrupted (older version of OsEID)
 - 0x6581 Memory failure
 
-
+<<<
 GET DATA
 ~~~~~~~~
 
@@ -2058,7 +2059,7 @@ PUK minimal length
 
 
 
-
+<<<
 PUT DATA
 ~~~~~~~~
 [cols="1,1,1,1,1,8,1",width="85%",options="header"]
@@ -2854,7 +2855,6 @@ PCB ver 0.1
 -----------
 [%autofit]
 image::images/OsEID_pcb_ver0.1.svg[PCB0.1, 1200]
-
 <<<
 [[appendixB]]
 [appendix]
@@ -3209,12 +3209,13 @@ bits from result are available at end of this operation.
 
 .Trucnated multiplication speed
 [width="80%"]
-|==========================================
-|operands size|  128 |  192 |  256 |  384
-|clock cycles |      |      |      |
-|==========================================
+|==================================================
+|operands size|  128 |  192 |  256 |  384   |  512
+|clock cycles |  --- | 1625 | 2904 |  6558  | 10876
+|==================================================
 
 
+<<<
 Squaring
 ~~~~~~~~
 
@@ -3404,7 +3405,6 @@ sized multiplications.
 Old and new code need some overhead for additions  and subtractions. Finally,
 old code with full sized  Montgomery reduction for reducing 1024 bit to 512
 bit need about 27000 clock cycles. New code needs only 24300 clock cycles.
-This speed up calculation of RSA in about 10%.
 
 
 Maybe this algorithm reminds someone of so-called bipartite Modular
@@ -3755,7 +3755,8 @@ ECC
 ~~~
 
 - http://www.johannes-bauer.com/compsci/ecc/
-- [[[NIST_ECC]]] https://apps.nsa.gov/iaarchive/library/ia-guidance/ia-solutions-for-classified/algorithm-guidance/mathematical-routines-for-the-nist-prime-elliptic-curves.cfm
+- [[[NIST_ECC]]] http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.204.9073&rep=rep1&type=pdf
+  (https://apps.nsa.gov/iaarchive/library/ia-guidance/ia-solutions-for-classified/algorithm-guidance/mathematical-routines-for-the-nist-prime-elliptic-curves.cfm)
 - [[[SAFECURVES]]] https://safecurves.cr.yp.to/
 - [[[NIST_RIGGED]]] https://crypto.stackexchange.com/questions/12898/is-there-a-feasible-method-by-which-nist-ecc-curves-over-prime-fields-could-be-i
 
@@ -3833,6 +3834,12 @@ Licence
 [appendix]
 Opensc patches
 --------------
+
+Opensc 0.20
+~~~~~~~~~~~
+
+Card is automaticaly detected. No patch is needed. If you need support for
+secp256k1, please read about experimental support for secp256k1 below.
 
 Opensc 0.17, 018 and 0.19
 ~~~~~~~~~~~~~~~~~~~~~~~~~
