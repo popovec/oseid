@@ -38,6 +38,9 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
+# MyEID does not support 56 bit des version, OsEID allow this if needed
+#CFLAGS += -DENABLE_DES56
+
 all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
 builddir:
@@ -65,6 +68,7 @@ TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
+TARGET_SPEC +=  $(BUILD)ec_fast_red.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -128,6 +132,9 @@ $(BUILD)mp_mul_32_trunc.o:	$(TARGET_LIB)mp_mul_32_trunc.S
 $(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S
 
+$(BUILD)ec_fast_red.o:	$(TARGET_LIB)ec_fast_red.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)ec_fast_red.o $(TARGET_LIB)ec_fast_red.S -Icard_os
+
 $(BUILD)mp.o:	$(TARGET_LIB)mp.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp.o $(TARGET_LIB)mp.S -Icard_os
 
@@ -173,6 +180,7 @@ $(BUILD)card_orig.hex:	$(BUILD)card.elf
 #insert serial number based on date
 $(BUILD)card.hex:	$(BUILD)card_orig.hex
 		cp $(BUILD)card_orig.hex $(BUILD)card.hex
+		srec_cat $(BUILD)card_orig.hex -Intel -fill 0xFF 0x0000 0x1ffff -o $(BUILD)card.bin -binary
 
 #		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.hex -Intel
 
@@ -182,6 +190,7 @@ $(BUILD)card_orig.eeprom.hex:	$(BUILD)card.elf
 
 $(BUILD)card.eeprom.hex:	$(BUILD)card_orig.eeprom.hex
 		cp	 $(BUILD)card_orig.eeprom.hex $(BUILD)card.eeprom.hex
+		srec_cat $(BUILD)card_orig.eeprom.hex -Intel -o $(BUILD)card.eeprom.bin -binary
 		srec_cat $(BUILD)card_orig.eeprom.hex -Intel `srec_cat $(BUILD)card_orig.eeprom.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string `date +%s` -o $(BUILD)card.eeprom.hex -Intel
 
 $(BUILD)card.fuses.hex:		$(BUILD)card.elf

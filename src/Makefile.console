@@ -42,6 +42,9 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
+# MyEID does not support 56 bit des version, OsEID allow this if needed
+#CFLAGS += -DENABLE_DES56
+
 .PHONY:	builddir all
 
 builddir:

@@ -1,15 +1,29 @@
-You need patched version of simulavr (from debian simulavr package)
-simulavr_0.1.2.2-7 from stretch/sid
-https://packages.debian.org/stretch/simulavr
+Using simulavr
+--------------
 
-You can found shell script that can compile patched version of simulavr in
-targets/simulavr/compile_simulavr.sh
+OsEID uses for simulation patched version of simulavr. GIT repository
+is available at https://github.com/popovec/oseid-simulavr.
 
-you can install compiled package system wide or use only binary
-(targets/simulavr/tmp/simulavr-0.1.2.2/src/simulavr)
+Building debian simulavr-oseid package:
+
+git clone https://github.com/popovec/oseid-simulavr
+$ cd oseid-simulavr/simulavr-0.1.2.2
+$ fakeroot debian/rules binary
+$ cd ..
+
+Then install simulavr-oseid_0.1.2.2-7.1_amd64.deb package on your system.
+
+Alternative:
+
+copy simulavr-0.1.2.2/src/simulavr-oseid binary to unpacked oseid tree into
+src/target/simulavr/simulavr-oseid
+
 
 
 Simulation can be attached directly to pcscd as simulated reader.
+
+OsEID compilation
+^^^^^^^^^^^^^^^^^
 
 Compile simulated reader:
 
@@ -23,9 +37,39 @@ or to compile simulated version for atmega1284p (more RAM, support for secp521r1
 
 $ make -f Makefile.simulavr1284
 
-Then run as root:
+
+
+Running simulavr
+^^^^^^^^^^^^^^^^
+
+Before running simulated device, you need to stop pcscd daemon:
+
+# systemctl stop pcscd.socket
+# systemctl stop pcscd.service
+
+This service is started with special config file by next command:
 
 # build/simulavr/run_pcscd.sh
+
+Simulated card is now available (after ~ 2 sec)..  you can check this in
+another console by running:
+
+$ pcsc_scan
+
+You can use OsEID-tool to check card functionality for example by OsEID-tool:
+
+$ ./OsEID-tool INIT
+$ ./OsEID-tool EC-GENERATE-KEYS
+$ ./OsEID-tool EC-SIGN-TEST
+
+
+
+simulavr attached to gdb
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+run as root:
+
+# build/simulavr/run_pcscd.sh gdb
 
 on another console then run (as normal user or root):
 
@@ -37,8 +81,7 @@ In avr-gdb use next commands to start simulation:
 (gdb) cont
 
 
-
-Simulated card is now available (after ~ 10 sec)..  you can check this in
+Simulated card is now available (after ~ 5 sec)..  you can check this in
 another console by running:
 
 $ pcsc_scan
@@ -51,15 +94,45 @@ must be readed to return control into avr-gdb. Use for example:
 
 echo "00 a4 00 00 00" |scriptor
 
+
 to interrupt avr-gdb and get command line in avr-gdb.
 
+NOTE: If simulavr is running under gdb, simulation is significant slower
+(compared to standalone simulavr run).
 
-Example used to measure timing of ECDSA operation:
---------------------------------------------------
+Measuring clock cycles
+^^^^^^^^^^^^^^^^^^^^^^
+
+If NOP instruction is fount in program code, then simulavr print internal
+clock counter to stderr.  You can insert "nop" instruction into OsEID code,
+to count clock cycles in some part of code, for example:
+
+diff --git a/card_os/myeid_emu.c b/card_os/myeid_emu.c
+index 2ce6f86..714cfe8 100644
+--- a/card_os/myeid_emu.c
++++ b/card_os/myeid_emu.c
+@@ -320,7 +320,9 @@ rsa_raw (uint16_t len, uint8_t * message, uint8_t * result, uint8_t flag)
+   HPRINT ("mesage\n", message, RSA_BYTES * 2);
+
+   DPRINT ("calculating RSA\n");
++  asm volatile ("nop\n");
+   ret = rsa_calculate (message, result, len / 2);
++  asm volatile ("nop\n");
+
+
+Example of stderr output (for 1024 bit RSA operation):
+
+NOP at address 20d1, clock cycles 7977848, difference to precious CK: 7977848
+NOP at address 20d9, clock cycles 59275833, difference to precious CK: 51297985
+
+
+
+Mearuring clock cycles (using gdb breakpoints)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 run simulation (as root):
 
-# build/simulavr/run_pcscd.sh
+# build/simulavr/run_pcscd.sh gdb
 
 in second console run (as normal user), avr-gdb, use 'load', 'list', 'break'
 and 'cont' commands to set breakpoints and run simulation
@@ -287,4 +360,11 @@ Or You use predefined macro file from command line:
 
 $ avr-gdb -x targets/simulavr/gdb_macros -ex "target remote localhost:1212" build/simulavr/card.elf
 
+EEPROM
+^^^^^^
+
+Simmilar to SRAM mapping, the EEPROM is mapped at address 0x810000.
+
 To dump eeprom (PIN/PUK data, constants) use address 0x810000 in avr-gdb.
+
+(gdb) x/512xb 0x810000

@@ -21,10 +21,21 @@
 #
 #    connect pcscd daemon to simulavr with OsEID card
 #
+
+GDB=0
+
+echo $#
+if [ $# -ge 1 ]; then
+	if [ $1 == "gdb" ]; then
+		GDB=1
+	fi
+fi
+
 if [ `id -u` -ne 0 ]; then
 	echo "Sorry, this work only for root user"
 	exit 1
 fi
+
 
 OsEID_DIR=`pwd`
 
@@ -33,14 +44,22 @@ touch "${OsEID_DIR}/tmp/OsEIDsim.socket"
 DEV=$1
 if [ $? -lt 1 ]; then
 	if [ -x "${OsEID_DIR}/targets/simulavr/simulavr-oseid" ]; then
-	  socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'${OsEID_DIR}/targets/simulavr/simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	  if [ $GDB -eq 0 ]; then
+		socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'${OsEID_DIR}/targets/simulavr/simulavr-oseid -d OsEID128 -e build/simulavr/card.eeprom.bin build/simulavr/card.bin',pty,raw,echo=0" &
+	  else
+		socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'${OsEID_DIR}/targets/simulavr/simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	  fi
 	else
 	  which simulavr-oseid
 	  if [ $? -ne 0 ]; then
 		echo "Unable to execute simulavr-oseid, please read targets/simulavr/Readme"
 		exit 1
 	  fi
-	  socat -d -d pty,link=${OsEID_DIR}tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	  if [ $GDB -eq 0 ]; then
+		socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -d OsEID128 -e build/simulavr/card.eeprom.bin build/simulavr/card.bin',pty,raw,echo=0" &
+	  else
+		socat -d -d pty,link=${OsEID_DIR}tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+	  fi
 	fi
 	DEV="${OsEID_DIR}/tmp/OsEIDsim.socket"
 fi
