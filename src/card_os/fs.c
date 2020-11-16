@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -56,11 +56,20 @@ For default state "all pins zero" there is recommendation to invert all write/re
 in mem_device layer.
 */
 
+// for devices with small EEPROM use reduced PIN structure
+#ifndef SEC_MEM_SIZE
+#define SEC_MEM_SIZE 1024
+#endif
+
 struct pin
 {
   uint8_t pin[8];
   uint8_t puk[8];
+#if SEC_MEM_SIZE < 1024
+  uint8_t cr_key[8];
+#else
   uint8_t cr_key[24];		// RFU
+#endif
 
 // do not change order of rest fields!
 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -863,18 +872,19 @@ check_security_pin_ac (uint8_t pin)
 uint8_t
 fs_verify_pin (uint8_t * message)
 {
-  uint16_t sec = 1;
-  uint8_t pin = message[0];
   uint8_t pad_pin[8];
   uint8_t r;
+  uint16_t sec = 1;
+  uint8_t pin = *(message++);
+  uint8_t pin_len = *(message++);
 
   DPRINT ("%s, PIN id=%d\n", __FUNCTION__, pin);
 
   if (pin < 1 || pin > 14)
     return S0x6a86;		// Incorrect parameters P1-P2
 
-  //return number of retries
-  if (message[1] == 0)
+  // return number of retries
+  if (pin_len == 0)
     {
       if (0 == check_security_pin_ac (pin))
 	return S_RET_OK;
@@ -886,11 +896,15 @@ fs_verify_pin (uint8_t * message)
 
       return (S0x63c0 | (r & 0x0f));
     }
-  //workaround, padding of pin..
-  if (message[1] > 8)
-    message[1] = 8;
-  memset (pad_pin, 0xff, 8);
-  memcpy (pad_pin, message + 2, message[1]);
+
+  // workaround, padding of pin
+  for (r = 0; r < 8; r++)
+    {
+      if (r < pin_len)
+	pad_pin[r] = message[r];
+      else
+	pad_pin[r] = 0xff;
+    }
 
   // check if pin is OK
   r = compare_pin (pin, pad_pin);
@@ -1084,7 +1098,7 @@ fs_mkfs (uint8_t * message)
 
   // init filesystem, MF and file 5015 is created
   // MF and 5015 file ACL is set as define in acl (if acl is not NULL)
-  // if 'acl' is short (5 byets) file 5015 is not created
+  // if 'acl' is short (5 bytes) file 5015 is not created
   // (up to version 20190102, file 5015 was not created, now this is more compatible with MyEID)
 
   // Warning, erase flash before fs_mkfs, or apply only to blank flash)
@@ -1125,7 +1139,7 @@ end:
   uint8_t e = 0xff;
 
 // write to sec_device, if error, jump to newer ending loop
-  for (i = 0; i < 1024; i++)
+  for (i = 0; i < SEC_MEM_SIZE; i++)
     if (sec_device_write_block (&e, i, 1))
       for (;;);
 
@@ -1171,7 +1185,7 @@ fs_init (void)
   uint16_t i;
   uint8_t val = 255, s;
 
-  for (i = 0; i < 1024; i++)
+  for (i = 0; i < SEC_MEM_SIZE; i++)
     {
       sec_device_read_block (&s, i, 1);
       val &= s;
