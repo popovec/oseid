@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -868,12 +868,14 @@ des_aes_cipher (uint16_t size, uint8_t * data, struct iso7816_response *r,
     {
       uint8_t flag;
 
+#if ENABLE_DES56
 // allow use 7 or 8 bytes as DES key
       if (ksize == 7)
 	{
 	  des_56to64 (r->data);
 	  ksize = 8;
 	}
+#endif
       if (ksize == 16)
 	{
 	  memcpy (r->data, r->data + 16, 8);
@@ -1694,6 +1696,9 @@ myeid_get_data (uint8_t * message, struct iso7816_response *r)
     {
     case 0xa0:
       get_constant (r->data, N_CARD_ID);
+#ifdef HW_SERIAL_NUMBER
+      get_HW_serial_number (r->data + 8);
+#endif
       return resp_ready (r, 20);
     case 0xa1:
     case 0xa2:
@@ -1872,7 +1877,11 @@ myeid_upload_keys (uint8_t * message)
 // DES, AES key
   if (type == 0x19)
     {
+#if ENABLE_DES56
       if (k_size != 56 && k_size != 64 && k_size != 128 && k_size != 192)
+#else
+      if (k_size != 64 && k_size != 128 && k_size != 192)
+#endif
 	return S0x6700;		//Incorrect length
       return fs_key_write_part (message + 3);
     }
