@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -46,7 +46,9 @@ opensc-tool "${2}" "${3}" -s "${1}" 2>/dev/null|gawk '{
 	next
   }
   if(flag==1){
-	for(i=1;i<NF;i++)
+	c = NF
+	if (c>17) c=17
+	for(i=1;i<c;i++)
 		printf "%s ",$i
   }
 }
@@ -246,7 +248,7 @@ RAWSIGN2048=0
 if [ $OPENSC_VERSION -lt 15000 ]; then
 	failecho "Your OPENSC version is:"
 	opensc-tool -i
-	failecho "please check opensc version, use opensc 0.15 - 0.20 only"
+	failecho "please check opensc version, use opensc 0.15 - 0.21 only"
 	exit 1
 fi
 if [ $OPENSC_VERSION -ge 17000 ]; then
@@ -255,10 +257,10 @@ fi
 if [ $OPENSC_VERSION -ge 18000 ]; then
 	RAWSIGN2048=1
 fi
-if [ $OPENSC_VERSION -gt 20000 ]; then
+if [ $OPENSC_VERSION -gt 21000 ]; then
 	warnecho "not tested opensc version detected"
 	opensc-tool -i
-	warnecho "this code is tested in opensc versions 0.15 .. 0.20"
+	warnecho "this code is tested in opensc versions 0.15 .. 0.21"
 fi
 
 
@@ -494,6 +496,9 @@ while read curve oid ;do
 			continue
 		fi
 	fi
+	if [ ! -f keys/${curve}-key.pem ]; then
+		continue
+	fi
 	echo "uploading key ${curve}"
 	PKCS15-INIT --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --label "${curve}" --key-usage sign
 	E=$?
@@ -553,18 +558,33 @@ while read keyID ; do
   sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
   echo "generating signature by pkcs15-crypt"
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
+  ST=`date +%s.%N`
   PKCS15-CRYPT --pin 11111111 -k $keyID --signature-format "openssl" -s -i tmp/testfile.txt.sha1 -o tmp/testfile.txt.pkcs11.sha1.sig
+  if [ $? -ne 0 ]; then
+	failecho "pkcs11-tool failed"
+	exit 1
+  fi
+  ET=`date +%s.%N`
+  echo "${ET} ${ST}"|gawk '{printf "pkcs15-tool EC SIGN time %f\n",($1 - $2)}'
   echo "testing signature.."
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
   if [ $? -ne 0 ]; then
 	failecho "openssl signature test fail"
 	exit 1
   fi
+  rm -f tmp/testfile.txt.pkcs11.sha1.sig
   echo "generating signature by pkcs11-tool"
+  ST=`date +%s.%N`
   pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign --signature-format "openssl"  -m ECDSA --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
+  if [ $? -ne 0 ]; then
+	failecho "pkcs11-tool failed"
+	exit 1
+  fi
+  ET=`date +%s.%N`
+  echo "${ET} ${ST}"|gawk '{printf "pkcs11-tool EC SIGN time %f\n",($1 - $2)}'
   echo "testing signature.."
   openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
-  if [ $?	-ne 0 ]; then
+  if [ $? -ne 0 ]; then
 	failecho "openssl signature test fail"
 	exit 1
   fi
@@ -826,16 +846,29 @@ err=0
 for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
 echo "Reading public key "$keyID
 PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
+if [ $? -ne 0 ]; then
+	failecho "pkcs15-tool failed"
+	exit 1
+fi
 openssl rsa -pubin -in tmp/exported_rsa_key.pub -text -noout|grep bit
 echo "using openssl to encrypt test message"
 openssl rsautl -encrypt -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_testfile.txt -out tmp/rsa_encrypted_testfile.txt
 echo "using pkcs11 interface to decrypt test message"
 rm -f  tmp/rsa_pkcs11_tool_decrypted_testfile.txt
+
+ST=`date +%s.%N`
 pkcs11-tool --slot-index ${SCSlot} --decrypt \
 	--id $keyID \
 	--input-file tmp/rsa_encrypted_testfile.txt \
 	--output-file tmp/rsa_pkcs11_tool_decrypted_testfile.txt \
 	-m RSA-PKCS --pin 11111111
+if [ $? -ne 0 ]; then
+	failecho "pkcs11-tool failed"
+	exit 1
+fi
+ET=`date +%s.%N`
+echo "${ET} ${ST}"|gawk '{printf "pkcs11-tool RSA DECRYPT time %f\n",($1 - $2)}'
+
 cmp tmp/rsa_decrypt_testfile.txt tmp/rsa_pkcs11_tool_decrypted_testfile.txt
 if [ $? -eq 0 ]; then
 	trueecho "OK"
@@ -878,11 +911,12 @@ fi
 if [ $mode == "DES-AES-UPLOAD-KEYS" ]; then
 	echo "Uploading AES/DES keys"
 	err=0
-	echo "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq" > tmp/desaes.key
-# This does not work with MyEID 4.0.1, OsEID OK
-	if [ ${CARD_TYPE} == "OsEID" ]; then
-		echo "DES 56(64):"
-		PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm des      --auth-id 01  --pin=11111111 --id 80
+	echo "pppppppppppppppppppppppppppppppp" > tmp/desaes.key
+# MyEID DES upload is fixed by 6d98f8c8d8d3c6b56e3a600d46a56bfcc938bc68
+# MyEID support for DES is not checked here.. (version 3.3.3 does not support DES ...)
+	if [ $OPENSC_VERSION -ge 20000 ]; then
+		echo "DES 64:"
+		PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm des/64  --auth-id 01  --pin=11111111 --id 80
 		if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 	fi
 # 2des ..
