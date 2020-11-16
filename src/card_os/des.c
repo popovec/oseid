@@ -6,7 +6,7 @@
     This is designed to be a part of OsEID (Open source Electronic ID)
     https:/oseid.sourceforge.io
 
-    Copyright (C) 2017,2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -447,6 +447,7 @@ des3_run:
 #endif
 }
 
+#if ENABLE_DES56
 void __attribute__ ((weak)) des_56to64 (uint8_t * key)
 {
   uint8_t k[8];
@@ -462,3 +463,4 @@ void __attribute__ ((weak)) des_56to64 (uint8_t * key)
 
   memcpy (key, k, 8);
 }
+#endif

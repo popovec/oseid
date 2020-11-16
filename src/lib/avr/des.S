@@ -86,6 +86,7 @@
  void des_run (uint8_t *data, uint8_t *key, uint8_t mode);
 */
 
+#if ENABLE_DES56
 	.global des_56to64
 	.type	des_56to64, @function
 
@@ -143,6 +144,7 @@ des_56to64:
 	dec	r24
 	brne	1b
 	ret
+#endif
 #endif
 
         .global des_run
