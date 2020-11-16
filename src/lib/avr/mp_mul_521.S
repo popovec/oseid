@@ -166,8 +166,8 @@ mp_mul_521_s:
 #endif
 // ABI
 	clr	r1
-// clean upper part (for now up to 144 bytes)
-	ldi	r24,72*2-131
+// clean upper part (1042 bytes result = 131 bytes)
+	ldi	r24,MP_BYTES*2-131
 1:
 	st	X+,r1
 	dec	r24
