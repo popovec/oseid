@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -69,19 +69,19 @@ rsa_square_1024_no_abi - input is addressed by r22,r23 result by r24,r25
                 ABI functions ticks inclusive prolog/epilog
 function name   ticks (without call/ret, inclusive CLI/SEI if SP is changed)
 ------------------------------------------------------------------
-rsa_square_192_no_abi    1847     (uses 10 bytes on stack)
-rsa_square_256_no_abi    3093     (uses 32 bytes on stack)
+rsa_square_192_no_abi    1839     (uses 10 bytes on stack)
+rsa_square_256_no_abi    3081     (uses 32 bytes on stack)
 
 (in next calculations number 7 is from rcall and ret clock cycles)
 
-rsa_square_384_no_abi   (7+rsa_square_192_no_abi)*3 +  994 = 6556
-rsa_square_512_no_abi   (7+rsa_square_256_no_abi)*3 + 1344 = 10644
+rsa_square_384_no_abi   (7+rsa_square_192_no_abi)*3 +  994 =  6532
+rsa_square_512_no_abi   (7+rsa_square_256_no_abi)*3 + 1344 = 10608
 rsa_square_192
 rsa_square_256
 rsa_square_384
 rsa_square_512
-rsa_square_768          (7+rsa_square_384_no_abi)*3 + 2175 = 21864
-rsa_square_1024         (7+rsa_square_512_no_abi)*3 + 2889 = 34842
+rsa_square_768          (7+rsa_square_384_no_abi)*3 + 2175 = 21792
+rsa_square_1024         (7+rsa_square_512_no_abi)*3 + 2889 = 34713
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 Level  48 bits: squaring 0-5 to 0-11 bytes classical square (karatsuba is slower)
@@ -346,44 +346,56 @@ r0,r1,r28,r29 are used direct without aliases.
 	sbc	\RZ7,\TMP
 .endm
 
-//A0..A7 must be saved
-.macro SQUARE_ADD_64x	ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A7 A6 A5 A4 A3 A2 A1 A0  TMP2 TMP
-	clr	\ACC_14
+//A0..A7 must be saved, ACC3..0 is stored to RAM (at position M0)
+.macro SQUARE_ADD_64x	M0 ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A7 A6 A5 A4 A3 A2 A1 A0  TMP2 TMP
+// max value in ACC_7..0  FFFFFFFFFFFFFFFE
+// add squared A3,A2,A1,A0 ..
+	mul	\A3,\A3
+	movw	\TMP,r0
+	mul	\A2,\A2
+	movw	\ACC_14,r0
+	mul	\A1,\A1
+	movw	\ACC_12,r0
+	mul	\A0,\A0
+	add	\ACC_0,r0
+	adc	\ACC_1,r1
+	adc	\ACC_2,\ACC_12
+	adc	\ACC_3,\ACC_13
+	adc	\ACC_4,\ACC_14
+	adc	\ACC_5,\ACC_15
+	adc	\ACC_6,\TMP
+	adc	\ACC_7,\TMP2
+// 1FE01FE01FE01FDFF = FFFFFFFFFFFFFFFE +FE01FE01FE01FE01
 //load bit 0
 	bst	\ACC_1,0
-//divide
-	lsr	\ACC_7
+//divide (inclusive carry)
+	ror	\ACC_7
 	ror	\ACC_6
 	ror	\ACC_5
 	ror	\ACC_4
 	ror	\ACC_3
 	ror	\ACC_2
 	ror	\ACC_1
-// 0
-// 1* 0+1
-// 2* 0+2
-// 3* 0+3 1-2
-// 4* 0-4 1-3
-// 5* 0+5 1-4 2/3
-// 6* 0+6 1w5 2/4
-// 7* 0+7 1w6 2u5 3/4
-// 8  1S7 2w6 3u5
-// 9  2s7 3u6 4/5
-//10  3S7 4w6
-//11  4s7 5u6
-//12  5S7
-//13  6.7
-//14
-//15
+// FF00 FF00 FF00 FEFF
+	clr	\ACC_14
 
-// xx xx xx xx xx xx xx xx 7F FF FF FF FF FF FF FF
+// sum of all squared parts = 00FF00FF00FF00FE00FF00FF00FF0100
+// low part is already at max                 FF00FF00FF00FEFF
+//
+//
+// final sum is max           00FF00FF00FF00FEFFFFFFFFFFFFFFFF
+// xx 00 xx xx xxxxxxxx FF00FF00FF00FEFF
 	mul	\A1,\A7
 	movw	\ACC_8,r0
 
 	mul	\A3,\A7
 	movw	\ACC_10,r0
 // xx = tmp registers
-// xx xx xx xx FE 01 FE 01 7F FF FF FF FF FF FF FF
+// xx 00 xx xx FE01FE01 FF00FF00FF00FEFF
+//                        FE01FE01FE0100  A0:1,3,5
+//                              FE010000  A0:2
+//                   FE 0100000000000000  A0:7
+//                      FE01000000000000 A0:6
 	mul	\A0,\A7
 	movw	\ACC_12,r0
 
@@ -407,13 +419,17 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_6,r1
 	adc	\ACC_7,\ACC_12
 	adc	\ACC_13,\ACC_14
-// xx xx FF xx FE 01 FE 01 81 FE 01 FE FF FF 00 FF
-//       ^^ temp for position 10
+
 	mul	\A0,\A6
 	add	\ACC_6,r0
 	adc	\ACC_7,r1
 	adc	\ACC_13,\ACC_14
-// xx xx FF xx FE 01 FF 00 7F FF 01 FE FF FF 00 FF
+
+// xx 00 FF xx FE01FE01 FF0000FFFEFFFFFF
+//                        FE01FE01000000 A1:2,4
+//                          FE0100000000 A1:3
+//                          FE0100000000 A0:4
+//                   FF 0000000000000000 (ACC_13/to be addded to ACC_8)
 	mul	\A1,\A4
 	movw	\TMP,r0
 
@@ -436,8 +452,11 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_7,\ACC_14
 	adc	\ACC_8,\ACC_13
 	adc	\ACC_9,\ACC_14
-//xx xx xx xx FE 01 FF 00 80 FE FF FF 00 FF 00 FF
 
+// xx 00 xx xx FE01FF00 FFFFFEFFFFFFFFFF
+//                   FE 01FE010000000000 A3:2,4
+//                      FE01000000000000 A2:4
+//               FE0100 0000000000000000 A4:5
 	mul	\A3,\A4
 	movw	\TMP,r0
 
@@ -457,14 +476,19 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_9,r0
 	adc	\ACC_10,r1
 	adc	\ACC_11,\ACC_14
-//xx xx xx xx FF 00 00 FF 80 FE 00 FF 00 FF 00 FF
 
+//
+// xx 00 xx xx FF0000FF FFFEFFFFFFFFFFFF
+//               FE0100 0000000000000000 A2:7
 	mul	\A2,\A7
 	add	\ACC_9,r0
 	adc	\ACC_10,r1
 	adc	\ACC_11,\ACC_14
-// xx xx xx xx FF FE 01 FF 80 FE 00 FF 00 FF 00 FF
-
+// xx 00 xx xx FFFE01FF FFFEFFFFFFFFFFFF
+// OK ..
+//                 FE01 0000000000000000 A2:6
+//                      FE01000000000000 A1:5
+//                   FE 0100000000000000 A1,6
 	mul	\A4,\A7
 	movw	\TMP,r0
 
@@ -481,23 +505,33 @@ r0,r1,r28,r29 are used direct without aliases.
 	add	\ACC_7,r0
 	adc	\ACC_8,r1
 	adc	\ACC_13,\ACC_14
-// fe 01 tt xx FF FF 00 FF 7F FF 00 FF 00 FF 00 FF
 
+// xx 00 FF xx FFFE01FF FEFFFFFFFFFFFFFF
+//       ^^ to ACC_9
+//
+//             FE010000 0000000000000000 A4:6
+//                 FF00 0000000000000000 (ACC_13/to be added to ACC_9)
 	mul	\A4,\A6
 	add	\ACC_9,\ACC_13
 	adc	\ACC_10,r0
 	adc	\ACC_11,r1
 	adc	\TMP2,\ACC_14
-//temp in TMP2 TMP for   ACC_12,11 ..
-
+// xx 00 xx xx  FE0000FF FEFFFFFFFFFFFFFF
+//            0100000000 0000000000000000 carry to TMP2 (above)
+//          FE0100000000 0000000000000000 A5:7
+//            FE01000000 0000000000000000 A4:7 (from TMP)
 	mul	\A5,\A7
 	movw	\ACC_12,r0
 
 	add	\ACC_11,\TMP
 	adc	\ACC_12,\TMP2
 	adc	\ACC_13,\ACC_14
-// FE 02 xx xx FE 00 00 FF 7F FF 00 FF 00 FF 00 FF
-//
+
+// xx 00 FF 00 FF0000FF FEFFFFFFFFFFFFFF
+// +             FE0100 0000000000000000 A3,6
+// +                 FE 0100000000000000 A2,5
+// +               FE01 0000000000000000 A3,5
+// +         FE01000000 0000000000000000 A5,6
 	mul	\A3,\A6
 	movw	\TMP,r0
 
@@ -517,13 +551,17 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_11,r0
 	adc	\ACC_12,r1
 	adc	\ACC_13,\ACC_14
-// FF00FFFF00FE80FF00FF00FF00FF
+//  xx 00FFFF00FF00FEFFFFFFFFFFFFFFFF
+// +   FE0100000000000000000000000000   A6,7
 	mul	\A6,\A7
 	add	\ACC_13,r0
 //	clr	\ACC_14
 	adc	\ACC_14,r1
-	clr	\ACC_15
-// maximum result: FF00FF00FF00FE80FF00FF00FF00FF
+	clr	\ACC_15			// 108+28
+
+// maximum resul:  FF00FF00FF00FEFFFFFFFFFFFFFFFF
+// (FFFFFFFFFFFFFFFF*FFFFFFFFFFFFFFFF + FFFFFFFFFFFFFFFE - FE01FE01FE01FE010000000000000000)/2
+
 // double result
 	add	\ACC_1,\ACC_1
 	adc	\ACC_2,\ACC_2
@@ -542,87 +580,83 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_15,\ACC_15
 	bld	\ACC_1,0
 
-	mul	\A1,\A1
-	movw	\TMP,r0
-
-	mul	\A0,\A0
-	add	\ACC_0,r0
-	adc	\ACC_1,r1
-	adc	\ACC_2,\TMP
-	adc	\ACC_3,\TMP2
-	rol	\ACC_15		//save carry
-
-	mul	\A3,\A3
-	movw	\TMP,r0
-
-	mul	\A2,\A2
-	ror	\ACC_15		//renew carry
-	adc	\ACC_4,r0
-	adc	\ACC_5,r1
-	adc	\ACC_6,\TMP
-	adc	\ACC_7,\TMP2
-	rol	\ACC_15
-
-	mul	\A5,\A5
-	movw	\TMP,r0
-
-	mul	\A4,\A4
-	ror	\ACC_15		//renew carry
-	adc	\ACC_8,r0
-	adc	\ACC_9,r1
-	adc	\ACC_10,\TMP
-	adc	\ACC_11,\TMP2
-	rol	\ACC_15
+// final ACC_0..ACC_7
+	std	Z+0+\M0,\ACC_0
+	std	Z+1+\M0,\ACC_1
+	std	Z+2+\M0,\ACC_2
+	std	Z+3+\M0,\ACC_3
 
 	mul	\A7,\A7
 	movw	\TMP,r0
 
 	mul	\A6,\A6
-	lsr	\ACC_15		//renew carry
-	adc	\ACC_12,r0
-	adc	\ACC_13,r1
+	movw	\ACC_2,r0
+
+	mul	\A5,\A5
+	movw	\ACC_0,r0
+
+	mul	\A4,\A4
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\ACC_10,\ACC_0
+	adc	\ACC_11,\ACC_1
+	adc	\ACC_12,\ACC_2
+	adc	\ACC_13,\ACC_3
 	adc	\ACC_14,\TMP
 	adc	\ACC_15,\TMP2
+
 .endm
 
 //A0..A7 can be destroyed
 .macro SQUARE_ADD_64x2	ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A7 A6 A5 A4 A3 A2 A1 A0  TMP2 TMP XTMP16h XTMP16l
-	clr	\ACC_14
+// max value in ACC_7..0  FFFFFFFFFFFFFFFE
+// add squared A3,A2,A1,A0 ..
+	mul	\A3,\A3
+	movw	\TMP,r0
+	mul	\A2,\A2
+	movw	\ACC_14,r0
+	mul	\A1,\A1
+	movw	\ACC_12,r0
+	mul	\A0,\A0
+	add	\ACC_0,r0
+	adc	\ACC_1,r1
+	adc	\ACC_2,\ACC_12
+	adc	\ACC_3,\ACC_13
+	adc	\ACC_4,\ACC_14
+	adc	\ACC_5,\ACC_15
+	adc	\ACC_6,\TMP
+	adc	\ACC_7,\TMP2
+// 1FE01FE01FE01FDFF = FFFFFFFFFFFFFFFE +FE01FE01FE01FE01
 //load bit 0
 	bst	\ACC_1,0
-//divide
-	lsr	\ACC_7
+//divide (inclusive carry)
+	ror	\ACC_7
 	ror	\ACC_6
 	ror	\ACC_5
 	ror	\ACC_4
 	ror	\ACC_3
 	ror	\ACC_2
 	ror	\ACC_1
-// 0
-// 1* 0+1
-// 2* 0+2
-// 3* 0+3 1-2
-// 4* 0-4 1-3
-// 5* 0+5 1-4 2/3
-// 6* 0+6 1w5 2/4
-// 7* 0+7 1w6 2u5 3/4
-// 8  1S7 2w6 3u5
-// 9  2s7 3u6 4/5
-//10  3S7 4w6
-//11  4s7 5u6
-//12  5S7
-//13  6.7
-//14
-//15
+// FF00 FF00 FF00 FEFF
+	clr	\ACC_14
 
-// xx xx xx xx xx xx xx xx 7F FF FF FF FF FF FF FF
+// sum of all squared parts = 00FF00FF00FF00FE00FF00FF00FF0100
+// low part is already at max                 FF00FF00FF00FEFF
+//
+//
+// final sum is max           00FF00FF00FF00FEFFFFFFFFFFFFFFFF
+// xx 00 xx xx xxxxxxxx FF00FF00FF00FEFF
 	mul	\A1,\A7
 	movw	\ACC_8,r0
 
 	mul	\A3,\A7
 	movw	\ACC_10,r0
 // xx = tmp registers
-// xx xx xx xx FE 01 FE 01 7F FF FF FF FF FF FF FF
+// xx 00 xx xx FE01FE01 FF00FF00FF00FEFF
+//                        FE01FE01FE0100  A0:1,3,5
+//                              FE010000  A0:2
+//                   FE 0100000000000000  A0:7
+//                      FE01000000000000 A0:6
 	mul	\A0,\A7
 	movw	\ACC_12,r0
 
@@ -646,13 +680,17 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_6,r1
 	adc	\ACC_7,\ACC_12
 	adc	\ACC_13,\ACC_14
-// xx xx FF xx FE 01 FE 01 81 FE 01 FE FF FF 00 FF
-//       ^^ temp for position 10
+
 	mul	\A0,\A6
 	add	\ACC_6,r0
 	adc	\ACC_7,r1
 	adc	\ACC_13,\ACC_14
-// xx xx FF xx FE 01 FF 00 7F FF 01 FE FF FF 00 FF
+
+// xx 00 FF xx FE01FE01 FF0000FFFEFFFFFF
+//                        FE01FE01000000 A1:2,4
+//                          FE0100000000 A1:3
+//                          FE0100000000 A0:4
+//                   FF 0000000000000000 (ACC_13/to be addded to ACC_8)
 	mul	\A1,\A4
 	movw	\TMP,r0
 
@@ -675,8 +713,11 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_7,\ACC_14
 	adc	\ACC_8,\ACC_13
 	adc	\ACC_9,\ACC_14
-//xx xx xx xx FE 01 FF 00 80 FE FF FF 00 FF 00 FF
 
+// xx 00 xx xx FE01FF00 FFFFFEFFFFFFFFFF
+//                   FE 01FE010000000000 A3:2,4
+//                      FE01000000000000 A2:4
+//               FE0100 0000000000000000 A4:5
 	mul	\A3,\A4
 	movw	\TMP,r0
 
@@ -696,14 +737,19 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_9,r0
 	adc	\ACC_10,r1
 	adc	\ACC_11,\ACC_14
-//xx xx xx xx FF 00 00 FF 80 FE 00 FF 00 FF 00 FF
 
+//
+// xx 00 xx xx FF0000FF FFFEFFFFFFFFFFFF
+//               FE0100 0000000000000000 A2:7
 	mul	\A2,\A7
 	add	\ACC_9,r0
 	adc	\ACC_10,r1
 	adc	\ACC_11,\ACC_14
-// xx xx xx xx FF FE 01 FF 80 FE 00 FF 00 FF 00 FF
-
+// xx 00 xx xx FFFE01FF FFFEFFFFFFFFFFFF
+// OK ..
+//                 FE01 0000000000000000 A2:6
+//                      FE01000000000000 A1:5
+//                   FE 0100000000000000 A1,6
 	mul	\A4,\A7
 	movw	\TMP,r0
 
@@ -720,23 +766,33 @@ r0,r1,r28,r29 are used direct without aliases.
 	add	\ACC_7,r0
 	adc	\ACC_8,r1
 	adc	\ACC_13,\ACC_14
-// fe 01 tt xx FF FF 00 FF 7F FF 00 FF 00 FF 00 FF
 
+// xx 00 FF xx FFFE01FF FEFFFFFFFFFFFFFF
+//       ^^ to ACC_9
+//
+//             FE010000 0000000000000000 A4:6
+//                 FF00 0000000000000000 (ACC_13/to be added to ACC_9)
 	mul	\A4,\A6
 	add	\ACC_9,\ACC_13
 	adc	\ACC_10,r0
 	adc	\ACC_11,r1
 	adc	\TMP2,\ACC_14
-//temp in TMP2 TMP for   ACC_12,11 ..
-
+// xx 00 xx xx  FE0000FF FEFFFFFFFFFFFFFF
+//            0100000000 0000000000000000 carry to TMP2 (above)
+//          FE0100000000 0000000000000000 A5:7
+//            FE01000000 0000000000000000 A4:7 (from TMP)
 	mul	\A5,\A7
 	movw	\ACC_12,r0
 
 	add	\ACC_11,\TMP
 	adc	\ACC_12,\TMP2
 	adc	\ACC_13,\ACC_14
-// FE 02 xx xx FE 00 00 FF 7F FF 00 FF 00 FF 00 FF
-//
+
+// xx 00 FF 00 FF0000FF FEFFFFFFFFFFFFFF
+// +             FE0100 0000000000000000 A3,6
+// +                 FE 0100000000000000 A2,5
+// +               FE01 0000000000000000 A3,5
+// +         FE01000000 0000000000000000 A5,6
 	mul	\A3,\A6
 	movw	\TMP,r0
 
@@ -756,12 +812,17 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_11,r0
 	adc	\ACC_12,r1
 	adc	\ACC_13,\ACC_14
-// FF00FFFF00FE80FF00FF00FF00FF
+//  xx 00FFFF00FF00FEFFFFFFFFFFFFFFFF
+// +   FE0100000000000000000000000000   A6,7
 	mul	\A6,\A7
 	add	\ACC_13,r0
+//	clr	\ACC_14
 	adc	\ACC_14,r1
-	clr	\ACC_15
-// maximum result: FF00FF00FF00FE80FF00FF00FF00FF
+	clr	\ACC_15			// 108+28
+
+// maximum resul:  FF00FF00FF00FEFFFFFFFFFFFFFFFF
+// (FFFFFFFFFFFFFFFF*FFFFFFFFFFFFFFFF + FFFFFFFFFFFFFFFE - FE01FE01FE01FE010000000000000000)/2
+
 // double result
 	add	\ACC_1,\ACC_1
 	adc	\ACC_2,\ACC_2
@@ -780,46 +841,25 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_15,\ACC_15
 	bld	\ACC_1,0
 
-	mul	\A2,\A2
-	movw	\XTMP16l,r0
 
-	mul	\A1,\A1
+	mul	\A7,\A7
 	movw	\TMP,r0
-
-	mul	\A0,\A0
-	add	\ACC_0,r0
-	adc	\ACC_1,r1
-	adc	\ACC_2,\TMP
-	adc	\ACC_3,\TMP2
-	adc	\ACC_4,\XTMP16l
-	adc	\ACC_5,\XTMP16h
-	rol	\ACC_15		//save carry
-
-	mul	\A3,\A3
-	movw	\XTMP16l,r0
-
-	mul	\A4,\A4
-	movw	\TMP,r0
-
-	mul	\A5,\A5
-	movw	\A0,r0
 
 	mul	\A6,\A6
 	movw	\A2,r0
 
-	mul	\A7,\A7
-	lsr	\ACC_15		//renew carry
-	adc	\ACC_6,\XTMP16l
-	adc	\ACC_7,\XTMP16h
-	adc	\ACC_8,\TMP
-	adc	\ACC_9,\TMP2
+	mul	\A5,\A5
+	movw	\A0,r0
+
+	mul	\A4,\A4
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
 	adc	\ACC_10,\A0
 	adc	\ACC_11,\A1
 	adc	\ACC_12,\A2
 	adc	\ACC_13,\A3
-	adc	\ACC_14,r0
-	adc	\ACC_15,r1
-
+	adc	\ACC_14,\TMP
+	adc	\ACC_15,\TMP2
 .endm
 
 
@@ -1011,6 +1051,211 @@ r0,r1,r28,r29 are used direct without aliases.
 	add	\ACC_1,\A1
 	adc	\ACC_2,\TMP
 	adc	\ACC_3,\TMP2
+	adc	\ACC_4,r0
+	adc	\ACC_5,r1
+	rol	\ACC_15		//save carry
+
+	mul	\A4,\A4
+	movw	\A0,r0
+
+	mul	\A3,\A3
+	movw	\TMP,r0
+
+	mul	\A5,\A5
+	movw	\A2,r0
+
+	mul	\A6,\A6
+	movw	\A4,r0
+
+	mul	\A7,\A7
+
+	lsr	\ACC_15		//renew carry
+	adc	\ACC_6,\TMP
+	adc	\ACC_7,\TMP2
+	adc	\ACC_8,\A0
+	adc	\ACC_9,\A1
+	adc	\ACC_10,\A2
+	adc	\ACC_11,\A3
+	adc	\ACC_12,\A4
+	adc	\ACC_13,\A5
+	adc	\ACC_14,r0
+	adc	\ACC_15,r1
+.endm
+// same as SQUARE_64, but ACC_0 is not used, result byte 0 is stored to Z+ M0
+.macro SQUARE_64_M	ACC_15 ACC_14 ACC_13 ACC_12 ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0 M0 A7 A6 A5 A4 A3 A2 A1 A0 TMP2 TMP
+	clr	\ACC_15
+	mul	\A0,\A2
+	movw	\ACC_2,r0
+
+	mul	\A0,\A1
+	mov	\ACC_1,r0
+	add	\ACC_2,r1
+	adc	\ACC_3,\ACC_15
+
+	mul	\A0,\A4
+	movw	\ACC_4,r0
+
+	mul	\A0,\A6
+	movw	\ACC_6,r0
+
+	mul	\A1,\A7
+	movw	\ACC_8,r0
+
+	mul	\A3,\A7
+	movw	\ACC_10,r0
+
+	mul	\A5,\A7
+	movw	\ACC_12,r0
+
+	mul	\A1,\A2
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\ACC_15
+
+	mul	\A2,\A3
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\ACC_15
+
+//FE01 FE01 FE01 FEFF FFFF FFFF 0100
+////////////////////////////
+	mul	\A1,\A4
+	movw	\TMP,r0
+
+	mul	\A0,\A3
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A1,\A3
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A3,\A4
+	add	\ACC_6,\TMP2
+	adc	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\ACC_15
+//FE01 FE01 FF00 00FE FFFF 00FF 0100
+///////////////////////////////
+	mul	\A0,\A7
+	movw	\TMP,r0
+
+	mul	\A0,\A5
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A1,\A5
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A2,\A7
+	add	\ACC_8,\TMP2
+	adc	\ACC_9,r0
+	adc	\ACC_10,r1
+	adc	\ACC_11,\ACC_15
+//FE01 FF00 00FF 00FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A4,\A5
+	movw	\TMP,r0
+
+	mul	\A2,\A5
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A3,\A5
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A5,\A6
+	add	\ACC_10,\TMP2
+	adc	\ACC_11,r0
+	adc	\ACC_12,r1
+	adc	\ACC_13,\ACC_15
+//FF00 00FF 00FE 01FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A3,\A6
+	movw	\TMP,r0
+
+	mul	\A1,\A6
+	add	\ACC_7,r0
+	adc	\ACC_8,r1
+	adc	\ACC_9,\TMP
+	adc	\TMP2,\ACC_15
+
+	mul	\A2,\A6
+	add	\ACC_8,r0
+	adc	\ACC_9,r1
+	adc	\TMP2,\ACC_15
+
+	mul	\A4,\A7
+	add	\ACC_10,\TMP2
+	adc	\ACC_11,r0
+	adc	\ACC_12,r1
+	adc	\ACC_13,\ACC_15
+//FFFE 02FE 00FD 02FE 00FF 00FF 0100
+////////////////////////////////
+	mul	\A4,\A6
+	movw	\TMP,r0
+
+	mul	\A2,\A4
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_8,\ACC_15
+	adc	\ACC_9,\ACC_15
+	adc	\ACC_10,\TMP
+	adc	\ACC_11,\TMP2
+	adc	\ACC_12,\ACC_15
+	adc	\ACC_13,\ACC_15
+//FFFF 00FF 00FE 00FF 00FF 00FF 0100
+////////////////////////////////
+	mul	\A6,\A7
+	add	\ACC_13,r0
+	clr	\ACC_14
+	adc	\ACC_14,r1
+
+// maximal result 00FF00FF 00FF00FE 00FF00FF 00FF0100
+// there is no carry to ACC_15
+
+// double result
+	add	\ACC_1,\ACC_1
+	adc	\ACC_2,\ACC_2
+	adc	\ACC_3,\ACC_3
+	adc	\ACC_4,\ACC_4
+	adc	\ACC_5,\ACC_5
+	adc	\ACC_6,\ACC_6
+	adc	\ACC_7,\ACC_7
+	adc	\ACC_8,\ACC_8
+	adc	\ACC_9,\ACC_9
+	adc	\ACC_10,\ACC_10
+	adc	\ACC_11,\ACC_11
+	adc	\ACC_12,\ACC_12
+	adc	\ACC_13,\ACC_13
+	adc	\ACC_14,\ACC_14
+	adc	\ACC_15,\ACC_15
+
+	mul	\A1,\A1
+	movw	\TMP,r0
+
+	mul	\A0,\A0
+	std	Z+\M0,r0
+	mov	\A1,r1
+
+	mul	\A2,\A2
+	add	\ACC_1,\A1
+	adc	\ACC_2,\TMP
+	adc	\ACC_3,\TMP2
+	std     Z+1+\M0,\ACC_1
+	std     Z+2+\M0,\ACC_2
+	std     Z+3+\M0,\ACC_3
 	adc	\ACC_4,r0
 	adc	\ACC_5,r1
 	rol	\ACC_15		//save carry
@@ -1489,7 +1734,8 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_11,\A1
 .endm
 
-.macro SQUARE_48_z	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0   TMP5 TMP4 TMP3 TMP2 TMP1 TMP0
+// M0 is memory position (Z+M0) where result byte 0 is stored
+.macro SQUARE_48_z	ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1  M0   A5 A4 A3 A2 A1 A0   TMP5 TMP4 TMP3 TMP2 TMP1 TMP0
 	clr	\ACC_11
 // ------------------ _
 	mul	\A0,\A2
@@ -1588,7 +1834,7 @@ r0,r1,r28,r29 are used direct without aliases.
 	movw	\TMP0,r0
 
 	mul	\A0,\A0
-	mov	\ACC_0,r0
+	std	Z+\M0,r0
 	add	\ACC_1,r1
 	adc	\ACC_2,\TMP0
 	adc	\ACC_3,\TMP1
@@ -1622,6 +1868,8 @@ r0,r1,r28,r29 are used direct without aliases.
 //11
 // A5..A0 can be reused
 .macro SQUARE_48_ADD  ACC_11 ACC_10 ACC_9 ACC_8 ACC_7 ACC_6 ACC_5 ACC_4 ACC_3 ACC_2 ACC_1 ACC_0  A5 A4 A3 A2 A1 A0  Z_TMP TMP  XTMP16h XTMP16l
+#if 0
+// old code, below new faster code
 //load bit 0
 	bst	\ACC_1,0
 //divide 
@@ -1749,6 +1997,154 @@ r0,r1,r28,r29 are used direct without aliases.
 	adc	\ACC_9,\Z_TMP
 	adc	\ACC_10,\XTMP16l
 	adc	\ACC_11,\XTMP16h
+#else
+// ACC_5..ACC_0 FFFFFFFFFFFE
+
+	mul	\A2,\A2
+	movw	\ACC_10,r0
+
+	mul	\A1,\A1
+	movw	\ACC_8,r0
+
+	mul	\A0,\A0
+	add	\ACC_0,r0
+	adc	\ACC_1,r1
+	adc	\ACC_2,\ACC_8
+	adc	\ACC_3,\ACC_9
+	adc	\ACC_4,\ACC_10
+	adc	\ACC_5,\ACC_11
+// (carry) ACC_5..ACC_0 (1) FE01FE01FDFF
+
+//load bit 0
+	bst	\ACC_1,0
+//divide (inclusive carry)
+	ror	\ACC_5
+	ror	\ACC_4
+	ror	\ACC_3
+	ror	\ACC_2
+	ror	\ACC_1
+// ACC_5..ACC_0 FF00FF00FEFF
+// 0
+// 1 0_1
+// 2 0_2
+// 3 0_3   1+2
+// 4 0+4   1 3
+// 5 0+5   1 4   2 3
+// 6 1 5   2 4
+// 7 2 5   3 4
+// 8 3 5
+// 9 4 5
+//10
+//11
+// max ACC_5 .. ACC_0 = FF00FF 00FEFF
+	mul	\A1,\A5
+	movw	\ACC_6,r0
+
+	mul	\A3,\A5
+	movw	\ACC_8,r0
+	clr	\ACC_10
+	clr	\ACC_11
+/////////////////////////////////////////// _
+	mul	\A0,\A3
+	movw	\XTMP16l,r0
+
+	mul	\A0,\A1
+	add	\ACC_1,r0
+	adc	\ACC_2,r1
+	adc	\ACC_3,\XTMP16l
+	adc	\XTMP16h,\ACC_11	//zero
+
+	mul	\A0,\A2
+	add	\ACC_2,r0
+	adc	\ACC_3,r1
+	adc	\ACC_4,\XTMP16h
+	adc	\ACC_5,\ACC_11		//zero
+//  FE01 FE01 || FFFF FEFF FFFF
+///////////////////////////////////////////// +
+	mul	\A0,\A5
+	movw	\XTMP16l,r0
+
+	mul	\A1,\A2
+	add	\ACC_3,r0
+	adc	\ACC_4,r1
+	adc	\ACC_5,\XTMP16l
+	adc	\XTMP16h,\ACC_11	//zero
+
+// not efective, but working (1843 - 4)
+//XTMP16h: FF  FE01 FE01 || 01FD FFFF FFFF
+	mul	\A0,\A4				//
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_6,\XTMP16h
+	adc	\ACC_7,\ACC_11		//zero
+// ACC_9..ACC_0:   FE01 FF00 || FFFE FFFF FFFF
+	mul	\A2,\A4				//
+	movw	\XTMP16l,r0
+
+	mul	\A1,\A3				//
+	add	\ACC_4,r0
+	adc	\ACC_5,r1
+	adc	\ACC_6,\XTMP16l
+	adc	\ACC_7,\XTMP16h
+
+	adc	\ACC_8,\ACC_11
+	adc	\ACC_9,\ACC_11
+
+	mul	\A2,\A5				//
+	movw	\XTMP16l,r0
+
+	mul	\A1,\A4				//
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\XTMP16l
+	adc	\ACC_8,\XTMP16h
+	adc	\ACC_9,\ACC_11
+
+// FE03FB 04FC00 FFFFFF
+	mul	\A3,\A4				//
+	movw	\XTMP16l,r0
+
+	mul	\A4,\A5				//
+	movw	\TMP,r0
+
+	mul	\A2,\A3				//
+	add	\ACC_5,r0
+	adc	\ACC_6,r1
+	adc	\ACC_7,\XTMP16l
+	adc	\ACC_8,\XTMP16h
+	adc	\ACC_9,\TMP
+	adc	\ACC_10,\Z_TMP
+
+// double result
+
+	add	\ACC_1,\ACC_1
+	adc	\ACC_2,\ACC_2
+	adc	\ACC_3,\ACC_3
+	adc	\ACC_4,\ACC_4
+	adc	\ACC_5,\ACC_5
+	adc	\ACC_6,\ACC_6
+	adc	\ACC_7,\ACC_7
+	adc	\ACC_8,\ACC_8
+	adc	\ACC_9,\ACC_9
+	adc	\ACC_10,\ACC_10
+	adc	\ACC_11,\ACC_11
+	bld	\ACC_1,0
+
+	mul	\A5,\A5
+	movw	\XTMP16l,r0
+
+	mul	\A4,\A4
+	movw	\TMP,r0
+
+	mul	\A3,\A3
+	add	\ACC_6,r0
+	adc	\ACC_7,r1
+	adc	\ACC_8,\TMP
+	adc	\ACC_9,\Z_TMP
+	adc	\ACC_10,\XTMP16l
+	adc	\ACC_11,\XTMP16h
+#endif
+
 .endm
 .macro 	LOAD48_FROM_Y_MEM	A5 A4 A3 A2 A1 A0  M
 	ldd	\A0,Y+\M+0
@@ -2731,19 +3127,17 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM	SET_A	0
 	LOAD32_FROM_Y_MEM 	SET_B	4
 
-	SQUARE_64   		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
-
-	STORE32_TO_MEM    0 	SET_0
-	STORE32_TO_MEM    4 	SET_1
+	SQUARE_64_M   		SET_3,SET_2,SET_1,SET_0 0		SET_B,SET_A  TMP2X TMP
+// SET_0 is already saved in SQUARE_64_M
+	STORE32_TO_MEM    	4 	SET_1
 
 // add square A_8 .. A_15, to bytes in SET_3,SET_2
 // 
-	LOAD32_FROM_Y_MEM		SET_A	8
-	LOAD32_FROM_Y_MEM		SET_B	12
+	LOAD32_FROM_Y_MEM	SET_A	8
+	LOAD32_FROM_Y_MEM	SET_B	12
 
-	SQUARE_ADD_64x       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
-
-	STORE32_TO_MEM	16	SET_2
+	SQUARE_ADD_64x       	16 SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
+// SET_2 is already saved in SQUARE_ADD_64x
 	STORE32_TO_MEM	20	SET_3
 	STORE32_TO_MEM	24	SET_0
 	STORE32_TO_MEM	28	SET_1
@@ -2764,6 +3158,7 @@ karatchuba squaring for 128 bites:
 	ABS_SUB64       	SET_B,SET_A       SET_1,SET_0   TMP
 
 	SQUARE_64  		SET_3,SET_2,SET_1,SET_0		SET_B,SET_A  TMP2X TMP
+//	SQUARE_64_n1  		r0 r25,r24,r23,r22 r21,r20,r19,r18 r17,r16,r15,r14 r13,r12,r11		SET_B,SET_A  TMP2X TMP
 
 	LOAD_FROM_MEM_		SET_A 	0
 	LOAD_FROM_MEM_		SET_B	4
@@ -2810,17 +3205,15 @@ karatchuba squaring for 128 bites:
 	LOAD32_FROM_Y_MEM	SET_A	0+SEEK_O
 	LOAD32_FROM_Y_MEM	SET_B	4+SEEK_O
 
-	SQUARE_64   SET_3,SET_2,SET_1,SET_0    SET_B,SET_A     TMP2X TMP
-
-	STORE32_TO_MEM 	0+SEEK_R	SET_0
-	STORE32_TO_MEM	4+SEEK_R 	SET_1
+	SQUARE_64_M   SET_3,SET_2,SET_1,SET_0 SEEK_R  SET_B,SET_A     TMP2X TMP
+// SET_0 is already saved in SQUARE_64_M
+	STORE32_TO_MEM		4+SEEK_R 	SET_1
 
 	LOAD32_FROM_Y_MEM	SET_A	8+SEEK_O
 	LOAD32_FROM_Y_MEM	SET_B	12+SEEK_O
 
-	SQUARE_ADD_64x       	SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
-
-	STORE32_TO_MEM	16+SEEK_R	SET_2
+	SQUARE_ADD_64x       	16+SEEK_R SET_1,SET_0,SET_3,SET_2         SET_B,SET_A TMP2X TMP
+// SET_2 is already saved in SQUARE_ADD_64x
 	STORE32_TO_MEM	20+SEEK_R	SET_3
 	STORE32_TO_MEM	24+SEEK_R	SET_0
 	STORE32_TO_MEM	28+SEEK_R	SET_1
@@ -3972,12 +4365,17 @@ rsa_square_192_no_abi:
 	std	Z+46,r28
 	LOAD48_FROM_Y_MEM  r19,r18,r17,r16,r15,r14  0
 //                                          result                          operand             temp registers
-	SQUARE_48_z      r25,r24,r23,r22,r21,r20  r7,r6,r5,r4,r3,r2    r19,r18,r17,r16,r15,r14  r13,r12,r11,r10,r9,r8
-	STORE48_TO_MEM 0     r7,r6,r5,r4,r3,r2
+// r2 is not used, result byte 0 is directly stored to  memory ..
+	SQUARE_48_z    r25,r24,r23,r22,r21,r20  r7,r6,r5,r4,r3,/*r2*/ 0   r19,r18,r17,r16,r15,r14 r13,r12,r11,r10,r9,r8
+	std	Z+1,r3
+	std	Z+2,r4
+	std	Z+3,r5
+	std	Z+4,r6
+	std	Z+5,r7
+
 
 	LOAD48_FROM_Y_MEM  r13,r12,r11,r10,r9,r8    6
 	ABS_SUB48  r19,r18,r17,r16,r15,r14  r13,r12,r11,r10,r9,r8    r0
-
 	                                                                               		//free tmp regs
 	SQUARE_48_ADD  r5,r4,r3,r2,r7,r6  r25,r24,r23,r22,r21,r20    r13,r12,r11,r10,r9,r8	r27 r26  r29,r28
 // not enough registers available,  use stack
@@ -4010,8 +4408,14 @@ rsa_square_192_no_abi:
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 	LOAD48_FROM_Y_MEM r19 r18 r17 r16 r15 r14   12
 //                                          result                          operand             temp registers
-	SQUARE_48_z      r25 r24 r23 r22 r21 r20   r5 r4 r3 r2 r7 r6    r19 r18 r17 r16 r15 r14  r13 r12 r11 r10 r9 r8
-	STORE48_TO_MEM 24  r5 r4 r3 r2 r7 r6
+// r6 is not used, result byte 0 is directly stored to  memory ..
+	SQUARE_48_z      r25,r24,r23,r22,r21,r20   r5,r4,r3,r2,r7,/*r6*/ 24    r19 r18 r17 r16 r15 r14  r13 r12 r11 r10 r9 r8
+	std	Z+25,r7
+	std	Z+26,r2
+	std	Z+27,r3
+	std	Z+28,r4
+	std	Z+29,r5
+
 	LOAD48_FROM_Y_MEM r13 r12 r11 r10 r9 r8     18
 	ABS_SUB48  r19 r18 r17 r16 r15 r14    r13 r12 r11 r10 r9 r8   r0
 
