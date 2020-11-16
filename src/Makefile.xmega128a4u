@@ -6,10 +6,6 @@ CPU          = atxmega128a4u
 F_CPU        = 32000000
 F_USB        = 48000000
 
-ifeq ($(CARD_SERIAL),)
-CARD_SERIAL:= $(shell date +%s)
-endif
-
 CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections
 LDFLAGS= -Wl,-gc-sections
 
@@ -40,6 +36,9 @@ CFLAGS += -DRSA_EXP_BLINDING
 # enable protection for single error in CRT
 CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
+# MyEID does not support 56 bit des version, OsEID allow this if needed
+#CFLAGS += -DENABLE_DES56
+
 all:	$(BUILD)card.hex
 
 builddir:
@@ -58,6 +57,13 @@ CFLAGS += -DMP_BYTES=72
 #for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
 HAVE +=         -DRAM_LE32
 
+# there is real serial number in this device, but disable this if
+# CARD_SERIAL is specified at compilation time
+ifeq ($(CARD_SERIAL),)
+HAVE +=         -DHW_SERIAL_NUMBER
+CARD_SERIAL:= $(shell date +%s)
+endif
+
 
 
 TARGET_SPEC +=  $(BUILD)mp_mul_24.o
@@ -66,6 +72,7 @@ TARGET_SPEC +=	$(BUILD)mp_mul_521.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
+TARGET_SPEC +=  $(BUILD)ec_fast_red.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -93,7 +100,7 @@ $(BUILD)serial_debug.o:	$(TARGET)serial_debug.c $(TARGET)serial_debug.h
 		$(CC) $(CFLAGS) -c -o $(BUILD)serial_debug.o $(TARGET)serial_debug.c
 
 $(BUILD)avr_os.o:	$(TARGET)avr_os.c
-		$(CC) $(CFLAGS) -c -o $(BUILD)avr_os.o $(TARGET)avr_os.c
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)avr_os.o $(TARGET)avr_os.c
 
 $(BUILD)usb.o:	$(TARGET)usb.c
 		$(CC) $(CFLAGS) -c -o $(BUILD)usb.o $(TARGET)usb.c
@@ -137,14 +144,17 @@ $(BUILD)mp_mul_32_trunc.o:	$(TARGET_LIB)mp_mul_32_trunc.S
 $(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S
 
+$(BUILD)ec_fast_red.o:	$(TARGET_LIB)ec_fast_red.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)ec_fast_red.o $(TARGET_LIB)ec_fast_red.S -Icard_os
+
 $(BUILD)mp.o:	$(TARGET_LIB)mp.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp.o $(TARGET_LIB)mp.S -Icard_os
 
 $(BUILD)bn_lib_arch.o:	$(TARGET_LIB)bn_lib.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib_arch.o $(TARGET_LIB)bn_lib.S -Icard_os
 
-$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
+#$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
+#		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
 
 $(BUILD)xconstants.o:	$(TARGET)constants.c
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)xconstants.o $(TARGET)constants.c -Icard_os
@@ -158,9 +168,13 @@ include card_os/Makefile
 
 # bootloader code, ccid code, usb code to bootloader section
 L_SCRIPT = $(TARGET)avrxmega7_OsEID.x
-	
+
+# please read targets/xmega128a4u/avr_os.c - there is description about "test"
+# after compilation of final elf
+
 $(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
 			$(CC) $(CFLAGS) $(LDFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf -T $(L_SCRIPT)
+			test `avr-objdump -D build/xmega128a4u/card.elf |egrep "eicall|eijmp"|wc -l` -eq 1
 			avr-size --format=SysV $(BUILD)card.elf
 			avr-size $(BUILD)card.elf
 

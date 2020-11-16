@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -45,8 +45,8 @@
 #define C_RDR_to_PC_DataRateAndClockFrequency 0x84
 
 
-uint8_t SlotError __attribute__ ((section (".noinit")));
-uint8_t reader_protocol __attribute__ ((section (".noinit")));
+uint8_t SlotError __attribute__((section (".noinit")));
+uint8_t reader_protocol __attribute__((section (".noinit")));
 
 //slot status:
 union Slot_Status_Register
@@ -58,9 +58,9 @@ union Slot_Status_Register
     uint8_t bmCommandStatus:2;
   };
   uint8_t SlotStatus;
-} Status __attribute__ ((section (".noinit")));
+} Status __attribute__((section (".noinit")));
 
-uint8_t ATR[33] __attribute__ ((section (".noinit")));
+uint8_t ATR[33] __attribute__((section (".noinit")));
 
 enum TPDU_states
 {
@@ -68,20 +68,20 @@ enum TPDU_states
   T_RUNNING,
 };
 
-volatile uint8_t TPDU_state __attribute__ ((section (".noinit")));
+volatile uint8_t TPDU_state __attribute__((section (".noinit")));
 
-uint8_t card_ins __attribute__ ((section (".noinit")));
+uint8_t card_ins __attribute__((section (".noinit")));
 
 // card IO buffers/variables
 // 0  no data for card, or data len
-volatile uint16_t card_rx_len __attribute__ ((section (".noinit")));
-uint8_t CCID_card_buffer[271] __attribute__ ((section (".noinit")));
-uint8_t *card_rx_buffer __attribute__ ((section (".noinit")));
+volatile uint16_t card_rx_len __attribute__((section (".noinit")));
+uint8_t CCID_card_buffer[271] __attribute__((section (".noinit")));
+uint8_t *card_rx_buffer __attribute__((section (".noinit")));
 
 // response from card (259 bytes of response + status 2 bytes.. + 10 bytes for CCID part)
 #define MAX_RESP_LEN 271
-uint8_t card_response[MAX_RESP_LEN] __attribute__ ((section (".noinit")));
-uint16_t card_response_len __attribute__ ((section (".noinit")));
+uint8_t card_response[MAX_RESP_LEN] __attribute__((section (".noinit")));
+uint16_t card_response_len __attribute__((section (".noinit")));
 
 
 
@@ -129,14 +129,13 @@ uint16_t card_response_len __attribute__ ((section (".noinit")));
 #define F_IFS_SIZE 48
 
 #define MAX_T1_APDU (5+2+257+2)
-uint8_t T1_APDU_buffer_recv[MAX_T1_APDU]
-  __attribute__ ((section (".noinit")));
-uint16_t T1_APDU_len_recv __attribute__ ((section (".noinit")));
+uint8_t T1_APDU_buffer_recv[MAX_T1_APDU] __attribute__((section (".noinit")));
+uint16_t T1_APDU_len_recv __attribute__((section (".noinit")));
 
 // same as card_response, but without CCID part (used for retransit)
 uint8_t T1_APDU_response[MAX_RESP_LEN - 10]
-  __attribute__ ((section (".noinit")));
-uint16_t T1_APDU_response_len __attribute__ ((section (".noinit")));
+  __attribute__((section (".noinit")));
+uint16_t T1_APDU_response_len __attribute__((section (".noinit")));
 
 struct t1
 {
@@ -152,7 +151,7 @@ struct t1
   uint8_t prev_S[4];		// copy of last sended S request
   uint8_t prev[4];		// copy of last sended frame
   uint8_t last_len;
-} t1 __attribute__ ((section (".noinit")));
+} t1 __attribute__((section (".noinit")));
 
 static void
 t1_init ()
@@ -711,7 +710,7 @@ RDR_to_PC_DataBlock_busy_slot (uint8_t * response)
 
 //static void RDR_to_PC_DataBlock_busy_slot(uint8_t *l_responsel) __attribute__((alias ("RDR_to_PC_SlotStatus_busy_slot")));
 static int8_t RDR_to_PC_SlotStatus_busy_slot (uint8_t * l_responsel)
-  __attribute__ ((alias ("RDR_to_PC_DataBlock_busy_slot")));
+  __attribute__((alias ("RDR_to_PC_DataBlock_busy_slot")));
 
 static int8_t
 func_PC_to_RDR_IccPowerOn (uint8_t * command, uint8_t * response)
@@ -1059,6 +1058,7 @@ func_PC_to_RDR_XfrBlock (uint8_t * command, uint8_t * response)
 static uint8_t
 CCID_check_command (uint8_t command)
 {
+#if 0
   switch (command)
     {
     case PC_to_RDR_IccPowerOn:
@@ -1093,6 +1093,38 @@ CCID_check_command (uint8_t command)
     default:
       return 0;
     }
+#else
+  if (command == PC_to_RDR_IccPowerOn)
+    return C_RDR_to_PC_DataBlock;
+  else if (command == PC_to_RDR_IccPowerOff)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_GetSlotStatus)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_XfrBlock)
+    return C_RDR_to_PC_DataBlock;
+  else if (command == PC_to_RDR_GetParameters)
+    return C_RDR_to_PC_Parameters;
+  else if (command == PC_to_RDR_ResetParameters)
+    return C_RDR_to_PC_Parameters;
+  else if (command == PC_to_RDR_SetParameters)
+    return C_RDR_to_PC_Parameters;
+  else if (command == PC_to_RDR_Escape)
+    return C_RDR_to_PC_Escape;
+  else if (command == PC_to_RDR_IccClock)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_T0APDU)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_Secure)
+    return C_RDR_to_PC_DataBlock;
+  else if (command == PC_to_RDR_Mechanical)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_Abort)
+    return C_RDR_to_PC_SlotStatus;
+  else if (command == PC_to_RDR_SetDataRateAndClockFrequency)
+    return C_RDR_to_PC_DataRateAndClockFrequency;
+  else
+    return 0;
+#endif
 }
 
 
@@ -1166,7 +1198,7 @@ parse_command (uint8_t * command, uint16_t count, uint8_t * ccid_response)
       }
   }
   // OK, CCID BULK OUT seems to be correct, proceed command
-
+#if 1
   switch (command[0])
     {
 ////////////////////////////////////////////////////////////////
@@ -1195,6 +1227,25 @@ parse_command (uint8_t * command, uint16_t count, uint8_t * ccid_response)
     default:
       return func_Unsupported (command, ccid_response);
     }
+#else
+  if (command[0] == PC_to_RDR_IccPowerOn)
+    return func_PC_to_RDR_IccPowerOn (command, ccid_response);
+  else if (command[0] == PC_to_RDR_IccPowerOff)
+    return func_PC_to_RDR_IccPowerOff (command, ccid_response);
+  else if (command[0] == PC_to_RDR_SetParameters)
+    return func_PC_to_RDR_SetParameters (command, ccid_response);
+  else if (command[0] == PC_to_RDR_ResetParameters)
+    return func_PC_to_RDR_ResetParameters (command, ccid_response);
+  else if (command[0] == PC_to_RDR_GetSlotStatus)
+    return func_PC_to_RDR_GetSlotStatus (command, ccid_response);
+  else if (command[0] == PC_to_RDR_SetDataRateAndClockFrequency)
+    return
+      func_PC_to_RDR_SetDataRateAndClockFrequency (command, ccid_response);
+  else if (command[0] == PC_to_RDR_XfrBlock)
+    return func_PC_to_RDR_XfrBlock (command, ccid_response);
+  else
+    return func_Unsupported (command, ccid_response);
+#endif
 }
 
 

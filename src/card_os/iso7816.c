@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -979,19 +979,7 @@ input:
 	iso_response.len16 represent number of returned data bytes (up to APDU_RESP_LEN)
 	SW must be set to S0x6100
 */
-#ifdef __AVR_XMEGA__
-#define GCC_VERSION (__GNUC__ * 10000 \
-                     + __GNUC_MINOR__ * 100 \
-                                          + __GNUC_PATCHLEVEL__)
-#if  __AVR_XMEGA__ == 1
-#if GCC_VERSION == 40902 || GCC_VERSION  == 50400
-// EIND is not set before EICALL by GCC (4.9.2, 5.4.0)..
-  asm volatile ("sts 0x003C,r1\n");
-#else
-#error Please check, what does your gcc version here
-#endif
-#endif
-#endif
+
   return ((c->func) ());
 }
 

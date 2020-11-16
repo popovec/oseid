@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -37,6 +37,28 @@
 #include "LED.h"
 #include "avr_os.h"
 #include "serial_debug.h"
+
+// do not use __flashN  and not use pgm_read_byte_far ..
+// all USB related data are located in bootloader section
+// use this macro to access data:
+#define pgm_read_byte_bloader(addr)        \
+(__extension__({                    \
+    uint16_t __addr16 = (uint16_t)(addr); \
+    uint8_t __result;               \
+    __asm__ __volatile__            \
+    (                               \
+        "ldi r30,2\n"			\
+        "out %2, r30" "\n\t"        \
+        "movw r30, %1" "\n\t"       \
+        "elpm %0, Z+" "\n\t"        \
+        : "=r" (__result)           \
+        : "r" (__addr16),           \
+          "I" (_SFR_IO_ADDR(RAMPZ)) \
+        : "r30", "r31"	       \
+    );                              \
+    __result;                       \
+}))
+
 
 #define INTERNAL_ERROR(t) {cli();for(;;){LED1_BUSY();_delay_ms(t);}}
 
@@ -79,25 +101,24 @@
 
 
 // internal variables and some macros for USB variables read/write/check state (initialized in USB_Init())
-struct USB_EndpointTable_t USB_EndpointTable __attribute__ ((aligned (2)))
-  __attribute__ ((section (".noinit")));
+struct USB_EndpointTable_t USB_EndpointTable __attribute__((aligned (2)))
+  __attribute__((section (".noinit")));
 
 // macros for accessing this variable in usb.h ..  (initialized in USB_Init())
-volatile uint8_t var_DeviceState __attribute__ ((section (".noinit")));
+volatile uint8_t var_DeviceState __attribute__((section (".noinit")));
 
 // (initialized in USB_Init())
-uint8_t var_ConfigurationNumber __attribute__ ((section (".noinit")));
+uint8_t var_ConfigurationNumber __attribute__((section (".noinit")));
 #define V_SetConfigurationNumber(val) var_ConfigurationNumber = val
 #define V_GetConfigurationNumber()    var_ConfigurationNumber
 
-struct USB_Setup_Packet USB_Setup_Packet
-  __attribute__ ((section (".noinit")));
+struct USB_Setup_Packet USB_Setup_Packet __attribute__((section (".noinit")));
 // buffers
-uint8_t control_out[8] __attribute__ ((section (".noinit")));	// buffer for control endpoint (from host)
-uint8_t control_in[8] __attribute__ ((section (".noinit")));
-uint8_t ccid_interrupt[8] __attribute__ ((section (".noinit")));
-uint8_t ccid_in[64] __attribute__ ((section (".noinit")));
-uint8_t ccid_out[64] __attribute__ ((section (".noinit")));
+uint8_t control_out[8] __attribute__((section (".noinit")));	// buffer for control endpoint (from host)
+uint8_t control_in[8] __attribute__((section (".noinit")));
+uint8_t ccid_interrupt[8] __attribute__((section (".noinit")));
+uint8_t ccid_in[64] __attribute__((section (".noinit")));
+uint8_t ccid_out[64] __attribute__((section (".noinit")));
 
 
 typedef struct
@@ -107,7 +128,7 @@ typedef struct
   uint16_t wValue;
   uint16_t wIndex;
   uint16_t wLength;
-} __attribute__ ((packed)) USB_Request_Header_t;
+} __attribute__((packed)) USB_Request_Header_t;
 
 
 enum USB_Control_Request_t
@@ -133,7 +154,8 @@ enum USB_Feature_Selectors_t
 };
 
 
-const struct Descriptor_Device_t PROGMEM DeviceDescriptor = {
+const struct Descriptor_Device_t
+  __attribute__((used, section (".bootloader"))) DeviceDescriptor = {
   .Size = sizeof (struct Descriptor_Device_t),
   .Type = 1,			//DEVICE
   .USBSpecification = 0x0200,
@@ -150,7 +172,8 @@ const struct Descriptor_Device_t PROGMEM DeviceDescriptor = {
   .NumberOfConfigurations = 1,
 };
 
-const struct USB_Descriptor_Configuration_t PROGMEM ConfigurationDescriptor = {
+const struct USB_Descriptor_Configuration_t
+  __attribute__((used, section (".bootloader"))) ConfigurationDescriptor = {
   .Config = {
 	     .bLength = 9,
 	     .bDescriptorType = 2,	//configuration
@@ -229,25 +252,29 @@ const struct USB_Descriptor_Configuration_t PROGMEM ConfigurationDescriptor = {
   ,
 };
 
-const struct Descriptor_String_t PROGMEM LanguageString = {
+const struct Descriptor_String_t
+  __attribute__((used, section (".bootloader"))) LanguageString = {
   .bLength = 2 + 2 * 1,
   .bDescriptorType = 3,		//String
   .UnicodeString = {0x0409}	// English language
 };
 
-const struct Descriptor_String_t PROGMEM ManufacturerString = {
+const struct Descriptor_String_t
+  __attribute__((used, section (".bootloader"))) ManufacturerString = {
   .bLength = 2 + 2 * 7,
   .bDescriptorType = 3,		//String
   .UnicodeString = L"Gemalto"
 };
 
-const struct Descriptor_String_t PROGMEM ProductSerial = {
+const struct Descriptor_String_t
+  __attribute__((used, section (".bootloader"))) ProductSerial = {
   .bLength = 2 + 2 * 8,
   .bDescriptorType = 3,		//String
   .UnicodeString = L"E73C2C84"
 };
 
-const struct Descriptor_String_t PROGMEM ProductString = {
+const struct Descriptor_String_t
+  __attribute__((used, section (".bootloader"))) ProductString = {
   .bLength = 2 + 2 * 20,
   .bDescriptorType = 3,		//String
   .UnicodeString = L"USB SmartCard Reader"
@@ -256,7 +283,7 @@ const struct Descriptor_String_t PROGMEM ProductString = {
 
 #define ENDPOINT_EPNUM_MASK                     0x0F
 
-USB_Request_Header_t USB_ControlRequest __attribute__ ((section (".noinit")));
+USB_Request_Header_t USB_ControlRequest __attribute__((section (".noinit")));
 
 void
 ccid_notify (uint8_t data)
@@ -499,7 +526,7 @@ ISR (USB_BUSEVENT_vect)
       if (V_GetConfigurationNumber ())
 	{
 	  V_SetDeviceState (DEVICE_STATE_Configured);
-          ccid_notify (3);      // card present no change
+	  ccid_notify (3);	// card present no change
 	}
       else
 	{
@@ -557,7 +584,7 @@ static void Endpoint_Write_Descriptor
 	  if (Length > 8)
 	    {
 	      for (uint8_t i = 0; i < 8; i++, here++)
-		*here = pgm_read_byte (DataStream++);
+		*here = pgm_read_byte_bloader (DataStream++);
 	      usb->Endpoints[0].IN.CNT = 8;
 	      DEBUG_dump_block (control_in, 8);
 	      Length -= 8;
@@ -565,7 +592,7 @@ static void Endpoint_Write_Descriptor
 	  else if (Length)
 	    {
 	      for (uint8_t i = 0; i < Length; i++, here++)
-		*here = pgm_read_byte (DataStream++);
+		*here = pgm_read_byte_bloader (DataStream++);
 	      usb->Endpoints[0].IN.CNT = Length;
 	      DEBUG_dump_block (control_in, Length);
 	      Length = 0;
@@ -580,7 +607,7 @@ static void Endpoint_Write_Descriptor
   return;
 }
 
-static void
+void
 USB_Device_GetDescriptor (void)
 {
   const uint8_t DescriptorType = (USB_ControlRequest.wValue >> 8);
@@ -606,22 +633,22 @@ USB_Device_GetDescriptor (void)
 	case 0x00:
 	  DEBUG_print_string ("Language string\n");
 	  Address = (void *) &LanguageString;
-	  Size = pgm_read_byte (&LanguageString.bLength);
+	  Size = pgm_read_byte_bloader (&LanguageString.bLength);
 	  break;
 	case 0x01:
 	  DEBUG_print_string ("Manufacturer string\n");
 	  Address = (void *) &ManufacturerString;
-	  Size = pgm_read_byte (&ManufacturerString.bLength);
+	  Size = pgm_read_byte_bloader (&ManufacturerString.bLength);
 	  break;
 	case 0x02:
 	  DEBUG_print_string ("Product string\n");
 	  Address = (void *) &ProductString;
-	  Size = pgm_read_byte (&ProductString.bLength);
+	  Size = pgm_read_byte_bloader (&ProductString.bLength);
 	  break;
 	case 0x03:
 	  DEBUG_print_string ("Serial string\n");
 	  Address = (void *) &ProductSerial;
-	  Size = pgm_read_byte (&ProductSerial.bLength);
+	  Size = pgm_read_byte_bloader (&ProductSerial.bLength);
 	  break;
 	}
       break;
@@ -700,7 +727,7 @@ USB_Device_SetConfiguration (void)
     {
       V_SetDeviceState (DEVICE_STATE_Configured);
       ReconfigureEndpoints (1);	// 1st configuration
-      ccid_notify (3);                // card present, change
+      ccid_notify (3);		// card present, change
     }
   else
     {
@@ -819,7 +846,7 @@ USB_Device_ClearSetFeature (void)
   Endpoint_ClearStatusStage_out ();
 }
 
-const uint8_t PROGMEM clock_freq[] = {
+const uint8_t __attribute__((used, section (".bootloader"))) clock_freq[] = {
   0x67, 0x32, 0x00, 0x00, 0xCE, 0x64, 0x00, 0x00,
   0x9D, 0xC9, 0x00, 0x00, 0x3A, 0x93, 0x01, 0x00,
   0x74, 0x26, 0x03, 0x00, 0xE7, 0x4C, 0x06, 0x00,
@@ -960,19 +987,19 @@ USB_Device_ProcessControlRequest (void)
 
 ***********************************************************/
 // this is used by CCID layer for responses
-uint8_t CCID_short_response[63] __attribute__ ((section (".noinit")));
+uint8_t CCID_short_response[63] __attribute__((section (".noinit")));
 
 volatile uint16_t CCID_message_to_host_count
-  __attribute__ ((section (".noinit")));
-uint8_t *CCID_message_to_host_position __attribute__ ((section (".noinit")));
+  __attribute__((section (".noinit")));
+uint8_t *CCID_message_to_host_position __attribute__((section (".noinit")));
 
-uint8_t CCID_message_from_host[271] __attribute__ ((section (".noinit")));
+uint8_t CCID_message_from_host[271] __attribute__((section (".noinit")));
 volatile uint16_t CCID_message_from_host_count
-  __attribute__ ((section (".noinit")));
+  __attribute__((section (".noinit")));
 
-volatile uint8_t bulk_in_reserved __attribute__ ((section (".noinit")));
-volatile uint16_t send_null __attribute__ ((section (".noinit")));
-volatile uint8_t seq __attribute__ ((section (".noinit")));
+volatile uint8_t bulk_in_reserved __attribute__((section (".noinit")));
+volatile uint16_t send_null __attribute__((section (".noinit")));
+volatile uint8_t seq __attribute__((section (".noinit")));
 
 ////////////////////////////////////////////
 // CCID BULK IN endpoint
