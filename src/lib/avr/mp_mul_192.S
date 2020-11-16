@@ -3,7 +3,7 @@
 
     192bit (interrupt safe) multiplication routine for AVR
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -53,7 +53,6 @@
 //#undef RAM_LE32
 #include "load_sp.h"
 
-#include <avr/io.h>
 
 .macro ABS48  RS5,RS4,RS3,RS2,RS1,RS0 SIGN 
         eor     \RS0,\SIGN
@@ -812,8 +811,8 @@ rsa_mul_192_no_abi:
   ADC R11, R1
 
 // restore Z register    in stack  26,27,28,29,30,31, r1,r0 ..
-	in	r30, _SFR_IO_ADDR(SPL)
-	in	r31, _SFR_IO_ADDR(SPH)
+	in	r30,0x3d
+	in	r31,0x3e
 	ldd	r0,Z+4
 	ldd	r1,Z+3
 	movw	r30,r0
@@ -1695,8 +1694,8 @@ final_H:
 	push	R18
 	push	R19
 
-	in	r28, _SFR_IO_ADDR(SPL)
-	in	r29, _SFR_IO_ADDR(SPH)
+	in	r28,0x3d
+	in	r29,0x3e
 
   ;--- load a6..a11 and b6..b11 ---
 	LOAD48_FROM_Y	r19,r18,r17,r16,r15,r14	28
@@ -2079,8 +2078,8 @@ final_H:
   POP R1
 
   ; now load stack pointer in R31:30
-	in	r30, _SFR_IO_ADDR(SPL)
-	in	r31, _SFR_IO_ADDR(SPH) 
+	in	r30,0x3d
+	in	r31,0x3e
 
   ;--- add l5+h0 to l0 and h5 ---
 	LOAD48_FROM_Z			r14,r15,r16,r17,r18,r19		1

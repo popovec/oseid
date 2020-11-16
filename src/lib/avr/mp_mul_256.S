@@ -3,7 +3,7 @@
 
     256 bit (interrupt safe) multiplication routine for AVR
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -51,11 +51,10 @@
 							 +4 bytes
   code uses 57 bytes on stack
 
-*/
+  clock cycles calculated for atmega128, xmega is faster (PUSH/ST
+  instruction need 1 clock cycle, not 2)
 
-#ifdef OsEID
-#include <avr/io.h>
-#endif
+*/
 
 //define RAM_LE32 if your device RAM is max 32kiB, to speed up code
 //#define RAM_LE32
