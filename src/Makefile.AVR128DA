@@ -1,0 +1,252 @@
+# on debian systems install:
+# apt-get install avrdude srecord avr-libc gcc-avr
+#
+# Programming:
+# This makefile depends on upditool (https://github.com/popovec/upditool)
+# (download/compile/install)
+#
+# You need to fix PROG_PORT_PATH below and then run
+# make -f Makefile.AVR128DA program
+# make -f Makefile.AVR128DA lock
+#
+# or you can use https://github.com/mraardvark/pyupdi
+# only fix (if needed) PROG_PORT_PATH and PYPROG_PATH in this file
+# install python3-intelhex and python3-serial package
+#
+# then run:
+# make -f Makefile.AVR128DA pyprog
+#
+# Warning, MCU is unlocked in this case!
+#
+CC=avr-gcc
+OBJCOPY=avr-objcopy
+CPU=avr128da32
+
+# here path and serial port path for UPDI programmer (https://github.com/mraardvark/pyupdi)
+#PYPROG_PATH= targets/AVR128DA/programming/pyupdi/
+PYPROG_PATH= pyupdi/
+PROG_PORT_PATH= /dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+
+#CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections -I targets/AVR128DA/packs/include/  -B targets/AVR128DA/packs/gcc/dev/avr128da32
+#CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections  -B targets/AVR128DA/packs/gcc/dev/avr128da32
+CFLAGS=  -Wall -Os -mmcu=$(CPU) -ffunction-sections  -B targets/AVR128DA -Tdata 0x804000 -mn-flash=2
+LDFLAGS= -Wl,-gc-sections
+
+# Warning, enabling relax can break lib/avr/mp_mul_32.S code (with enabled --relax always enable --no-call-ret-replacement)
+CFLAGS+= -mrelax  -Wl,--relax -Wl,--no-call-ret-replacement
+CFLAGS+= -fshort-enums -fjump-tables --param  case-values-threshold=10
+CFLAGS+= -DOsEID
+#CFLAGS += -DNIST_ONLY
+#CFLAGS+= -DCARD_TESTS
+
+BUILD= build/AVR128DA/
+TARGET= targets/AVR128DA/
+TARGET_LIB = lib/avr/
+TARGET_SPEC  = $(BUILD)card_io.o $(BUILD)mem_device.o $(BUILD)rnd.o $(BUILD)avr.o
+TARGET_SPEC += $(BUILD)des_arch.o $(BUILD)aes_arch.o $(BUILD)bn_lib_arch.o
+
+# disable both for environment where interrupt flag must be restored after stack pointer change
+# normal tick calculation in an environment where interrupt is always disabled
+#CFLAGS +=         -DISR_DISABLED
+# In an environment where interrupt is always enabled
+#CFLAGS +=		-DISR_ENABLE_FORCE
+
+# precalculate inverse P and Q into key file
+CFLAGS += -DUSE_P_Q_INV
+
+# enable exponent blinding
+CFLAGS += -DRSA_EXP_BLINDING
+
+# enable protection for single error in CRT
+CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
+
+# MyEID does not support 56 bit des version, OsEID allow this if needed
+#CFLAGS += -DENABLE_DES56
+
+all:	$(BUILD)card.hex
+
+builddir:
+	@rm -rf $(BUILD)
+	@mkdir -p $(BUILD)
+
+
+#device dependent files
+
+HAVE =          -DRSA_BYTES=128
+HAVE +=		-DE_BITS=5
+HAVE +=         -DEC_MUL_WINDOW=4
+HAVE +=         -DSEC_MEM_SIZE=512
+
+# ECC size (in bytes 24,32,48,72 (72 bytes may work with 2 bits window for point multiplications)
+CFLAGS += -DMP_BYTES=72
+
+# for devices with memory below 32kiB enable RAM_LE32 to speed up multiplications
+HAVE +=         -DRAM_LE32
+
+# there is real serial number in this device, but disable this if
+# CARD_SERIAL is specified at compilation time
+ifeq ($(CARD_SERIAL),)
+HAVE +=		-DHW_SERIAL_NUMBER
+CARD_SERIAL:= $(shell date +%s)
+endif
+
+
+TARGET_SPEC +=  $(BUILD)mp_mul_24.o
+TARGET_SPEC +=	$(BUILD)mp_mul_192.o
+TARGET_SPEC +=  $(BUILD)mp_mul_521.o
+TARGET_SPEC +=  $(BUILD)mp_mul_32.o
+TARGET_SPEC +=	$(BUILD)mp_mul_256.o
+TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
+TARGET_SPEC +=  $(BUILD)ec_fast_red.o
+
+HAVE +=		-DHAVE_RSA_MUL_512_MOD
+HAVE +=		-DHAVE_RSA_MUL_768_MOD
+HAVE +=		-DHAVE_RSA_MUL_192_MOD
+
+TARGET_SPEC +=	$(BUILD)mp.o
+
+HAVE +=		-DHAVE_RSA_SQUARE_192
+HAVE +=		-DHAVE_RSA_SQUARE_256
+HAVE +=		-DHAVE_RSA_SQUARE_384
+HAVE +=		-DHAVE_RSA_SQUARE_512
+HAVE +=		-DHAVE_RSA_SQUARE_768
+HAVE +=		-DHAVE_RSA_SQUARE_1024
+
+TARGET_SPEC +=  $(BUILD)mp_square.o
+TARGET_SPEC +=	$(BUILD)rsa_S.o
+
+HAVE +=		-DHAVE_GET_CONSTANTS
+TARGET_SPEC +=	$(BUILD)xconstants.o
+
+
+$(BUILD)avr.o:	$(TARGET)avr.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)avr.o $(TARGET)avr.S
+
+$(BUILD)card_io.o:	$(TARGET)card_io.S card_os/card_io.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET)
+
+$(BUILD)mem_device.o:	 $(TARGET)mem_device.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o  $(TARGET)mem_device.S -I card_os
+
+$(BUILD)rnd.o:	 $(TARGET)rnd.c  card_os/rnd.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rnd.o  $(TARGET)rnd.c -I card_os
+
+$(BUILD)des_arch.o:	$(TARGET_LIB)/des.S  card_os/des.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)des_arch.o  $(TARGET_LIB)/des.S -I card_os
+
+$(BUILD)aes_arch.o:	$(TARGET_LIB)/aes.S  card_os/aes.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)aes_arch.o  $(TARGET_LIB)/aes.S -I card_os
+
+$(BUILD)rsa_S.o:	$(TARGET_LIB)rsa.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rsa_S.o $(TARGET_LIB)rsa.S
+
+$(BUILD)mp_mul_192.o:	$(TARGET_LIB)mp_mul_192.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_192.o $(TARGET_LIB)mp_mul_192.S
+
+$(BUILD)mp_mul_256.o:	$(TARGET_LIB)mp_mul_256.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_256.o $(TARGET_LIB)mp_mul_256.S
+
+$(BUILD)mp_mul_521.o:	$(TARGET_LIB)mp_mul_521.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_521.o $(TARGET_LIB)mp_mul_521.S
+
+$(BUILD)mp_mul_24.o:	$(TARGET_LIB)mp_mul_24.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_24.o $(TARGET_LIB)mp_mul_24.S
+
+$(BUILD)mp_mul_32.o:	$(TARGET_LIB)mp_mul_32.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32.o $(TARGET_LIB)mp_mul_32.S
+
+$(BUILD)mp_mul_32_trunc.o:	$(TARGET_LIB)mp_mul_32_trunc.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_mul_32_trunc.o $(TARGET_LIB)mp_mul_32_trunc.S
+
+$(BUILD)mp_square.o:	$(TARGET_LIB)mp_square.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp_square.o $(TARGET_LIB)mp_square.S
+
+$(BUILD)ec_fast_red.o:	$(TARGET_LIB)ec_fast_red.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)ec_fast_red.o $(TARGET_LIB)ec_fast_red.S -Icard_os
+
+$(BUILD)mp.o:	$(TARGET_LIB)mp.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mp.o $(TARGET_LIB)mp.S -Icard_os
+
+$(BUILD)bn_lib_arch.o:	$(TARGET_LIB)bn_lib.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib_arch.o $(TARGET_LIB)bn_lib.S -Icard_os
+
+#$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
+#		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
+
+$(BUILD)xconstants.o:	$(TARGET)constants.c
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)xconstants.o $(TARGET)constants.c -Icard_os
+
+
+#-------------------------------------------------------------------
+# card_os files
+#-------------------------------------------------------------------
+
+include card_os/Makefile
+
+
+
+$(BUILD)card.elf:	builddir $(COMMON_TARGETS) $(TARGET_SPEC)
+			$(CC) $(CFLAGS) $(LDFLAGS) $(COMMON_TARGETS) $(TARGET_SPEC) -o $(BUILD)card.elf
+			avr-size --format=SysV $(BUILD)card.elf
+			avr-size $(BUILD)card.elf
+
+$(BUILD)card_orig.hex:	$(BUILD)card.elf
+		$(OBJCOPY) -O ihex -R .eeprom -R .fuse -R .lock $(BUILD)card.elf $(BUILD)card_orig.hex
+
+#insert serial number based on date
+$(BUILD)card.hex:	$(BUILD)card_orig.hex
+		cp	$(BUILD)card_orig.hex	$(BUILD)card.hex
+		srec_cat $(BUILD)card_orig.hex -Intel `srec_cat $(BUILD)card_orig.hex -Intel -o - -binary|grep --byte-offset --only-matching --text \`echo -n -e "OsEID\004"\`|awk -F: '{a=$$1;print "-exclude "a+8" "a+18" -generate "a+8" "a+18}'`  -repeat-string $(CARD_SERIAL) -o $(BUILD)card.hex -Intel
+
+
+#-----------------------------------------------------------------------------------------------------------------------------------------------------
+# https://github.com/popovec/upditool
+
+program:	$(BUILD)card.hex
+		upditool -b 115200 -P $(PROG_PORT_PATH) -p avr128da32 -e -U fuse5:w:0xc0:m -U fuse2:w:0:m -U fuse7:w:0x80:m -U fuse8:w:0x80:m -U flash:w:$(BUILD)card.hex:i
+
+lock:
+		upditool -b 115200 -P $(PROG_PORT_PATH) -p avr128da32 -U lock0:w:0:m
+
+#-----------------------------------------------------------------------------------------------------------------------------------------------------
+# for pyupdi (https://github.com/mraardvark/pyupdi,  tested with commit 3d163b83e01967c924c0903cc994d38bde3d5d32)
+
+$(PYPROG_PATH)/pyupdi/pyupdi.py:
+		(mkdir -p $(PYPROG_PATH); cd $(PYPROG_PATH) ;git clone https://github.com/mraardvark/pyupdi; cd pyupdi ;git checkout 3d163b83e01967c924c0903cc994d38bde3d5d32)
+
+pyprog:		$(PYPROG_PATH)/pyupdi/pyupdi.py $(BUILD)card.hex fuse5 fuse2 fuse7 fuse8
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -f $(BUILD)card.hex -v -b 230400
+
+fuseREAD:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -fr  -b 115200
+
+lockREAD:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -lr  -b 115200
+
+# fuse 5 old value (new device) = 0xF2 .. but documentation DS40002183A mention 0xc8 here
+# OsEID uses 0xc0 as fuse 5 (no CRC, PF6 is input)
+fuse5:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -fs 5:0xc0
+
+# fuse 2 old value (new device) = 0xF8  .. but documentation DS40002183A mention 0 here
+fuse2:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -fs 2:0x00
+
+# default 0, here 128 pages for codesize is set
+fuse7:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -fs 7:0x80
+
+# default 0, here 128 pages for bootsize is set
+fuse8:
+		$(PYPROG_PATH)/pyupdi/pyupdi.py -c $(PROG_PORT_PATH)  -d avr128da32 -fs 8:0x80
+
+
+
+
+
+.PHONY:	clean
+clean:
+	rm -f *~
+	rm -f card_os/*~
+	rm -f $(TARGET)/*~
+	rm -f $(BUILD)/*

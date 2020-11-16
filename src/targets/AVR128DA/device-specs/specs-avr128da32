@@ -1,0 +1,35 @@
+# This file may be replaced by original file from pack downloaded from
+# https://packs.download.microchip.com/
+#
+# because here (OsEID project) no default libs are used, (there is no
+# need to use  crtavr128da32.o, because we using compact vector ..)
+# avrlibc_startfile and avrlibc_devicelib must be commented out
+#
+# This file is public domain and is used in OsEID project
+# https://sourceforge.net/projects/oseid/
+#
+# here only neccesary directives:
+
+
+*cc1_errata_skip:
+	%{!mskip-bug: -mno-skip-bug}
+
+*asm_arch:
+	-mmcu=avrxmega4
+
+*asm_errata_skip:
+	%{!mskip-bug: -mno-skip-bug}
+
+*link_arch:
+	%{mmcu=*:-m%*}
+
+*self_spec:
+	%<mmcu=* -mmcu=avrxmega4 %<mshort-calls %<msp8
+
+#*cpp:
+#	-D__AVR_AVR128DA32__ -D__AVR_DEVICE_NAME__=avr128da32 -D__AVR_DEV_LIB_NAME__=avr128da32
+
+%rename link old_link
+
+*link:
+	%(old_link)--defsym=__RODATA_PM_OFFSET__=0x8000
