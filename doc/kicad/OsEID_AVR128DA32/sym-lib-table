@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name OsEID_AVR_v1.0)(type Legacy)(uri ${KIPRJMOD}/OsEID_AVR_v1.0.lib)(options "")(descr ""))
+  (lib (name OsEID-rescue)(type Legacy)(uri ${KIPRJMOD}/OsEID-rescue.lib)(options "")(descr ""))
+)

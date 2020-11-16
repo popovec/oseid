@@ -1,0 +1,3 @@
+(fp_lib_table
+  (lib (name OsEID_footprints)(type KiCad)(uri ${KIPRJMOD}/OsEID_footprints.pretty)(options "")(descr ""))
+)
