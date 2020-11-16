@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -226,7 +226,7 @@ static void mp_square (bigbignum_t * r, bignum_t * a);
 // to fast access prime, A, curve_type .. fill this in any public fcion!
 static bignum_t *field_prime __attribute__((section (".noinit")));
 static bignum_t *param_a __attribute__((section (".noinit")));
-static uint8_t curve_type __attribute__((section (".noinit")));
+uint8_t curve_type __attribute__((section (".noinit")));
 static bigbignum_t bn_tmp __attribute__((section (".noinit")));
 
 //Change point from affine to projective
@@ -239,7 +239,7 @@ ec_projectify (ec_point_t * r)
   r->Z.value[0] = 1;
 }
 
-static void
+void
 field_add (bignum_t * r, bignum_t * a)
 {
   add_mod (r, a, field_prime);
@@ -290,40 +290,17 @@ p = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE FFFFFC2F
 18. k13 = {s1, 4'd0} + s1;
 19. k14 = {s1, 6'd0} + k13;
 20. k = {s1, 32'd0} + k12 + k14;
-21. s = c0 + k + w1 + w2 + w3 + w4 + w5 + w6 + w7;
+21. s = k + w0 + w1 + w2 + w3 + w4 + w5 + w6 + w7;
 22. Return s mod p.
 (code below with small optimizations)
 */
 static void
 secp256k1reduction (bignum_t * result, bigbignum_t * bn)
 {
-  DPRINT ("%s\n", __FUNCTION__);
-
-  bignum_t w1, k;
+  bignum_t *h;
   uint8_t *a = (uint8_t *) bn;
   uint16_t acc, k1;
-
-  field_add ((bignum_t *) a, (bignum_t *) (a + 32));
-
-  memset ((uint8_t *) result, 0, 4);
-  memcpy ((uint8_t *) result + 4, a + 32, 28);
-  field_add ((bignum_t *) a, result);
-
-  memcpy ((uint8_t *) result + 1, a + 32, 31);
-  field_add ((bignum_t *) a, result);
-
-  mp_shiftl ((bignum_t *) result);
-  field_add (result, (bignum_t *) a);
-
-  memcpy (&w1, a + 32, 32);
-  mp_shiftl4 (&w1);
-  field_add (result, &w1);
-
-  mp_shiftl2 (&w1);
-  field_add (result, &w1);
-
-  mp_shiftl (&w1);
-  field_add (result, &w1);
+  uint8_t *s1 = 16 + (uint8_t *) result;
 
   acc = bn->value[63];
   k1 = acc >> 4;
@@ -332,36 +309,89 @@ secp256k1reduction (bignum_t * result, bigbignum_t * bn)
   k1 += acc;
   k1 += (acc << 1);
   acc = bn->value[62] >> 7;
+//14.
   k1 += acc;
-
 // there is enough to calculate 80 bites for k, use 16 bytes
 // because mp_add in ASM is designed to use 64 bit in one loop
+
+// 15. prepare k4 part into "result"
+  memset (result, 0, 32);
+
+  result->value[0] = k1 & 0xff;
+  result->value[1] = (k1 >> 8) & 0xff;
+
   mp_set_len (16);
-  // coverity[suspicious_sizeof]
-  memset (&w1, 0, 32);
-  memcpy (&w1, a + 60, 4);
+// prepare s1 part c1[255:224]
+  memcpy (s1, a + 60, 4);
+// generate s1, (5 bytes)
+  mp_add ((bignum_t *) s1, result);
 
-  memset (&k, 0, 32);
-  k.value[0] = k1 & 0xff;
-  k.value[1] = (k1 >> 8) & 0xff;
-  mp_add (&w1, &k);
+  result->value[0] = 0;
+  result->value[1] = 0;
 
-  memset (&k, 0, 2);
-  memcpy (&k.value[4], &w1, 28);	//32
-  mp_add (&k, &w1);
-  mp_shiftl4 (&w1);
-  mp_add (&k, &w1);		//4
-  mp_shiftl2 (&w1);
-  mp_add (&k, &w1);		//6
-  mp_shiftl (&w1);
-  mp_add (&k, &w1);		//7
-  mp_shiftl (&w1);
-  mp_add (&k, &w1);		//8
-  mp_shiftl (&w1);
-  mp_add (&k, &w1);		//9
+// 20. s1 << 32
+  memcpy (4 + (uint8_t *) result, s1, 5);
+  mp_add (result, (bignum_t *) s1);
 
-  mp_set_len (32);		// secp256k1 uses always 32 bytes for number
-  field_add (result, &k);
+// k13
+  mp_shiftl4 ((bignum_t *) s1);
+  mp_add (result, (bignum_t *) s1);	//4
+// k14
+  mp_shiftl2 ((bignum_t *) s1);
+  mp_add (result, (bignum_t *) s1);	//6
+// k11,k12
+  mp_shiftl ((bignum_t *) s1);
+  mp_add (result, (bignum_t *) s1);	//7
+  mp_shiftl ((bignum_t *) s1);
+  mp_add (result, (bignum_t *) s1);	//8
+  mp_shiftl ((bignum_t *) s1);
+  mp_add (result, (bignum_t *) s1);	//9
+  memset (s1, 0, 16);
+
+  mp_set_len (32);
+  // c0
+  field_add (result, (bignum_t *) a);
+  // c1
+  h = (bignum_t *) (a + 32);
+  field_add (result, h);
+  // w1
+  memset (a, 0, 4);
+  memcpy (a + 4, h, 28);
+  field_add (result, (bignum_t *) a);
+// w6   Hpart << 4
+  mp_shiftl4 (h);
+  field_add (result, h);
+// w5   Hpart << 6
+  mp_shiftl2 (h);
+  field_add (result, h);
+// W4   Hpart << 7
+  mp_shiftl (h);
+  field_add (result, h);
+// W3   Hpart << 8
+  mp_shiftl (h);
+  field_add (result, h);
+// W2   Hpart << 9
+  mp_shiftl (h);
+  field_add (result, h);
+
+/*
+second loop - carry in bits xxxx
+                                 xxxx0000
+                              xx xx000000
+                             xxx x0000000
+                            xxxx 00000000
+                           xxxx0 00000000
+ xxxx 00000000 00000000 00000000 00000000
+                        (14 bits enough)
+
+  memset (result,0,32);
+  result->value[4] = carry;
+  result->value[1] = carry + carry <<1;
+  result->value[0] = carry << 4;
+TODO ..
+
+*/
+
 }
 #endif
 #endif
@@ -383,12 +413,16 @@ P384 = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF FFFE FFFF 
 6: s4     ( a19 || a18 || a17 || a16 || a15 || a14 || a13 || a12 || a20 ||  0  || a23 ||  0  )
 7:*s5     ( 0   ||  0  ||  0  ||  0  || a23 || a22 || a21 || a20 ||  0  ||  0  ||  0  ||  0  )
 8:*s6     ( 0   ||  0  ||  0  ||  0  ||  0  ||  0  || a23 || a22 || a21 ||  0  ||  0  || a20 )
+
 9: d1     ( a22 || a21 || a20 || a19 || a18 || a17 || a16 || a15 || a14 || a13 || a12 || a23 )
 10: d2    ( 0   ||  0  ||  0  ||  0  ||  0  ||  0  ||  0  || a23 || a22 || a21 || a20 ||  0  )
 11: d3    ( 0   ||  0  ||  0  ||  0  ||  0  ||  0  ||  0  || a23 || a23 ||  0  ||  0  ||  0  )
 12: d1 = p384 - d1
 13: r = t + 2 s1 + s2 + s3 + s4 + s5 + s6 - d1 - d2 - d3
 14: Reduce r mod p384 by subtraction of up to four multiples of p384
+
+here slightly changed calculation is used:
+12: r = t + 2 s1 + s2 + s3 + s4 + s5 + s6 + (2*P384)- d1 - (d2 + d3)
 */
 static void
 fast384reduction (bignum_t * result, bigbignum_t * bn)
@@ -399,11 +433,11 @@ fast384reduction (bignum_t * result, bigbignum_t * bn)
 
   mp_set_len (16);
   // S1(0,A23,A22,A21) || S4(a20) || 0 || S4(A23) || S6(A20)
-  memset (r + 7 * 4, 0, 4);	// 0
-  memcpy (r + 3 * 4, ptr + 20 * 4, 4 * 4);	// S1(A23..A21)||S4(A20)
-  memset (r + 2 * 4, 0, 4);	// 0
-  memcpy (r + 1 * 4, ptr + 23 * 4, 4);	//S4(A23)
   memcpy (r + 0 * 4, ptr + 20 * 4, 4);	//S6(A20)
+  memcpy (r + 1 * 4, ptr + 23 * 4, 4);	//S4(A23)
+  memset (r + 2 * 4, 0, 4);	// 0
+  memcpy (r + 3 * 4, ptr + 20 * 4, 4 * 4);	// S1(A23..A21)||S4(A20)
+  memset (r + 7 * 4, 0, 4);	// 0
 //2xS1
   mp_shiftl ((bignum_t *) (r + 4 * 4));
 // Construct part of S6(0, a23,a22,a21) in upper part of result
@@ -526,7 +560,7 @@ move some part of S4 to S2, from S3 to S1, then use field_sub/add
 : d3  ( A12 || 0   || A10 || A9  || A8  || A15 || A14 || A13 )
 : d4  ( A13 || 0   || A11 || A10 || A9  || 0   || A15 || A14 )
 
-: r = t + s1 + s1x + 2 s2 + s3 + s4 - d1 - d2 - d3 - d4
+: r = t + s1 + s1x + s2 + s2x + s3 + s4 + (4*P256)- d1 - d2 - d3 - d4
 */
 #if MP_BYTES >= 32
 
@@ -569,7 +603,7 @@ fast256reduction (bignum_t * result, bigbignum_t * bn)
   // R += TMP
   carry += mp_add (result, (bignum_t *) bn);
   //S1x
-  memcpy (ptr_l, ptr_l + 32, 32);
+  memcpy (ptr_l + 12, ptr_l + 32 + 12, 32 - 12);
   memset (ptr_l, 0, 12);
   carry += mp_add (result, (bignum_t *) bn);
 
@@ -665,10 +699,7 @@ fast521reduction (bignum_t * result, bigbignum_t * bn)
 }
 #endif
 
-// do not set this static, this generates smaller code
-// with __attribute__ ((noinline)) code is bigger
-void
-field_reduction (bignum_t * r, bigbignum_t * bn)
+void __attribute__((weak)) field_reduction (bignum_t * r, bigbignum_t * bn)
 {
 // known curves/primes:
 #if MP_BYTES >= 66
@@ -687,11 +718,14 @@ field_reduction (bignum_t * r, bigbignum_t * bn)
   if (curve_type == (C_SECP256K1 | C_SECP256K1_MASK))
     return secp256k1reduction (r, bn);
 #endif
+
+#if 1
+// no another fast reduction algo, run fast192reduction()...
+  fast192reduction (r, bn);
+#else
+// for tests only - real run without fast reduction is too slow
   if (curve_type == (C_P192V1 | C_P192V1_MASK))
     return fast192reduction (r, bn);
-
-// for tests only - real run without fast reduction is too long
-#if 0
   mp_mod (bn, field_prime);
   memset (r, 0, MP_BYTES);
   memcpy (r, bn, mp_get_len ());
@@ -702,17 +736,15 @@ static void
 field_mul (bignum_t * r, bignum_t * a, bignum_t * b)
 {
   mp_mul (&bn_tmp, a, b);
-  return field_reduction (r, &bn_tmp);
+  field_reduction (r, &bn_tmp);
 }
 
 static void
 field_sqr (bignum_t * r, bignum_t * a)
 {
   mp_square (&bn_tmp, a);
-  return field_reduction (r, &bn_tmp);
+  field_reduction (r, &bn_tmp);
 }
-
-//#define field_sqr(r,a) field_mul(r,a,a)
 
 static uint8_t
 ec_is_point_affine (ec_point_t * p, struct ec_param *ec)
@@ -1125,7 +1157,6 @@ static void
   __attribute__((noinline)) ec_blind_key (uint8_t * blind_key,
 					  bignum_t * order)
 {
-  uint8_t blind_val[sizeof (bignum_t) * 2];
   uint8_t blind_rnd[sizeof (bignum_t)];
   uint8_t len;
 
@@ -1134,11 +1165,11 @@ static void
   blind_rnd[EC_BLIND - 1] &= 0x3f;
   blind_rnd[EC_BLIND - 1] |= 0x20;
 
-  mp_mul ((bigbignum_t *) blind_val, (bignum_t *) blind_rnd, order);
-
+  mp_mul (&bn_tmp, (bignum_t *) blind_rnd, order);
   len = mp_get_len ();
   mp_set_len (len + 8);
-  mp_add ((bignum_t *) blind_key, (bignum_t *) blind_val);
+  mp_add ((bignum_t *) blind_key, (bignum_t *) (&bn_tmp));
+
   mp_set_len (len);
 }
 #endif

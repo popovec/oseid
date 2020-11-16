@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -770,6 +770,49 @@ rsa_mul_128_trunc_no_abi:
 	clr	r1
 	ret
 
+	.global	mpro_add2
+	.type	mpro_add2,@function
+	.section .text.mpro_add2,"ax",@progbits
+
+// carry in r25 bit 1,0
+mpro_add2:
+	ror	r25
+1:
+	ldd	r4,Z+0
+	ldd	r5,Z+1
+	ldd	r6,Z+2
+	ldd	r7,Z+3
+
+	ld	r8,X+
+	ld	r9,X+
+	ld	r10,X+
+	ld	r11,X+
+
+	adc	r4,r8
+	adc	r5,r9
+	adc	r6,r10
+	adc	r7,r11
+	ror	r25
+
+	ld	r8,Y+
+	ld	r9,Y+
+	ld	r10,Y+
+	ld	r11,Y+
+
+	adc	r4,r8
+	adc	r5,r9
+	adc	r6,r10
+	adc	r7,r11
+	rol	r25
+
+	st	Z+,r4
+	st	Z+,r5
+	st	Z+,r6
+	st	Z+,r7
+
+	dec	r24
+	brne	1b
+	ret
 
 //uint8_t monPro0 (rsa_long_num * t, rsa_long_num * help1, rsa_num * n, rsa_half_num * Mc, rsa_num * Bc)
 
@@ -832,45 +875,6 @@ rsa_mul_trunc_var_no_abi:
 	set
 	rjmp	rsa_mul_128_trunc_no_abi
 
-// carry in r25 bit 1,0
-mpro_add2:
-	ror	r25
-1:
-	ldd	r4,Z+0
-	ldd	r5,Z+1
-	ldd	r6,Z+2
-	ldd	r7,Z+3
-
-	ld	r8,X+
-	ld	r9,X+
-	ld	r10,X+
-	ld	r11,X+
-
-	adc	r4,r8
-	adc	r5,r9
-	adc	r6,r10
-	adc	r7,r11
-	ror	r25
-
-	ld	r8,Y+
-	ld	r9,Y+
-	ld	r10,Y+
-	ld	r11,Y+
-
-	adc	r4,r8
-	adc	r5,r9
-	adc	r6,r10
-	adc	r7,r11
-	rol	r25
-
-	st	Z+,r4
-	st	Z+,r5
-	st	Z+,r6
-	st	Z+,r7
-	
-	dec	r24
-	brne	1b
-	ret
 
 monPro0:
 //save registers

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -107,11 +107,12 @@ uint8_t __attribute__((weak)) bn_is_zero (void *k)
 
 uint8_t __attribute__((weak)) bn_neg (void *a)
 {
-  uint8_t *A = (uint8_t *) a;;
   uint8_t carry;
-  uint8_t i = 0;
   uint16_t pA, Res;
   uint8_t len = mod_len;
+  uint8_t i = 0;
+  uint8_t *A = (uint8_t *) a;;
+
   carry = 0;
   do
     {
@@ -349,14 +350,13 @@ void __attribute__((weak)) bn_mod_half (void *result, void *mod)
 {
   uint8_t *tmp;
   uint8_t *helper;
+  uint8_t *tmp_result[2];
+  uint16_t i;
+  uint8_t index;
 
   tmp = alloca (mod_len * 2);
   helper = alloca (mod_len * 2);
 
-  uint8_t *tmp_result[2];
-
-  uint16_t i;
-  uint8_t index;
 
   memset (tmp, 0, mod_len * 2);	// 1+3/4 * mod_len bytes is sufficient
   memcpy (tmp + mod_len / 2, mod, mod_len);
@@ -391,10 +391,6 @@ void __attribute__((weak)) bn_mod (void *result, void *mod)
 {
   uint8_t *tmp;
   uint8_t *helper;
-
-  tmp = alloca (mod_len * 2);
-  helper = alloca (mod_len * 2);
-
   uint8_t *tmp_result[2];
 
 // check below..
@@ -404,6 +400,10 @@ void __attribute__((weak)) bn_mod (void *result, void *mod)
 #endif
   uint16_t i;
   uint8_t index;
+
+  tmp = alloca (mod_len * 2);
+  helper = alloca (mod_len * 2);
+
 
   memset (tmp, 0, mod_len);
   memcpy (tmp + mod_len, mod, mod_len);
@@ -519,16 +519,15 @@ uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
   uint8_t bn_len = mod_len;
 
   uint8_t *u;
-  uint8_t *v;;
+  uint8_t *v;
   uint8_t *r;
-  uint8_t *s;;
-
+  uint8_t *s;
   uint16_t bsize_U, bsize_V, V_off;
   int16_t rot;
-  uint8_t sU = 0, sV = 0;
-
   // matrix for calculation u,v,r,s...
   uint8_t *M;
+  uint8_t sU = 0, sV = 0;
+
 
   M = alloca ((bn_len + 8) * 4);
   u = (M + 0 * bn_len);

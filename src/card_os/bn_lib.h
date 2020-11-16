@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -79,5 +79,9 @@ extern uint8_t mod_len;
 extern uint16_t bn_real_bit_len;
 extern uint8_t bn_real_byte_len;
 #endif
+
+
+uint16_t __attribute__((weak)) bn_count_bits (void *n);
+uint8_t __attribute__((weak)) bn_shift_R_v_signed (void *r, uint8_t len);
 
 #endif
