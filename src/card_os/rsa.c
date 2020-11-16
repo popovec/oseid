@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -675,7 +675,7 @@ rsaExpMod_montgomery (rsa_num * x_, rsa_exp_num * exp, rsa_num * modulus,
 
   DPRINT ("Exponenting, exponent length %d\n", count);
   NPRINT ("modulus n = ", modulus, rsa_get_len ());
-  NPRINT ("Montgomery constant = ", Mc, rsa_get_len ());
+  NPRINT ("Montgomery constant = ", Mc, rsa_get_len () / 2);
   NPRINT ("1 * r mod n = ", &M_[0], rsa_get_len ());
   NPRINT ("data (message * r mod n)= ", &M_[1], rsa_get_len ());
   NPRINT ("exponent = ", exp, rsa_get_len () + 8);
@@ -1089,7 +1089,7 @@ miller_rabin (rsa_num * n, rsa_long_num t[2], rsa_long_num * tmp)
   barrett_constant (Bc, n);
 
   NPRINT ("n=", n, rsa_get_len ());
-  NPRINT ("Mc=", &Mc, rsa_get_len ());
+  NPRINT ("Mc=", &Mc, rsa_get_len () / 2);
   NPRINT ("Bc=", Bc, rsa_get_len ());
 
 // calculate number of loops (based on bit len of prime)
