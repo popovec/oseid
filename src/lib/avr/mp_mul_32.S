@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -175,20 +175,18 @@ rsa_mul_512_loop1a:
 	dec	r25
 	brne	rsa_mul_512_loop1a
 
-	movw	r2,r28	// result + 64/96 for b_low -b_high
 	movw	r30,r26 // B pointer
 
+// calculate position of 1st operand  |ah - al|
+	movw	r26,r28	// first operand for multiply
 	bst	r24,0	// save sign	
 	bld	r25,5	// 0 or 32
+	sub	r26,r25
+	sbci	r27,0
 
-	sub	r28,r25
-	sbci	r29,0
-
-	movw	r26,r28		// first operand for multiply
 // sign is saved in T flag, r26 position of first operand		
 
 // calculate b_low - b_high -> r
-	movw	r28,r2		// result + 64/96 for b_low -b_high
 	adiw	r28,32
 	ldi	r25,4		//4*8 = 32 bytes
 	sub	r24,r24		//initial carry(s)
@@ -705,16 +703,154 @@ rsa_mul_1024:
 	push	r17	// sign of b_low - b_high
 	push	r28
 	push	r29
-// create space on stack(64 bytes TMP variable, 3x pointer, 1x sign
+
+// set this to 1, code is then about 84 bytes longer, and about 428 clock
+// cycles faster.  This is used only in RSA 2048, (558x for 4 bit window,
+// blinded, Belcore protection). Because only 238824 clock cycles can be
+// saved, this is not enabled by default.
+#if 0
+// create space on stack (128 bytes TMP variable, 3x pointer, 1x sign
+	in	r30, 0x3d
+	in	r31, 0x3e
+	subi	r30, 128+2+2+2+1
+	sbci	r31, 0
+	LOAD_SP r0, r30,r31
+// save pointers to stack
+	std	Z+1,r20	// B pointer
+	std	Z+2,r21
+	std	Z+3,r24	// Result
+	std	Z+4,r25
+	std	Z+5,r22	// A pointer
+	std	Z+6,r23
+
+	movw	r26,r20	// save B
+// calculate a_low - a_high -> r
+	movw	r28,r24		// result
+	movw	r30,r22		// operand B
+	ldi	r25,8		//8*8 = 64 bytes
+	sub	r24,r24		//initial carry(s)
+
+rsa_mul_1024_loop1a:
+
+.irp	pos,0,1,2,3,4,5,6,7
+	ld	r\pos,Z+
+.endr
+
+.irp	pos,8,9,10,11,12,13,14,15
+	ldd	r\pos,Z+48+\pos
+.endr
+	movw	r16,r0
+	movw	r18,r2
+	movw	r20,r4
+	movw	r22,r6
+
+	sbc	r0,r8
+	sbc	r1,r9
+	sbc	r2,r10
+	sbc	r3,r11
+	sbc	r4,r12
+	sbc	r5,r13
+	sbc	r6,r14
+	sbc	r7,r15
+
+.irp    pos,0,1,2,3,4,5,6,7
+	st	Y+,r\pos
+.endr
+
+	ror	r24	//save carry/renew carry
+	sbc	r8,r16
+	sbc	r9,r17
+	sbc	r10,r18
+	sbc	r11,r19
+	sbc	r12,r20
+	sbc	r13,r21
+	sbc	r14,r22
+	sbc	r15,r23
+
+.irp    pos,8,9,10,11,12,13,14,15
+	std	Y+48+\pos,r\pos
+.endr
+	rol	r24	//renew carry
+	dec	r25
+	brne	rsa_mul_1024_loop1a
+
+	movw	r30,r26	// B pointer
+	movw	r26,r28
+	bst	r24,0	// sign
+	bld	r25,6	// 0 or 64
+	sub	r26,r25
+	sbci	r27,0
+
+	subi	r28,lo8(-64)
+	sbci	r29,hi8(-64)
+
+	ldi	r25,8
+	sub	r24,r24
+
+rsa_mul_1024_loop1b:
+.irp	pos,0,1,2,3,4,5,6,7
+	ld	r\pos,Z+
+.endr
+.irp	pos,8,9,10,11,12,13,14,15
+	ldd	r\pos,Z+48+\pos
+.endr
+	movw	r16,r0
+	movw	r18,r2
+	movw	r20,r4
+	movw	r22,r6
+
+	sbc	r0,r8
+	sbc	r1,r9
+	sbc	r2,r10
+	sbc	r3,r11
+	sbc	r4,r12
+	sbc	r5,r13
+	sbc	r6,r14
+	sbc	r7,r15
+.irp    pos,0,1,2,3,4,5,6,7
+	st	Y+,r\pos
+.endr
+	ror	r24	//save carry/renew carry
+	sbc	r8,r16
+	sbc	r9,r17
+	sbc	r10,r18
+	sbc	r11,r19
+	sbc	r12,r20
+	sbc	r13,r21
+	sbc	r14,r22
+	sbc	r15,r23
+.irp    pos,8,9,10,11,12,13,14,15
+	std	Y+48+\pos,r\pos
+.endr
+	rol	r24	//renew carry
+
+	dec	r25
+	brne	rsa_mul_1024_loop1b
+
+	movw	r22,r28
+	in	r28, 0x3d
+	in	r29, 0x3e
+	bld	r24,1	// load previous sign from T
+	bst	r24,0	// save new sign into T
+	inc	r24	// do xor
+	ror	r24
+	andi	r24,1
+	neg	r24	// 0x00  or 0xff
+	std	Y+7,r24
+
+	bld	r25,6
+	sub	r22,r25
+	sbci	r23,0
+
+// r28 result, r26,r22 operands
+	adiw	r28,8	// skip variables on stack to point TMP variable (128 bytes)
+#else
+// create space on stack (128 bytes TMP variable, 3x pointer, 1x sign
 	in	r28, 0x3d
 	in	r29, 0x3e
 	subi	r28, 128+2+2+2+1
-	sbc	r29, r1
+	sbci	r29, 0
 	LOAD_SP r0, r28,r29
-
-// save operands position
-	movw	RESULT, r24	// r
-
 // save pointers to stack
 	std	Y+1,r20	// B pointer
 	std	Y+2,r21
@@ -723,6 +859,8 @@ rsa_mul_1024:
 	std	Y+5,r22	// A pointer
 	std	Y+6,r23
 
+// save operands position
+	movw	RESULT, r24	// r
 // calculate a_low - a_high -> r
 	movw	r30,r22 	// a, a+64 to Z
 	movw	r26,r24		// r to X
@@ -804,7 +942,7 @@ rsa_mul_1024_loop4:
 	movw	r26,RESULT
 	subi	r26,lo8(-64)
 	sbci	r27,hi8(-64)	//r+64
-
+#endif
 	call	rsa_mul_512_no_abi
 // load values back 
 
@@ -835,7 +973,7 @@ rsa_mul_1024_loop4:
 	ldd	r26,Z+5	// OPERAND_A
 	ldd	r27,Z+6
 	subi	r26,lo8(-64)
-	sbci	r27,hi8(-64)	//B+64
+	sbci	r27,hi8(-64)	//A+64
 	call	rsa_mul_512_no_abi
 
 // load values back 
