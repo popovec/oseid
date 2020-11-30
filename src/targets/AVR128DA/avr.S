@@ -84,7 +84,6 @@ __init:
 	breq	1b
 #endif
 // OK, RST is released
-#warning enable interrupt!
 
 // program high priority irq from pin PA3 (5 = level low)
 // PORTA.PIN3CTRL = 5;

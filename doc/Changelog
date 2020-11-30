@@ -1,3 +1,14 @@
+OsEID  20201130 (released)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date: Mon Nov 30 13:45:32 CET 2020
+
+	* New hardware - AVR128DA32
+	* card serial number derived from MCU serial number (AVR128DA, Xmega)
+	* communication speed up to 312kbit
+	* about 2x faster crypto function
+	* class A,B,C support (1.8 to 5.5V)
+	* ECC - fast reduction improved (moved from C to ASM)
+
 OsEID  20190830 (released)
 Author: Peter Popovec <popovec.peter@gmail.com>
 Date: Mon 30 Sep 2019 08:47:21 CEST 2019
