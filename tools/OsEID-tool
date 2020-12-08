@@ -37,6 +37,48 @@ warnecho (){
 	tput setaf 3;echo $@;tput sgr0
 }
 
+mechanism2hash () {
+	case "${1}" in
+	"SHA1-RSA-PKCS"|"SHA1-RSA-PKCS-PSS")
+		echo "sha1";;
+	"SHA256-RSA-PKCS"|"SHA256-RSA-PKCS-PSS")
+		echo "sha256";;
+	"SHA384-RSA-PKCS"|"SHA384-RSA-PKCS-PSS")
+		echo "sha384";;
+	"SHA512-RSA-PKCS"|"SHA512-RSA-PKCS-PSS")
+		echo "sha512";;
+	*)
+		echo "${1}";;
+	esac
+}
+# return minimal RSA key size for mechanism...
+# MyEID card allow us about 40% payload if PKCS1 v1.5 padding is aplied...
+test_keysize_mechanism () {
+	case "${1}" in
+	"SHA1-RSA-PKCS")
+		echo "768";;	# 20 bytes HASH and 15 bytes digest info = 35 bytes
+	"SHA1-RSA-PKCS-PSS")
+		echo "512";;	# no PKCS1 padding no 40% limit
+	"SHA256-RSA-PKCS")
+		echo "1024";;	# 32 bytes HASH and 19 bytes digest info = 51 bytes
+	"SHA256-RSA-PKCS-PSS")
+		echo "768";;	# no PKCS1 padding, no 40% limit
+	"SHA384-RSA-PKCS")
+		echo "1536";;	# 48 bytes HASH and 19 bytes digest info = 67 bytes
+	"SHA384-RSA-PKCS-PSS")
+		echo "1024";;	# no PKCS1 padding, no 40% limit
+	"SHA512-RSA-PKCS")
+		echo "2048";;	# 64 bytes HASH and 19 bytes digest info = 83 bytes
+	"SHA512-RSA-PKCS-PSS")
+		echo "1536";;	#  no PKCS1 padding, no 40% limit
+	*)
+		echo "65536";;
+	esac
+
+}
+
+
+
 read_card(){
 opensc-tool "${2}" "${3}" -s "${1}" 2>/dev/null|gawk '{
   if($1=="Received"){
@@ -97,13 +139,14 @@ else
 	echo "EC-CREATE-KEYS - use openssl to generate EC keys"
 	echo "EC-UPLOAD-KEYS - upload EC keys into initialized token"
 	echo "EC-GENERATE-KEYS  - generate keys on card" 
-	echo "EC-SIGN-TEST - sign sample text by ECDSA operation and test this signature"
+	echo "EC-SIGN-TEST - sign sample text by ECDSA operation and verify this signature"
 	echo "EC-ECDH-TEST - generate shared secrets and test shared secrets "
 	echo "RSA-CREATE-KEYS -  use openssl to generate RSA keys"
 	echo "RSA-UPLOAD-KEYS - upload RSA keys into initialized token"
 	echo "RSA-GENERATE-KEYS - generate RSA key on card"
-	echo "RSA-SIGN-TEST - sign sample text with token RSA operation and test this signature"
-	echo "RSA-DECRYPT-TEST - decrypt test data"
+	echo "RSA-SIGN-TEST - sign (raw, pkcs15-tool) and verify signature"
+	echo "RSA-SIGN-PKCS11-TEST - sign (pkcs11-tool, several mechanisms), check results"
+	echo "RSA-DECRYPT-TEST - decrypt test"
 	echo "ERASE-CARD - return card to creation state"
 	echo "PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys"
 	echo "PKCS11-EC-TEST - pkcs11-tool full test on EC keys"
@@ -353,7 +396,7 @@ else
 	rndCMD='(echo "00 84 00 00 08"; echo "00 c0 00 00 08")'
 fi
 eval $rndCMD|scriptor "${SCReaderFlag}" "${SCReader}" -p ${PROTO} 2>/dev/null
-done|gawk '{
+done|gawk -b '{
 if($0 ~ "Normal" )
  {
    printf(".") > "/dev/stderr" 
@@ -385,6 +428,8 @@ if [ $mode == "FULL-TEST" ]; then
 	# OsEID card is slow, skip this test for now
 	# $0 RSA-GENERATE-KEYS 1024
 	$0 RSA-SIGN-TEST
+	$0 RSA-SIGN-TEST
+	$0 RSA-SIGN-PKCS11-TEST
 	$0 RSA-DECRYPT-TEST
 
 	$0 ERASE-CARD
@@ -765,6 +810,8 @@ echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/rs
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
+
+
 #list all RSA keys 
 
 err=0
@@ -809,29 +856,171 @@ else
 	warnecho "message over 248 bytes, skipping RAW sign operation"
 	warnecho "support for RAW 2048 RSA signature is available from opensc 0.18"
 fi
+done
+if [ $err -gt 0 ]; then
+	failecho "RSA-SIGN-TEST: ${err} errors!"
+	exit 1
+fi
+fi
+#***************************************************************************************************************************
+if [ $mode == "RSA-SIGN-PKCS11-TEST" ]; then
+mkdir -p tmp
+echo "testing sign with RSA keys"
+echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/rsa_sign_testfile.txt
+echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
+echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
+echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 
-echo "using pkcs11 interface to sign message"
+# create hashes (to test PSS)
+openssl dgst -sha1  -binary -out tmp/rsa_sign_testfile.txt.sha1 tmp/rsa_sign_testfile.txt
+openssl dgst -sha256 -binary -out tmp/rsa_sign_testfile.txt.sha256 tmp/rsa_sign_testfile.txt
+openssl dgst -sha384 -binary -out tmp/rsa_sign_testfile.txt.sha384 tmp/rsa_sign_testfile.txt
+openssl dgst -sha512 -binary -out tmp/rsa_sign_testfile.txt.sha512 tmp/rsa_sign_testfile.txt
+
+# list all RSA keys
+
+err=0
+for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
+echo "Reading public key "$keyID
+PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
+LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
+if [ "x${LEN}" == "x" ]; then
+	exit 1
+fi
+BITLEN=$LEN
+LEN=$[$[$LEN + 7 ] / 8 ]
+
+dd if=tmp/rsa_sign_testfile.txt bs=${LEN} count=1 of=tmp/rsa_sign_testfile_${LEN}.txt 2>/dev/null
+# RSA-X-509
+echo "using pkcs11 interface to sign message, mechanism RSA-X-509"
 rm -f  tmp/rsa_sign_testfile.txt.sign
-
-pkcs11-tool --slot-index ${SCSlot} --sign  -m SHA1-RSA-PKCS \
+echo -n "ttt" > tmp/rsa_sign_testfile_short.txt
+gawk -b -v LEN=${LEN} '{for(i=0;i<LEN-1-length($0);i++)printf("%c",0);printf("%c%s",0,$0);exit}' tmp/rsa_sign_testfile_short.txt >tmp/rsa_sign_testfile_x509.txt
+pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-X-509\
 	--id $keyID \
-	--input-file tmp/rsa_sign_testfile.txt \
+	--input-file tmp/rsa_sign_testfile_x509.txt \
 	--output-file tmp/rsa_sign_testfile.txt.sign \
 	--pin 11111111
 if [ $? -eq 0 ]; then
-	echo "testing signature"
-	openssl dgst -sha1 -verify tmp/exported_rsa_key.pub -signature tmp/rsa_sign_testfile.txt.sign tmp/rsa_sign_testfile.txt
+	echo "testing RSA-X-509 signature"
+	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign > tmp/rsa_sign_testfile.txt.sign_verify
+	cmp tmp/rsa_sign_testfile_x509.txt tmp/rsa_sign_testfile.txt.sign_verify
 	if [ $?	-ne 0 ]; then
-		failecho "openssl signature test fail"
+		failecho "RSA-X-509 signature fail"
 		err=$[$err + 1 ]
+		hd tmp/rsa_sign_testfile_x509.txt
+		hd tmp/rsa_sign_testfile.txt.sign_verify
+	else
+		trueecho "Verified OK"
 	fi
 else
 	failecho "pkcs11 fail"
 	err=$[$err + 1 ]
 fi
-done
+
+# RSA-PKCS
+echo "using pkcs11 interface to sign message, mechanism RSA-PKCS"
+rm -f tmp/rsa_sign_testfile.txt.sign
+rm -f tmp/rsa_sign_testfile.txt.sign_verify1 tmp/rsa_sign_testfile.txt.sign_verify2
+
+echo -n "ttt" > tmp/rsa_sign_testfile_short.txt
+pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-PKCS \
+	--id $keyID \
+	--input-file tmp/rsa_sign_testfile_short.txt \
+	--output-file tmp/rsa_sign_testfile.txt.sign \
+	--pin 11111111
+if [ $? -eq 0 ]; then
+	echo "testing RSA-PKCS signature"
+	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign > tmp/rsa_sign_testfile.txt.sign_verify1
+	# create testfile with padding...
+	gawk -b -v LEN=${LEN} '{LEN=LEN-3;LEN=LEN-length($0);printf("%c%c",0,1);for(i=0;i<LEN;i++)printf("%c",255);printf("%c%s",0,$0);exit}' tmp/rsa_sign_testfile_short.txt >tmp/rsa_sign_testfile.txt.sign_verify2
+	cmp tmp/rsa_sign_testfile.txt.sign_verify1 tmp/rsa_sign_testfile.txt.sign_verify2
+	if [ $?	-ne 0 ]; then
+		failecho "RSA-PKCS signature fail"
+		err=$[$err + 1 ]
+		hd tmp/rsa_sign_testfile.txt.sign_verify1
+		hd tmp/rsa_sign_testfile.txt.sign_verify2
+	else
+		trueecho "Verified OK"
+	fi
+else
+	failecho "pkcs11 fail"
+	err=$[$err + 1 ]
+fi
+
+
+for MECHANISM in "SHA1-RSA-PKCS" "SHA256-RSA-PKCS" "SHA384-RSA-PKCS" "SHA512-RSA-PKCS" ; do
+RLEN=`test_keysize_mechanism "${MECHANISM}"`
+if [ $RLEN -gt $BITLEN ]; then
+	continue
+fi
+echo "using pkcs11 interface to sign message, mechanism ${MECHANISM}"
+file_hash=`mechanism2hash "${MECHANISM}"`
+rm -f  tmp/rsa_sign_testfile.txt.sign
+# use pkcs11-tool to do same as:
+# openssl dgst -sha1 -sign _private_key.pem_ --input-file tmp/rsa_sign_testfile.txt --output-file tmp/rsa_sign_testfile.txt.sign
+pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
+	--id $keyID \
+	--input-file tmp/rsa_sign_testfile.txt \
+	--output-file tmp/rsa_sign_testfile.txt.sign \
+	--pin 11111111
+if [ $? -eq 0 ]; then
+#	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign |hd
+	openssl dgst "-${file_hash}" -verify tmp/exported_rsa_key.pub -signature tmp/rsa_sign_testfile.txt.sign tmp/rsa_sign_testfile.txt
+	if [ $?	-ne 0 ]; then
+		failecho "openssl signature test fail"
+		err=$[$err + 1 ]
+	else
+		trueecho "Verified OK"
+	fi
+else
+	failecho "pkcs11 fail"
+	err=$[$err + 1 ]
+fi
+done	# mechanism loop (no PSS mechanisms)
+
+
+# test PSS signature
+for MECHANISM in "SHA1-RSA-PKCS-PSS" "SHA256-RSA-PKCS-PSS" "SHA384-RSA-PKCS-PSS" "SHA512-RSA-PKCS-PSS" ; do
+RLEN=`test_keysize_mechanism "${MECHANISM}"`
+if [ $RLEN -gt $BITLEN ]; then
+        continue
+fi
+file_hash=`mechanism2hash "${MECHANISM}"`
+rm -f tmp/rsa_sign_testfile.txt.${file_hash}.sign
+# use pkcs11-tool to do same operation as:
+# openssl pkeyutl -sign -pkeyopt digest:sha1 -pkeyopt rsa_padding_mode:pss -pkeyopt rsa_pss_saltlen:-1 \
+#	-in tmp/rsa_sign_testfile.txt.sha1 \
+#	-inkey _private_key.pem_ \
+#	-out tmp/rsa_sign_testfile.txt.sha1.sign
+echo "using pkcs11 interface to sign message, mechanism ${MECHANISM}"
+pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
+	--id $keyID \
+	--input-file tmp/rsa_sign_testfile.txt \
+	--output-file tmp/rsa_sign_testfile.txt.${file_hash}.sign \
+	--pin 11111111
+if [ $? -eq 0 ]; then
+#	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.${file_hash}.sign |hd
+	openssl pkeyutl -verify -in tmp/rsa_sign_testfile.txt.${file_hash} \
+		 -sigfile tmp/rsa_sign_testfile.txt.${file_hash}.sign \
+		 -pkeyopt rsa_padding_mode:pss \
+		 -pkeyopt rsa_pss_saltlen:-1 \
+		 -pkeyopt digest:${file_hash} \
+		 -pubin -inkey tmp/exported_rsa_key.pub
+	if [ $?	-ne 0 ]; then
+		failecho "openssl signature test fail"
+		err=$[$err + 1 ]
+	else
+		trueecho "Verified OK"
+	fi
+else
+	failecho "pkcs11 fail"
+	err=$[$err + 1 ]
+fi
+done # mechanism loop (PSS mechanisms)
+done    # key loop
 if [ $err -gt 0 ]; then
-	failecho "RSA-SIGN-TEST: ${err} errors!"
+	failecho "RSA-SIGN-PKCS11-TEST: ${err} errors!"
 	exit 1
 fi
 fi
