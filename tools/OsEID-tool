@@ -39,13 +39,15 @@ warnecho (){
 
 mechanism2hash () {
 	case "${1}" in
-	"SHA1-RSA-PKCS"|"SHA1-RSA-PKCS-PSS")
+	"SHA1-RSA-PKCS"|"SHA1-RSA-PKCS-PSS"|"ECDSA-SHA1")
 		echo "sha1";;
-	"SHA256-RSA-PKCS"|"SHA256-RSA-PKCS-PSS")
+	"SHA224-RSA-PKCS"|"SHA224-RSA-PKCS-PSS"|"ECDSA-SHA224")
+		echo "sha224";;
+	"SHA256-RSA-PKCS"|"SHA256-RSA-PKCS-PSS"|"ECDSA-SHA256")
 		echo "sha256";;
-	"SHA384-RSA-PKCS"|"SHA384-RSA-PKCS-PSS")
+	"SHA384-RSA-PKCS"|"SHA384-RSA-PKCS-PSS"|"ECDSA-SHA384")
 		echo "sha384";;
-	"SHA512-RSA-PKCS"|"SHA512-RSA-PKCS-PSS")
+	"SHA512-RSA-PKCS"|"SHA512-RSA-PKCS-PSS"|"ECDSA-SHA512")
 		echo "sha512";;
 	*)
 		echo "${1}";;
@@ -140,6 +142,7 @@ else
 	echo "EC-UPLOAD-KEYS - upload EC keys into initialized token"
 	echo "EC-GENERATE-KEYS  - generate keys on card" 
 	echo "EC-SIGN-TEST - sign sample text by ECDSA operation and verify this signature"
+	echo "EC-SIGN-PKCS11-TEST - sign (pkcs11-tool, several mechanisms), check results"
 	echo "EC-ECDH-TEST - generate shared secrets and test shared secrets "
 	echo "RSA-CREATE-KEYS -  use openssl to generate RSA keys"
 	echo "RSA-UPLOAD-KEYS - upload RSA keys into initialized token"
@@ -428,7 +431,6 @@ if [ $mode == "FULL-TEST" ]; then
 	# OsEID card is slow, skip this test for now
 	# $0 RSA-GENERATE-KEYS 1024
 	$0 RSA-SIGN-TEST
-	$0 RSA-SIGN-TEST
 	$0 RSA-SIGN-PKCS11-TEST
 	$0 RSA-DECRYPT-TEST
 
@@ -437,6 +439,7 @@ if [ $mode == "FULL-TEST" ]; then
 	$0 EC-UPLOAD-KEYS
 	$0 EC-GENERATE-KEYS
 	$0 EC-SIGN-TEST
+	$0 EC-SIGN-PKCS11-TEST
 	$0 EC-ECDH-TEST
 
 	$0 DES-AES-UPLOAD-KEYS
@@ -598,15 +601,19 @@ while read keyID ; do
   echo "Reading public key "$keyID
   PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_ec_key.pub
   echo "generating plain sha1 hash file:"
-  echo "test" > tmp/testfile.txt
-  echo  "create sha1 hash of testing file in binary form:"
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  # we use openssl dgst to verify signature, hash is needed for sign...
   sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
-  echo "generating signature by pkcs15-crypt"
+
+  echo "generating RAW ECDSA signature by pkcs15-crypt"
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
   ST=`date +%s.%N`
   PKCS15-CRYPT --pin 11111111 -k $keyID --signature-format "openssl" -s -i tmp/testfile.txt.sha1 -o tmp/testfile.txt.pkcs11.sha1.sig
   if [ $? -ne 0 ]; then
-	failecho "pkcs11-tool failed"
+	failecho "pkcs15-crypt failed"
 	exit 1
   fi
   ET=`date +%s.%N`
@@ -617,8 +624,41 @@ while read keyID ; do
 	failecho "openssl signature test fail"
 	exit 1
   fi
+
+done # key loop
+fi
+
+# pkcs11-tool:
+# there is no differense in -m ECDSA or -m ECDSA-SHA1 .. card always get same input (OpenSC bug...)
+# pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA --input-file sign.this.txt --output-file sign.this.txt.signature
+# pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA-SHA1 --input-file sign.this.txt --output-file sign.this.txt.signature
+
+#***************************************************************************************************************************
+if [ $mode == "EC-SIGN-PKCS11-TEST" ]; then
+mkdir -p tmp
+
+ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
+ECC_SIZE_MAX=0
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
+if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
+echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
+
+PKCS15-TOOL --list-public-keys|tee /dev/tty |\
+gawk -v SIZE=$ECC_SIZE_MAX -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE)OK=1;else OK=0}if($1~"ID" && OK==1){print $2;OK=0}}'|\
+while read keyID ; do
+  echo "Reading public key "$keyID
+  PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_ec_key.pub
+  echo "generating plain sha1 hash file:"
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  # we use openssl dgst to verify signature, hash is needed for sign...
+  sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
+
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
-  echo "generating signature by pkcs11-tool"
+  echo "generating RAW ECDSA signature by pkcs11-tool"
   ST=`date +%s.%N`
   pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign --signature-format "openssl"  -m ECDSA --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
   if [ $? -ne 0 ]; then
@@ -633,14 +673,28 @@ while read keyID ; do
 	failecho "openssl signature test fail"
 	exit 1
   fi
-done
+
+  for d in sha1 sha224 sha256 sha384 sha512 ; do
+	D=`echo ${d}|tr [:lower:] [:upper:]`
+	rm -f tmp/testfile.txt.pkcs11.${d}.sig
+	# pkcs11 operation corresponds to:
+	# openssl dgst -sha1 -sign keys/secp384r1-key.pem -out tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
+	pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign --signature-format "openssl" -m ECDSA-${D} --input-file tmp/testfile.txt --output-file tmp/testfile.txt.pkcs11.${d}.sig --id $keyID
+	if [ $? -ne 0 ]; then
+		failecho "pkcs11-tool failed"
+		exit 1
+	fi
+	echo "testing ECDSA-${D} signature.."
+	openssl dgst -${d} -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.${d}.sig tmp/testfile.txt
+	if [ $? -ne 0 ]; then
+		failecho "openssl signature test fail"
+		exit 1
+	fi
+  done # digest loop
+done # key loop
 exit $?
 fi
 
-# pkcs11-tool:
-# there is no differense in -m ECDSA or -m ECDSA-SHA1 .. card always get same input
-# pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA --input-file sign.this.txt --output-file sign.this.txt.signature
-# pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA-SHA1 --input-file sign.this.txt --output-file sign.this.txt.signature
 
 #***************************************************************************************************************************
 
