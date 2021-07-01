@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -38,8 +38,11 @@
 #include <string.h>
 #include <alloca.h>
 
-
 #define __BN_LIB_SELF__
+
+
+#define DEBUG_BN_MATH
+#include "debug.h"
 
 //#warning rename to bn_bytes..
 uint8_t mod_len __attribute__((section (".noinit")));	// global variable - number of significant bytes for BN operation
@@ -295,6 +298,10 @@ uint8_t __attribute__((weak)) bn_shift_R_v_signed (void *r, uint8_t len)
   return bn_shift_R_v_c (r, len, sign);
 }
 
+uint8_t __attribute__((weak)) bn_shift_R_signed (void *r)
+{
+ return bn_shift_R_v_signed (r, mod_len);
+}
 uint8_t __attribute__((weak)) bn_shiftr (void *r)
 {
   return bn_shift_R_v_c (r, mod_len, 0);
@@ -524,33 +531,39 @@ uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
   uint8_t *s;
   uint16_t bsize_U, bsize_V, V_off;
   int16_t rot;
-  // matrix for calculation u,v,r,s...
-  uint8_t *M;
+
+  // we need track both signs (U,V) because U sign is used to determine the result sign
   uint8_t sU = 0, sV = 0;
 
-
-  M = alloca ((bn_len + 8) * 4);
-  u = (M + 0 * bn_len);
-  v = (M + 1 * bn_len);
-  r = (M + 2 * bn_len);
-  s = (M + 3 * bn_len + 8);
-
-  memcpy (v, m, bn_len);
-  memcpy (u, a, bn_len);
-
-  // clear result
-  memset (result, 0, bn_len);
-
-  // clear help variables r,s, set R to 1
-  memset (r, 0, 2 * (bn_len + 8));
-  *((uint8_t *) r) = 1;
-
   // one of A or M must be odd (or both)
-  if (((*u | *v) & 1) == 0)
+  if (((*(uint8_t *)a | *(uint8_t*)m) & 1) == 0)
     return 1;
 
+// matrix:
+// u,v in range 0 to modulus-1
+// r,s in range -(modulus/2) to (modulus/2)
+
+  u = alloca (4 * bn_len);
+  memcpy (u, a, bn_len);
+
+  v = (u + bn_len);
+  memcpy (v, m, bn_len);
+
+  r = (v + bn_len);
+  s = (r + bn_len);
+
+  // clear help variables
+  memset (r, 0, 2 * bn_len);
+
+  // init 'r'
+  *r = 1;
+
+  // clear result (do not clear result before 'a' is copied to 'u'!)
+  // (the result can be in the same memory location as the operand)
+  memset (result, 0, bn_len);
+
   // swap r, s,  and  u, v
-  if (bn_cmpGE (a, m))
+  if (bn_cmpGE (u, v))
     {
       uint8_t *tmp;
       tmp = r, r = s, s = tmp;
@@ -576,14 +589,15 @@ uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
 
       if (rot < 0)
 	{
-	  if (bsize_U == 0)
+	  bsize_V = bsize_U;
+	  if (bsize_V == 0)
 	    return 1;		// no inversion
-	  if (bsize_U == 1)
+	  if (bsize_V == 1)
 	    break;		// inversion found
 	  // clear offset of s,v
 	  while (V_off--)
 	    {
-	      bn_shift_R_v_signed (s, bn_len + 8);
+	      bn_shift_R_signed (s);
 	      bn_shiftr (v);
 	    }
 	  // swap u,v, r,s, sU,sV
@@ -596,15 +610,12 @@ uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
 	    uint8_t tmp;
 	    tmp = sU, sU = sV, sV = tmp;
 	  }
-	  bsize_V = bsize_U;
 	  rot = -rot;
 	  {
-	    uint16_t tmp = rot;
-	    while (tmp--)
+	    V_off = rot;
+	    while (rot--)
 	      {
-		mod_len = bn_len + 8;
 		bn_shiftl (s);
-		mod_len = bn_len;
 		bn_shiftl (v);
 	      }
 	  }
@@ -612,36 +623,35 @@ uint8_t __attribute__((weak)) bn_inv_mod (void *result, void *a, void *m)
       else
 	{
 	  uint16_t tmp = V_off - rot;
+
+	  V_off = rot;
 	  while (tmp--)
 	    {
-	      bn_shift_R_v_signed (s, bn_len + 8);
+	      bn_shift_R_signed (s);
 	      bn_shiftr (v);
 	    }
 	}
-      V_off = rot;
-
-      mod_len = bn_len + 8;
-
       if (sU ^ sV)
 	bn_add (r, s);
       else
 	bn_sub (r, r, s);
-      mod_len = bn_len;
 
       sU ^= bn_abs_sub (u, u, v);
     }
 
+  // r is in range -(modulus/2) to (modulus/2)
+  // use 'U' sign to correct 'R'
   if (sU)
     bn_neg (r);
 
   memcpy (result, r, bn_len);
-
+  // for negative result do correction
   if (r[bn_len - 1] & 0x80)	// if (r < 0)
     {
       bn_add (result, m);
       return 0;
     }
-
+  // if 'a' was bigger that 'm' we need to correct one more correction
   if (bn_cmpGE (r, m))
     bn_sub (result, result, m);
 

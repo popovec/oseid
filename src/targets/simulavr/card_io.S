@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2017,2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -26,6 +26,13 @@
 
 card_io_tx:
 	movw	r30,r24
+// test if this is PPS response
+	lds	r24,card_io_pps
+	tst	r24
+	breq	1f
+// drop PPS response (negotiation is handles in patched simulavr)
+	ret
+1:
 	movw	r26,r22
 
 	ldi	r24,0
@@ -46,32 +53,56 @@ card_io_tx_loop:
 
 card_io_rx:
 	movw	r30,r24
-	movw	r24,r22		// length
+	movw	r26,r22		// length
+// clear counter
+	clr	r24
+	clr	r25
+
+// test, if PPS was generated in previous run
+	lds	r21,card_io_pps
+	sts	card_io_pps,r1
+	tst	r21
+	brne	1f
+
+// yes, PPS was sent to card, there is message in buffer
+// skip buffer clear and read new message...
 	ldi	r22,2
 // next instruction waits until input is available
 	sts	0xff,r22 	// read line
+1:
 
-// clear counter
-	clr	r26
-	clr	r27
+// read protocol
+	lds	r23,0xff
+	lds	r21,card_io_proto
+	cp	r23,r21
+	breq	card_io_rx_loop
+// protocol change.. generate PPS
+	sts	card_io_proto,r23
+// set flag, PPS generated
+	sts	card_io_pps,r23
+	ldi	r21,0xff
+	st	Z+,r21	// PPSS
+	andi	r23,1
+	st	Z+,r23	// PPS0
+	eor	r23,r21
+	st	Z+,r23	// PCK
+	ldi	r24,3	// PPS len
+	ret
 
 card_io_rx_loop:
 	lds	r23,0xff
 	tst	r23
 	breq	1f	// no more characters, skip to end
-// protocol...
-	bst	r23,0
-	bld	r27,7
+
 // in r23 0xF0 or 0xF1 signalize us protocol
 // read char
 	lds	r0,0xfe
 	st	z+,r0
-	adiw	r26,1	// byte counter (bit 15 protocol)
-	sbiw	r24,1
+	adiw	r24,1
+	sbiw	r26,1
 	brne	card_io_rx_loop
+// buffer overrun
 1:
-	movw	r24,r26
-// return r25:r24 - length of data (bit 15 is protocol)
 	ret
 
 .global card_io_start_null
@@ -85,6 +116,9 @@ card_io_start_null:
 
 card_io_init:
 // ATR is managed in patched simulavr...
+	sts	card_io_proto,r1
+	sts	card_io_pps,r1
+
 	ret
 
 .global card_io_stop_null
@@ -92,3 +126,8 @@ card_io_init:
 card_io_stop_null:
 	ret
 
+	.section .noinit,"aw",@nobits
+card_io_proto:
+	.skip   1
+card_io_pps:
+	.skip	1

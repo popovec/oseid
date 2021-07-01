@@ -41,6 +41,9 @@ CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 # MyEID does not support 56 bit des version, OsEID allow this if needed
 #CFLAGS += -DENABLE_DES56
 
+CFLAGS += -DPROTOCOL_T0 -DPROTOCOL_T1
+CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+
 all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
 builddir:
@@ -69,6 +72,7 @@ TARGET_SPEC +=  $(BUILD)mp_mul_32.o
 TARGET_SPEC +=	$(BUILD)mp_mul_256.o
 TARGET_SPEC +=  $(BUILD)mp_mul_32_trunc.o
 TARGET_SPEC +=  $(BUILD)ec_fast_red.o
+TARGET_SPEC +=  $(BUILD)bn_inv_mod.o
 
 HAVE +=		-DHAVE_RSA_MUL_512_MOD
 HAVE +=		-DHAVE_RSA_MUL_768_MOD
@@ -141,8 +145,11 @@ $(BUILD)mp.o:	$(TARGET_LIB)mp.S
 $(BUILD)bn_lib_arch.o:	$(TARGET_LIB)bn_lib.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib_arch.o $(TARGET_LIB)bn_lib.S -Icard_os
 
-$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
+$(BUILD)bn_inv_mod.o:	$(TARGET_LIB)bn_inv_mod.S
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_inv_mod.o $(TARGET_LIB)bn_inv_mod.S -Icard_os
+
+#$(BUILD)bn_lib.o:	lib/generic/bn_lib.c card_os/bn_lib.h
+#		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib.o lib/generic/bn_lib.c -Icard_os
 
 $(BUILD)xconstants.o:	$(TARGET)constants.c
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)xconstants.o $(TARGET)constants.c -Icard_os

@@ -884,14 +884,16 @@ ccid_control_request ()
     {
       DEBUG_print_string ("clock\n");
       Endpoint_ClearSETUP ();
-      Endpoint_Write_Descriptor (clock_freq, 53 * 4);
+//      Endpoint_Write_Descriptor (clock_freq, 53 * 4);
+      Endpoint_Write_Descriptor (NULL, 0);
       Endpoint_ClearStatusStage_in ();
     }
   else if (USB_ControlRequest.bRequest == 3)	// data rates
     {
       DEBUG_print_string ("rates\n");
       Endpoint_ClearSETUP ();
-      Endpoint_Write_Descriptor (NULL, 0);
+//      Endpoint_Write_Descriptor (NULL, 0);
+      Endpoint_Write_Descriptor (clock_freq, 53 * 4);
       Endpoint_ClearStatusStage_in ();
     }
 }

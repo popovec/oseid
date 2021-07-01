@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@ void serial_print_hex (uint8_t data);
 #define DEBUG_print_string(c) serial_print_string (c)
 #define DEBUG_dump_block(d,l) serial_dump_block (d,l)
 #define DEBUG_putchar(c) serial_putchar (c)
-#define DEBUG_print_hex (d) serial_print_hex (d)
+#define DEBUG_print_hex(d) serial_print_hex (d)
 #else
 #define DEBUG_init()
 #define DEBUG_print_string(c)

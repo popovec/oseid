@@ -1,3 +1,12 @@
+OsEID  20210701 (released)
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date: Thu Jul  1 10:39:27 CEST 2021
+
+	* AES/DES fully compatible with MyEID 4.5.5 (AES-ECB/CBC/CBC-PAD)
+	* key wrap/unwrap improved
+	* modular multiplicative inversion - AVR-ASM code
+	* T1 protocol for AVR128DA32 based device
+
 OsEID  20201130 (released)
 Author: Peter Popovec <popovec.peter@gmail.com>
 Date: Mon Nov 30 13:45:32 CET 2020

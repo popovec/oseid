@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -476,6 +476,13 @@ mp_sub1:
 /////////////////////////////////////////////////////////////
 
 	.section .text.rsa_shiftl,"ax",@progbits
+	.global bn_shift_L_v
+	.type   bn_shift_L_v, @function
+
+bn_shift_L_v:
+	movw	Z,r24
+	mov	r24,r22
+	rjmp	1f
 
 	.global	mp_shiftl4
 	.type	mp_shiftl4, @function
@@ -502,6 +509,7 @@ rsa_shiftl:
 bn_shiftl:
 	movw	ZL,r24
 	lds	r24,mod_len
+1:
 	lsr	r24
 	lsr	r24
 	lsr	r24
@@ -518,10 +526,14 @@ mp_shiftl1:
 	rol	r24
 	ret
 /////////////////////////////////////////////////////////////
-        .global bn_shift_R_v_signed
-        .type   bn_shift_R_v_signed, @function
+        .global bn_shift_R_signed
+        .type   bn_shift_R_signed, @function
 	.section .text.bn_shift_R_v_signed,"ax",@progbits
 
+        .global bn_shift_R_v_signed
+        .type   bn_shift_R_v_signed, @function
+bn_shift_R_signed:
+	lds	r22,mod_len
 // signed shift
 bn_shift_R_v_signed:
 	movw	r30,r24
@@ -567,12 +579,11 @@ bn_shiftr_long:
         .type   bn_shiftr, @function
 	.section .text.bn_shiftr,"ax",@progbits
 
-
+// uint8_t __attribute__ ((weak)) bn_shiftr (void *r);
 mp_shiftr:
 rsa_shiftr:
 bn_shiftr:
-	clr	r20
-	rjmp	mp_shiftr_c
+	clr	r22		// shift zero from right
 
         .global 	mp_shiftr_c
         .type		mp_shiftr_c, @function
@@ -582,25 +593,22 @@ bn_shiftr:
 
         .global 	bn_shiftr_c
         .type		bn_shiftr_c, @function
-	.section	.text.bn_shiftr_c,"ax",@progbits
 
+// uint8_t __attribute__ ((weak)) bn_shiftr_c (void *r, uint8_t carry);
 mp_shiftr_c:
 rsa_shiftr_c:
 bn_shiftr_c:
+	mov	r20,r22		// 0 or not 0 to r20 (to be shifted from right)
 	lds	r22,mod_len
-	rjmp	bn_shift_R_v_c
 
 // generic fcion - pointer, size, carry
+// uint8_t __attribute__ ((weak)) bn_shift_R_v_c (void *r, uint8_t len, uint8_t carry);
         .global		bn_shift_R_v_c
         .type		bn_shift_R_v_c, @function
-	.section	.text.bn_shift_R_v_c,"ax",@progbits
 
 bn_shift_R_v_c:
 	movw	r30,r24
-	rjmp	bn_shift_R_
 
-
-	.section	.text.bn_shift_R_,"ax",@progbits
 bn_shift_R_:
 	add	r30,r22
 	adc	r31,r1
@@ -608,7 +616,7 @@ bn_shift_R_0:
 	lsr	r22
 	lsr	r22
 	lsr	r22
-// set carry flag if r22 != 0
+// set carry flag if r20 != 0
 	cp	r1,r20
 
 bn_shift_R_generic:

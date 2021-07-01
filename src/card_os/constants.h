@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019  Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@
 #define N_CARD_ID	1
 #define S_CARD_ID	20
 #if 1
-#define C_CARD_ID	  'O','s','E','I','D',4,5,1,\
+#define C_CARD_ID	  'O','s','E','I','D',4,5,2,\
                           0,0,0,0,0,0,0,0,0,1,0,0
 #else
 #define C_CARD_ID	  'O','s','E','I','D',4,2,16,\
@@ -82,12 +82,37 @@
                         0x72,0xBD,0x20,0x6C,0xBA,0xB1,0x62,0x0F,0xE8,0x4B,0xF2,0x70,0xF8,0x5F,0xC8,0x02
 #endif
 
-#define N_PSHA1_prefix	4
+// Digest info prefixes,  do not change numbering, this corresponds to TAG 0x80 Algorithm reference upper nible
+// 0Xh ho hash algo, 1Xh SHA1 ... 6Xh SHA512
+#define N_PSHA1_prefix	0x71
 #define S_PSHA1_prefix	15
-#define C_PSHA1_prefix 	  0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e,\
-                          0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
+#define C_PSHA1_prefix 	  0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14
 
-#define N_FS_INIT_DATA	5
+#define N_PRIPEMD160_prefix	N_PSHA1_prefix+1
+#define S_PRIPEMD160_prefix	15
+#define C_PRIPEMD160_prefix	0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x24, 0x03, 0x02, 0x01, 0x05, 0x00, 0x04, 0x14
+
+#define N_PSHA224_prefix	N_PSHA1_prefix+2
+#define S_PSHA224_prefix	19
+#define C_PSHA224_prefix	0x30, 0x2d, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x04, 0x05, 0x00, 0x04, 0x1c
+
+#define N_PSHA256_prefix	N_PSHA1_prefix+3
+#define S_PSHA256_prefix	19
+#define C_PSHA256_prefix	0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20
+
+#define N_PSHA384_prefix 	N_PSHA1_prefix+4
+#define S_PSHA384_prefix 	19
+#define C_PSHA384_prefix	0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30
+
+#define N_PSHA512_prefix 	N_PSHA1_prefix+5
+#define S_PSHA512_prefix 	19
+#define C_PSHA512_prefix	0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40
+
+#define N_PMD5_prefix		N_PSHA1_prefix+6
+#define S_PMD5_prefix		18
+#define C_PMD5_prefix		0x30, 0x20, 0x30, 0x0c, 0x06, 0x08, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x02, 0x05, 0x05, 0x00, 0x04, 0x10
+
+#define N_FS_INIT_DATA	0x0f
 #define	S_FS_INIT_DATA	42
 #define	C_FS_INIT_DATA	0x00,0x3f,0xff,0x7f,0x00,0x00,0x00,0x00,0x38,0x11,0x3f,0xff,0x02,0x00,0xe0,\
 			0x15,0x50,0xff,0x7f,0x01,0x00,0x00,0x00,0x38,0x11,0x1f,0xff,0x02,0x00,0xec,\
@@ -466,7 +491,17 @@
                         N_SECP256K1_Gy,    S_SECP256K1_Gy,    C_SECP256K1_Gy,
 #endif
 
-
+#if 1
+#define DIGEST_PREFIXES \
+                        N_PSHA1_prefix,    S_PSHA1_prefix,    C_PSHA1_prefix,
+#else
+#define DIGEST_PREFIXES \
+                        N_PSHA1_prefix,    S_PSHA1_prefix,    C_PSHA1_prefix,\
+                        N_PSHA224_prefix,  S_PSHA224_prefix,  C_PSHA224_prefix,\
+                        N_PSHA256_prefix,  S_PSHA256_prefix,  C_PSHA256_prefix,\
+                        N_PSHA384_prefix,  S_PSHA384_prefix,  C_PSHA384_prefix,\
+                        N_PSHA512_prefix,  S_PSHA384_prefix,  C_PSHA512_prefix,
+#endif
 
 #define C_CONSTANTS \
   CUR_SECP521R1\
@@ -474,7 +509,7 @@
   CUR_P256V1\
   CUR_P192V1\
   CUR_SECP256K1\
-  N_PSHA1_prefix,    S_PSHA1_prefix,    C_PSHA1_prefix,\
+  DIGEST_PREFIXES\
   N_CARD_ID,	     S_CARD_ID,	        C_CARD_ID,\
   N_CARD_CAP_ID,     S_CARD_CAP_ID,     C_CARD_CAP_ID,\
   N_GCD_PRIMES,      S_GCD_PRIMES,      C_GCD_PRIMES,\

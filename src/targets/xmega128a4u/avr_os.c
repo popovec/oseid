@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -200,8 +200,6 @@ restart_main (void)
 		 //                   ::[sleep_reg] "m" (SLEEP));        // SLEEP = SLEEP_CTRL
 		 ::[sleep_reg] "m" (SLEEP_CTRL)	//
 		 :);
-// reintialize USB clock/calibration
-  USB_Reinit ();
 // restore SP for main ..
   asm volatile (		//
 		 "ldi	r30,lo8(%[r_state])\n"	//
@@ -228,6 +226,10 @@ restart_main (void)
 		 [rampy] "I" (_SFR_IO_ADDR (RAMPY)),	//
 		 [rampz] "I" (_SFR_IO_ADDR (RAMPZ))	//
 		 :);
+
+// reintialize USB clock/calibration
+  USB_Reinit ();
+
 }
 
 // Next functions force ISR PORTA_INT0_vect (or PORTA_INT1_vect) imedietly

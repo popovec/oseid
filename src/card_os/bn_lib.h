@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -66,6 +66,7 @@ uint8_t __attribute__ ((weak)) bn_shift_R_v_c (void *r, uint8_t len, uint8_t car
 uint8_t __attribute__ ((weak)) bn_shiftr (void *r);
 uint8_t __attribute__ ((weak)) bn_shiftr_long (void *r);
 uint8_t __attribute__ ((weak)) bn_shiftr_c (void *r, uint8_t carry);
+uint8_t __attribute__((weak)) bn_shift_R_signed (void *r);
 
 void __attribute__ ((weak)) bn_mul_v (void * r, void * a, void * b, uint8_t len);
 

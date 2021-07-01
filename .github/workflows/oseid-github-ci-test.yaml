@@ -1,0 +1,50 @@
+name: GitHub Actions for OsEID
+on: [push]
+jobs:
+  OsEID-GitHub-Actions:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "The job was automatically triggered by a ${{ github.event_name }} event."
+      - run: echo "This job is now running on a ${{ runner.os }} server hosted by GitHub!"
+      - run: echo "The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - name: Check out repository code
+        uses: actions/checkout@v2
+      - run: echo "The ${{ github.repository }} repository has been cloned to the runner."
+      - name: Install additional packages
+        run: |
+          sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools
+          sudo apt-get install opensc
+      - name: OsEID compile and run
+        run: |
+          cd src
+          make -f Makefile.console
+          mkdir tmp;
+          socat -d -d pty,link=tmp/OsEIDsim.socket,raw,echo=0 "exec:build/console/console ...,pty,raw,echo=0" &
+          PID=$!
+          sleep 1
+          echo "# OsEIDsim" > tmp/reader.conf
+          echo 'FRIENDLYNAME      "OsEIDsim"' >> tmp/reader.conf
+          echo "DEVICENAME        ${{ github.workspace }}/src/tmp/OsEIDsim.socket" >> tmp/reader.conf
+          echo "LIBPATH           ${{ github.workspace }}/src/build/console/libOsEIDsim.so.0.0.1" >> tmp/reader.conf
+          echo "CHANNELID         1" >> tmp/reader.conf
+          sudo mv tmp/reader.conf /etc/reader.conf.d/reader.conf
+          cat /etc/reader.conf.d/reader.conf
+          sudo systemctl stop pcscd.service pcscd.socket
+          sudo systemctl start pcscd.service pcscd.socket
+      - name: compile OpenSC from git
+        run: |
+          sudo dpkg --purge opensc
+          cd ${{ github.workspace }}
+          git clone https://github.com/OpenSC/OpenSC
+          set -ex;
+          cd OpenSC/;
+          ./bootstrap;
+          ./configure;
+          sudo make install;
+      - name: OsEID test (OpenSC from git)
+        run: |
+          export LD_LIBRARY_PATH=/usr/local/lib;
+          cd ${{ github.workspace }}/tools
+          export TERM=xterm-256color
+          ./OsEID-tool FULL-TEST
+      - run: echo "This job's status is ${{ job.status }}."

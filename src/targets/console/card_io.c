@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
     
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -36,14 +36,14 @@
 #include <setjmp.h>
 #include "card_io.h"
 
-uint8_t protocol;
+uint8_t pps;
 
 void
 card_io_init (void)
 {
   fprintf (stdout, "< 3b:f5:18:00:02:80:01:4f:73:45:49:44:1a\n");
   DPRINT ("RESET, sending ATR, protocol reset to T0\n");
-  protocol = 0;
+  pps = 0;
 }
 
 uint16_t
@@ -111,24 +111,32 @@ card_io_rx (uint8_t * data, uint16_t len)
 	  if (0 == strncmp ("> 0", line, 3))
 	    {
 	      // TODO PTS allowed only after ATR
-	      protocol = 0;
-	      DPRINT ("New protocol T%d\n", protocol);
+	      DPRINT ("New protocol T0\n");
 	      free (line);
 	      line = NULL;
 	      ilen = 0;
-	      fprintf (stdout, "< 0\n");
-	      continue;
+//	      fprintf (stdout, "< 0\n");
+// generate PPS frame
+              data[0] = 0xff;
+              data[1] = 0;
+              data[2] = 0xff;
+              pps = 1;
+              return 3;
 	    }
 	  if (0 == strncmp ("> 1", line, 3))
 	    {
 	      // TODO PTS allowed only after ATR
-	      protocol = 1;
-	      DPRINT ("New protocol T%d\n", protocol);
+	      DPRINT ("New protocol T1\n");
 	      free (line);
 	      line = NULL;
 	      ilen = 0;
-	      fprintf (stdout, "< 1\n");
-	      continue;
+//	      fprintf (stdout, "< 1\n");
+// generate PPS frame
+              data[0] = 0xff;
+              data[1] =1;
+              data[2] = 0xfe;
+              pps = 1;
+              return 3;
 	    }
 	}
 
@@ -164,14 +172,21 @@ card_io_rx (uint8_t * data, uint16_t len)
 
   free (line);
 
-  return count | (protocol << 15);
+  return count;
 }
 
 // for len = 0 transmit 65536 bytes
-uint8_t
+void
 card_io_tx (uint8_t * data, uint16_t len)
 {
   printf ("< ");
+// check PPS
+  if (pps)
+    {
+      pps = 0;
+      printf ("%d\n", data[1]);
+      return;
+    }
   do
     {
       printf ("%02x ", *data++);
@@ -179,7 +194,7 @@ card_io_tx (uint8_t * data, uint16_t len)
   while (--len);
   printf ("\n");
 
-  return 0;
+  return;
 }
 
 void

@@ -11,7 +11,7 @@ Peter Popovec <popovec.peter@gmail.com>
               Card is supported by OpenSC with MyEID driver.
 
 
-Copyright (C) 2015-2020 Peter Popovec <popovec.peter@gmail.com>
+Copyright (C) 2015-2021 Peter Popovec <popovec.peter@gmail.com>
 
 Introduction
 ------------
@@ -64,6 +64,7 @@ Features
 * 64 kbyte file space (for keys /certificates etc.)
 * auto size <<DF>>
 * Supported in Linux/Windows by OpenSC package - MyEID driver
+* Support for T0 and T1 protocol
 * OsEID card: Communication speed 312500 bits/s for 5MHz readers
 * OsEID token: no special card reader driver needed for Linux/WIN/MAC
 
@@ -73,7 +74,6 @@ Drawbacks
 * No Warranty, use at your own risk.
 * It is not possible to buy it, you have to make it.
 * Documentation is still in the form of draft.
-* card - only T0 protocol, T1 available only in token/simulator
 * RSA operations for keys > 1024 is slow
   ** about 10.7 seconds for 2048 bit key / token about 10 seconds,
   ** about  5.3 seconds for 1536 bit key / token about 4.9 seconds,
@@ -564,8 +564,12 @@ Vpp pad
 In year 2006, the standard ISO 7816 changed the definition of *Vpp* pad. 
 This pad is no longer used for programming voltage.  If you use newer reader
 (produced after 2006), card may work, or fail in this reader.  If your OsEID
-card does not working in your card reader, Vpp pad of card pad must be isolated
+card does not working in your card reader, Vpp pad on card must be isolated
 from reader.  This can be done by stick self-adhesive tape on Vpp pad.
+
+Known issue: Alcor Micro AU9560 USB reader - OsEID card (AVR128DA or
+Atmega128 based) is not working in this reader without Vpp pad isolation.
+
 
 Building OsEID-token
 ~~~~~~~~~~~~~~~~~~~~
@@ -687,41 +691,41 @@ Windows minidriver configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If you plan to use OsEID card in Win 10 (for example in EDGE browser etc.) you
-need install *OpenSC* package (0.17).
+need install *OpenSC* package
 
-OpenSC version 0.17.0 functionality with OsEID card has been tested in WIN
-10 (both 64 and 32 bit versions).  *certutil* command is fully functional
-and TLS client auth in *EDGE* browser is working.  OpenSC 0.18.0 and 0.19 fails
-in EDGE, there is missing PIN dialog.
+OpenSC version 0.22.0-rc1 functionality with OsEID card has been tested in
+WIN 10, *certutil* command is fully functional and TLS client auth in *EDGE*
+browser is working.
 
-To use OsEID card, You need configure OpenSC package (add OsEID ATR to
-opensc.conf file) and you need update your registry file.  Please use
-OsEID.reg file from download section.
+To use OsEID card, with minidriver, you need to update  your registry file.
+Please use OsEID.reg file from download section. Here example used for
+opensc 0.22.0-rc1:
 
 ----
-[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID]
-"80000001"="opensc-minidriver.dll"
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID-old]
+"80000001"="C:\\Program Files\\OpenSC Project\\OpenSC\\minidriver\\opensc-minidriver.dll"
 "ATR"=hex:3b,f5,00,00,02,10,80,4f,73,45,49,44
 "ATRmask"=hex:ff,ff,00,ff,ff,ff,ff,ff,ff,ff,ff,ff
 "Smart Card Key Storage Provider"="Microsoft Smart Card Key Storage Provider"
 "Crypto Provider"="OpenSC CSP"
 
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID]
+"80000001"="C:\\Program Files\\OpenSC Project\\OpenSC\\minidriver\\opensc-minidriver.dll"
+"ATR"=hex:3b,d5,96,02,80,31,fe,65,4f,73,45,49,44,1f
+"ATRmask"=hex:ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff,ff
+"Smart Card Key Storage Provider"="Microsoft Smart Card Key Storage Provider"
+"Crypto Provider"="OpenSC CSP"
+
 [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID-token]
-"80000001"="opensc-minidriver.dll"
+"80000001"="C:\\Program Files\\OpenSC Project\\OpenSC\\minidriver\\opensc-minidriver.dll"
 "ATR"=hex:3b,f5,00,00,02,80,01,4f,73,45,49,44,00
 "ATRmask"=hex:ff,ff,00,ff,ff,ff,ff,ff,ff,ff,ff,ff,00
 "Smart Card Key Storage Provider"="Microsoft Smart Card Key Storage Provider"
 "Crypto Provider"="OpenSC CSP"
 ----
 
-OpenSC from version 0.18.0 uses different location of file
-opensc-minidriver.dll.  Please correct this in your register file:
-
-----
-"80000001"="C:\Program Files\OpenSC Project\OpenSC\minidriver\opensc-minidriver.dll"
-----
-
-For 32 bit OpenSC version on 64 bit system:
+For 32 bit OpenSC version on 64 bit system there is small change in
+minidriver path:
 ----
 "80000001"="C:\Program Files (x86)\OpenSC Project\OpenSC\minidriver\opensc-minidriver.dll"
 ----
@@ -1737,12 +1741,12 @@ generates error in RSA security operation.
 2nd byte:
 00h	- default
 
-OsEID support is planed for next releases (2020XXXX):
+bit 3:  for extractable keys, if set, key can be wrapped (AES/DES key only)
+
+OsEID support is planed for next releases (202XXXXX):
 
 bit 0:  if set, object is marked as session object, after card reset
         object is automatically removed from card
-bit 3:  for extractable keys, if set, key can be wrapped
-
 
 ----
 
@@ -2784,7 +2788,9 @@ PERFORM SECURITY OPERATION
 |CLA  | INS  | P1 | P2  | Lc  | Data | LE
 |...  | 0x2A |... | ... | ... | ...  | ...
 |=========================================
-(CASE 4S)
+(CASE 2S   WRAP operation)
+(CASE 3S   UNWRAP operation)
+(CASE 4S/E encipher, decipher, sign)
 
 Before security operation correct security environment must be set.
 Access condition must allow use of selected key file.
@@ -2923,12 +2929,6 @@ decipher P2 = 0x86 is requested.  OsEID allows both values for AES/DES/RSA
 decipher.  OsEID allows arbitrary length of ciphertext parts for padding
 indicators 81h and 82h.  MyEID manual 2.1.4 defines use of this padding
 indicators for 2048 bit keys.
-
-WARNING!  OsEID support for DES and AES security operation is experimental.
-If selected key file contain AES/DES key, security operation is allowed only
-for CLA = 0x80.  Digital signature security operation is not supported if
-AES/DES key is selected. Data size (Lc) must match block size of DES /AES
-block.
 
 OsEID does not support templates for now, but for completeness:
 
@@ -3441,23 +3441,23 @@ In each step of algorithm 'U' and 'V' is aligned (by left rotations) on
 highest non zero bit, then this bit is eliminated by subtraction.  'R' and
 'S' are kept updated similar to 'U' and 'V'.  This step is repeating, but
 align is done by right rotation, until bit size of 'U' is bigger that bit
-size of 'V'.  If this is not true, 'U' and 'V' ('R' and 'S') are swapped, and
-all rotations are returned back (right).  This procedure is repeating until
-bit size of 'U' is zero or one (no inversion exists or inversion found).
+size of 'V'.  If this is not true, 'U' and 'V' ('R' and 'S') are swapped,
+and all rotations are returned back (right).  This procedure is repeating
+until bit size of 'U' is zero or one (no inversion exists or inversion
+found).
 
 The 'U' and 'V' are represented as unsigned number, but there are helper
 variables 'sU' and 'sV' for storing the signs of 'U' and 'V'.  'R' and 'S'
-variables use 64 more bits (this is enough to use 1 more bit to represent
-two's complement number, but arithmetics routines are unrolled and use 8 bytes
-step).
+variables are signed (in range +- 1/2 of modulus). Final sign is determived
+from 'R' sign and 'U' sign.
 
-Only C code is available for now, ASM version is planned.  Implementation
-allows us to calculate inversion for even modulus too (this is needed for
-calculation of CRT components).  Code is designed to be small, the speed of
-the algorithm is not significant.  (In versions before 20171231, right shift
-binary Euclidean algorithm was used, but this doesn't allows us to calculate
-CRT components because modulus is always even number.  This code is smaller
-as new code but is slower too.)
+C and AVR ASM version is available, but ASM version is not faster.
+Implementation allows us to calculate inversion for even modulus too (this
+is needed for calculation of CRT components).  Code is designed to be small,
+the speed of the algorithm is not significant.  (In versions before
+20171231, right shift binary Euclidean algorithm was used, but this doesn't
+allows us to calculate CRT components because modulus is always even number.
+This code is smaller as new code but is slower too.)
 
 
 

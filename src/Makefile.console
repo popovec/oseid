@@ -45,6 +45,10 @@ CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 # MyEID does not support 56 bit des version, OsEID allow this if needed
 #CFLAGS += -DENABLE_DES56
 
+CFLAGS += -DPROTOCOL_T0 -DPROTOCOL_T1
+CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+
+
 .PHONY:	builddir all
 
 builddir:

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015 -2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -64,5 +64,12 @@
 #define KEY_GENERATE	0x40
 
 #define KEY_FREE_SPACE 0xff
+
+#define RSA_KEY_EF	0x11
+#define EC1_KEY_EF	0x22
+#define EC2_KEY_EF	0x23
+#define DES_KEY_EF	0x19
+#define AES_KEY_EF	0x29
+
 
 uint8_t get_rsa_key_part (void *here, uint8_t id);

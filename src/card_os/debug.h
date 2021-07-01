@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2019-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -60,6 +60,10 @@
 #define DEBUG_V 128
 #endif
 
+#ifdef DEBUG_BN_MATH
+#define DEBUG_V 8192
+#endif
+
 #ifdef DEBUG_RSA
 #define DEBUG_V 16384
 #endif
@@ -109,12 +113,10 @@ static void __attribute__((unused)) NPRINT (char *m, void *d, int size)
     {
       if (atoi (env_atr) & DEBUG_V)
 	{
-
-	  int j;
-	  fprintf (stderr, "%s", m);
-
-	  for (j = 0; j < size; j++)
-	    fprintf (stderr, "%02X", *(data++));
+	  fprintf (stderr, "%s 0x", m);
+	  data +=size;
+          while(size--)
+            fprintf (stderr, "%02X", *(--data));
 	  fprintf (stderr, "\n");
 	}
     }

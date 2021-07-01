@@ -452,7 +452,6 @@ bn_neg_no_abi:
 	lds	r25,mod_len
 	lsr	r25
 // warning, do not change r24, bn_abs_sub() does not save r24
-// warning r18,r19,r20 prime_gcd() uses this regs  without saving
 bn_neg_no_abi2:
 	sub	r0,r0	// clear r0 and carry flag
 bn_neg_loop:
@@ -510,6 +509,8 @@ bn_count_bits:
 #define Ul r14
 #define TMP r18
 #define TMPh r19
+// 1,2,4,8 ..
+#define GCD_UNROLL 2
 #include "../../card_os/constants.h"
 prime_gcd:
 	movw	r30,r24	// number position
@@ -574,34 +575,33 @@ prime_gcd_loop:
 	call	bn_shift_R_v_c
 	rjmp	1b
 
-// subtract V=V-U
+// subtract TMP = V - U
 1:
 	movw	r26,Ul
 	movw	r28,TMP
-	ldi	r25,RSA_BYTES
+	ldi	r25,RSA_BYTES/GCD_UNROLL
 	sub	r20,r20
-1:	ld	r0,Z+
+1:
+.rept GCD_UNROLL
+	ld	r0,Z+
 	ld	r24,X+
 	sbc	r0,r24
 	or	r20,r0	// ZERO test
 	st	Y+,r0
+.endr
 	dec	r25
 	brne	1b
 
 	brcc	1f
-// minus
-
-// TMP must be negated,
-	movw	r30,TMP
-	ldi	r25,(RSA_BYTES/2)
-	call	bn_neg_no_abi2
-
+// minus - old V is OK, new TMP is wrong
 // swap U,V
 	movw	r24,Ul
 	movw	Ul,Vl
 	movw	Vl,r24
+	rjmp	prime_gcd_loop
 1:
-//plus
+// plus - new TMP is OK, this is new V
+//
 	movw	r24,TMP
 	movw	TMP,Vl
 	movw	Vl,r24

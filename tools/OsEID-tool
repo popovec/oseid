@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -26,17 +26,18 @@
 #    OsEID_READER='OsEIDsim 00 00' ./OsEID-tool INFO
 #
 #export OPENSC_DEBUG=255
-
 failecho (){
-	tput setaf 1;echo $@;tput sgr0
+	tput setaf 1 2>/dev/null;echo $@;tput sgr0 2>/dev/null
 }
 trueecho (){
-	tput setaf 2;echo $@;tput sgr0
+	tput setaf 2 2>/dev/null;echo $@;tput sgr0 2>/dev/null
 }
 warnecho (){
-	tput setaf 3;echo $@;tput sgr0
+	tput setaf 3 2>/dev/null;echo $@;tput sgr0 2>/dev/null
 }
-
+boldecho (){
+	tput bold 2>/dev/null;echo $@;tput sgr0 2>/dev/null
+}
 mechanism2hash () {
 	case "${1}" in
 	"SHA1-RSA-PKCS"|"SHA1-RSA-PKCS-PSS"|"ECDSA-SHA1")
@@ -150,6 +151,7 @@ else
 	echo "RSA-SIGN-TEST - sign (raw, pkcs15-tool) and verify signature"
 	echo "RSA-SIGN-PKCS11-TEST - sign (pkcs11-tool, several mechanisms), check results"
 	echo "RSA-DECRYPT-TEST - decrypt test"
+	echo "UNWRAP-WRAP-TEST"
 	echo "ERASE-CARD - return card to creation state"
 	echo "PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys"
 	echo "PKCS11-EC-TEST - pkcs11-tool full test on EC keys"
@@ -157,6 +159,8 @@ else
 	echo "CRT [key] [subject] - generate self signed certificate"
 	echo "DES-AES-UPLOAD-KEYS - upload 3DES, AES 128 and AES 256 key"
 	echo "RND-TEST - test random generator entropy"
+	# echo "FAST-TEST"
+	# echo "FULL-TEST"
 	exit 0
 fi
 #***************************************************************************************************************************
@@ -236,7 +240,7 @@ SCSlot=0
 if [ "x${OsEID_READER}" != "x" ]; then
 	SCReader=${OsEID_READER}
 	SCReaderFlag="-r"
-	SCSlot=`pkcs11-tool -L|gawk -v R="${OsEID_READER}" '{if ($0 ~ R) {print $2;exit}}'`
+	SCSlot=$(pkcs11-tool -L|gawk -v R="${OsEID_READER}" '{if ($0 ~ R) {print $2;exit}}')
 	if [ "x${SCSlot}" == "x" ]; then
 		failecho "Unable to determine slot for reader ${OsEID_READER}"
 		exit 1
@@ -244,12 +248,12 @@ if [ "x${OsEID_READER}" != "x" ]; then
 fi
 
 # Card is needed for rest of operations
-CARD_ATR=`echo "reset"|scriptor -r "${SCReader}" 2>/dev/null`
+CARD_ATR=$(echo "reset"|scriptor -r "${SCReader}" 2>/dev/null)
 if [ $? -ne 0 ]; then
 	failecho "No card available"
 	exit 1
 fi
-CARD_ATR=`echo "${CARD_ATR}"|tr '[[:upper:]]' '[[:lower:]]' |gawk '{if($2=="ok:"){for(i=3;i<=NF;i++){printf $i;if(i!=NF)printf":";else print""}}}'`
+CARD_ATR=$(echo "${CARD_ATR}"|tr '[[:upper:]]' '[[:lower:]]' |gawk '{if($2=="ok:"){for(i=3;i<=NF;i++){printf $i;if(i!=NF)printf":";else print""}}}')
 
 # check card type
 CARD_TYPE=""
@@ -278,24 +282,74 @@ if [ -z ${CARD_TYPE} ]; then
 	warnecho "No OsEID/MyEID card found"
 	exit 1
 fi
+
+
+ECC_SIZE_MIN=0
+ECC_SIZE_MAX=0
+
+RESP=$(read_card "00 CA 01 A0 00" "${SCReaderFlag}" "${SCReader}")
+CARD_SERIAL=$(echo  $RESP|gawk '{for(i=9;i<19;i++) printf $i" ";print""}')
+CARD_VERSION=$(echo $RESP|gawk '{for(i=6;i<9;i++) printf $i" ";print""}')
+CARD_VER=$(echo "${RESP}"|gawk '{v=0;for(i=6;i<9;i++) {v*=100;v+=strtonum("0x"$i)};printf v;exit}')
+if [ $CARD_VER -ge 40000 ]; then
+	ECC_SIZE_MIN=192
+	ECC_SIZE_MAX=256
+	set -e
+	CARD_CAPABILITIES=$(read_card "00 CA 01 AA 00" "${SCReaderFlag}" "${SCReader}")
+        echo "${CARD_CAPABILITIES}"|gawk ' {
+		if (NF != 13) {
+			print "unusual response length ("NF") old card?"
+			exit 1
+		}
+	}'
+	echo "${CARD_CAPABILITIES}"|gawk ' {
+		if ($1 != 1) {
+			print "Unknown version of card cap"
+			exit 1
+		}
+	}'
+	echo "${CARD_CAPABILITIES}"|gawk ' {
+		if ($12 != 90 || $13 != 00){
+			print "Unusual status bytes "$12 $13
+			exit 1
+		}
+	}'
+	set +e
+	ECC_SIZE_MAX=`echo "${CARD_CAPABILITIES}"|gawk ' {
+		print strtonum("0x"$10)*256+strtonum("0x"$11)
+	}'`
+	set +e
+fi
+
+# workarounds
+if [ "x${CARD_TYPE}" == "xMyEID" ]; then
+	case ${CARD_VER} in
+		# I am unable to upload or generate prime192V1 key on MyEID 4.5.5 card (Mon 15 Mar 2021)
+		40505)
+			ECC_SIZE_MIN=256
+			;;
+	esac
+fi
+
 # check if card is initialize (file 2f00 exist)
 echo "00 a4 08 00 02 2f 00"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q 'Normal processing.\|bytes of response still available' && CARD_INIT=1
-X_ver=`opensc-tool -i`
+X_ver=$(opensc-tool -i)
 if [ $? -ne 0 ]; then
 	failecho "unable to determine opensc version"
 	exit 1
 fi
-OPENSC_VER=`echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}'`
-OPENSC_VERSION=`echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+1000*V[2]+V[3]}'`
+OPENSC_VER=$(echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print V[1]"."V[2]}')
+OPENSC_VERSION=$(echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+1000*V[2]+V[3]}')
 
 ECDH=0
 RAWSIGN2048=0
 
-if [ $OPENSC_VERSION -lt 15000 ]; then
+if [ $OPENSC_VERSION -lt 20000 ]; then
 	failecho "Your OPENSC version is:"
 	opensc-tool -i
-	failecho "please check opensc version, use opensc 0.15 - 0.21 only"
-	exit 1
+	failecho "consider upgrading to a newer version."
+	failecho "Multiple features will not be available or will be terminated with an error"
+	sleep 5
 fi
 if [ $OPENSC_VERSION -ge 17000 ]; then
 	ECDH=1
@@ -303,10 +357,10 @@ fi
 if [ $OPENSC_VERSION -ge 18000 ]; then
 	RAWSIGN2048=1
 fi
-if [ $OPENSC_VERSION -gt 21000 ]; then
+if [ $OPENSC_VERSION -gt 22000 ]; then
 	warnecho "not tested opensc version detected"
 	opensc-tool -i
-	warnecho "this code is tested in opensc versions 0.15 .. 0.21"
+	warnecho "this code is tested in opensc versions 0.21 .. 0.22"
 fi
 
 
@@ -332,25 +386,11 @@ fi
 
 #***************************************************************************************************************************
 if [ $mode == "INFO" ]; then
+   echo "Card serial number: ${CARD_SERIAL}"
+   echo "Card version number: ${CARD_VERSION}"
 
-   RESP=`read_card "00 CA 01 A0 00" "${SCReaderFlag}" "${SCReader}"`
-   echo $RESP
-   echo -n "Card serial number: "
-   echo $RESP|gawk '{for(i=9;i<19;i++) printf $i" ";print""}'
-   echo -n "Card version number: "
-   echo $RESP|gawk '{for(i=6;i<9;i++) printf $i" ";print""}'
-   CARD_VER=`echo $RESP|gawk '{v=0;for(i=6;i<9;i++) {v*=100;v+=strtonum("0x"$i)};printf v;exit}'`
    if [ $CARD_VER -ge 40000 ]; then
-	RESP=`read_card "00 CA 01 AA 00" "${SCReaderFlag}" "${SCReader}"`
-        echo "${RESP}"|gawk ' {
-		if (NF != 13){
-			print "unusual response length, old card?"
-			exit 0
-		}
-		if ($1 != 1)
-			print "Unknown version of card cap"
-		if ($12 != 90 || $13 != 00)
-			print "Unusual status bytes "$12 $13
+        echo "${CARD_CAPABILITIES}"|gawk ' {
 		cap=strtonum("0x"$2)*256+strtonum("0x"$3)
 		if(and(cap,1))
 			printf("RSA algo support\n");
@@ -390,9 +430,9 @@ if [ $mode == "RND-TEST" ]; then
  fi
 echo "Please wait .. about 10000 bytes is to be read"
 export LC_ALL="C"
-TMP=`mktemp`
+TMP=$(mktemp)
 TMP="rnd.data"
-for i in `seq 1 1300`; do
+for i in $(seq 1 1300); do
 if [ $PROTO == "T=1" ]; then
 	rndCMD='echo "00 84 00 00 08"'
 else
@@ -420,35 +460,44 @@ ent $TMP
 exit 0
 fi
 #***************************************************************************************************************************
-if [ $mode == "FULL-TEST" ]; then
-	set -xe
-	$0 RSA-CREATE-KEYS
-	$0 EC-CREATE-KEYS
-
+if [ "x$mode" == "xFULL-TEST" ] || [ "x$mode" == "xFAST-TEST" ]; then
+	set -e
 	$0 ERASE-CARD
 	echo |$0 INIT
+	$0 RSA-CREATE-KEYS
 	$0 RSA-UPLOAD-KEYS
 	# OsEID card is slow, skip this test for now
 	# $0 RSA-GENERATE-KEYS 1024
 	$0 RSA-SIGN-TEST
-	$0 RSA-SIGN-PKCS11-TEST
+	if [ $mode == "FULL-TEST" ]; then
+		$0 RSA-SIGN-PKCS11-TEST
+	fi
 	$0 RSA-DECRYPT-TEST
 
 	$0 ERASE-CARD
 	echo |$0 INIT
+	$0 EC-CREATE-KEYS
 	$0 EC-UPLOAD-KEYS
 	$0 EC-GENERATE-KEYS
 	$0 EC-SIGN-TEST
-	$0 EC-SIGN-PKCS11-TEST
+	if [ $mode == "FULL-TEST" ]; then
+		$0 EC-SIGN-PKCS11-TEST
+	fi
 	$0 EC-ECDH-TEST
 
 	$0 DES-AES-UPLOAD-KEYS
+	# waiting for #2268
+	# $0 UNWRAP-WRAP-TEST
+
 	$0 ERASE-CARD
 	exit 0
 fi
 
 #***************************************************************************************************************************
 if [ $mode == "INIT" ]; then
+boldecho "card init"
+boldecho "---------"
+
 #pin and puk is not used in this command, but specifying this prevent driver from unnecessarily asking for it several times
 if [ $CARD_TYPE == "MyEID" ]; then
 	echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
@@ -502,10 +551,17 @@ if [ $CARD_TYPE == "OsEID" ]; then
 fi
 #***************************************************************************************************************************
 if [ $mode == "ERASE-CARD" ]; then
-	read_card "00 20 00 03 08 30 30 30 30 30 30 30 30" "${SCReaderFlag}" "${SCReader}" >/dev/null
-	read_card "00 DA 01 E0 08 FF FF 11 3F FF 11 1F FF" "${SCReaderFlag}" "${SCReader}" >/dev/null
-# TODO this is not working if stdout is redirected
-#	echo "00000000"|PKCS15-INIT -E
+	boldecho "erasing card"
+	boldecho "------------"
+	if [ x${2} == "xMyEID" ] ; then
+		# ACL for MF and DF 5015 is set to same values as on new unitialized MyEID card
+		opensc-tool "${SCReaderFlag}" "${SCReader}" -c default -s "00 20 00 03 08 30 30 30 30 30 30 30 30" -s "00 DA 01 E0 08 FF FF 33 3F FF 33 FF FF"
+	else
+		# This is default for OsEID. MyEID card can use this setup too. SO-PIN is needed only for card erase operation, not for key generation/upload.
+		opensc-tool "${SCReaderFlag}" "${SCReader}" -c default -s "00 20 00 03 08 30 30 30 30 30 30 30 30" -s "00 DA 01 E0 08 FF FF 11 3F FF 11 1F FF"
+	fi
+# pkcs15-tool -E need tty (ioctl to not display pin)..
+#	(echo "00000000"|  PKCS15-INIT -E >/dev/tty) >/dev/null
 #	if [ $? -eq 0 ];then
 #		trueecho "Card is erased"
 #	else
@@ -520,25 +576,24 @@ fi
 if [ $mode == "EC-UPLOAD-KEYS" ]; then
 secp256k1_OK=0
 
-ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
-ECC_SIZE_MAX=256
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
-
-echo storing EC key
+boldecho "storing EC key"
+boldecho "--------------"
 (
-# not enabled in opensc myeid driver (0.15 .. 0.19)
-#secp224r1  1.3.132.0.33
-# not supported by opensc myeid driver (0.15 .. 0.19)
-#secp256k1 1.3.132.0.10
+# not enabled in opensc myeid driver (0.15 .. 0.22)
+#secp224r1  1.3.132.0.33 224
+# not supported by opensc myeid driver (0.15 .. 0.22)
+#secp256k1 1.3.132.0.10 256
 cat <<EOP
-prime192v1 1.2.840.10045.3.1.1
-prime256v1 1.2.840.10045.3.1.7
+prime192v1 1.2.840.10045.3.1.1 192
+prime256v1 1.2.840.10045.3.1.7 256
+secp384r1  1.3.132.0.34        384
+secp521r1  1.3.132.0.35        521
 EOP
-if [ $ECC_SIZE_MAX -ge 384 ]; then echo "secp384r1  1.3.132.0.34"; fi
-if [ $ECC_SIZE_MAX -ge 521 ]; then echo "secp521r1  1.3.132.0.35"; fi
 )|
-while read curve oid ;do
+while read curve oid size ;do
+	if [ $size -lt $ECC_SIZE_MIN ]; then continue; fi
+	if [ $size -gt $ECC_SIZE_MAX ]; then continue; fi
+
 	if [ $curve == "secp256k1" ]; then
 		if [ ! $CARD_TYPE == "OsEID" ]; then
 			continue
@@ -548,7 +603,7 @@ while read curve oid ;do
 		continue
 	fi
 	echo "uploading key ${curve}"
-	PKCS15-INIT --store-private-key keys/${curve}-key.pem --auth-id=1 --pin 11111111 --label "${curve}" --key-usage sign
+	PKCS15-INIT --store-private-key keys/${curve}-key.pem --key-usage sign --label "${curve}" --auth-id=1 --pin 11111111 --so-pin 00000000
 	E=$?
 	if [ z${curve} == "zsecp256k1" ]; then
 		if [ $E -eq 0 ]; then
@@ -575,7 +630,7 @@ while read curve oid ;do
 	 fi
 	fi
 	echo "uploading self signed cert for key/curve ${curve}"
-	PKCS15-INIT -X keys/${curve}-cert.pem --pin 11111111 --auth-id=1 --so-pin 00000000 --label "${curve}"
+	PKCS15-INIT -X keys/${curve}-cert.pem --label "${curve}" --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then
 	        failecho "fail"
 	        exit 2
@@ -587,39 +642,37 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "EC-SIGN-TEST" ]; then
 mkdir -p tmp
-
-ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
-ECC_SIZE_MAX=0
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
-if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
-
-PKCS15-TOOL --list-public-keys|tee /dev/tty |\
-gawk -v SIZE=$ECC_SIZE_MAX -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE)OK=1;else OK=0}if($1~"ID" && OK==1){print $2;OK=0}}'|\
+boldecho "testing RAW ECDSA (pkcs15-crypt)"
+boldecho "--------------------------------"
+#PKCS15-TOOL --list-public-keys|tee /dev/tty |\
+PKCS15-TOOL --list-public-keys|
+gawk  -F: '{if($1 ~ "FieldLength")OK=1;if($1~"ID" && OK==1){print $2;OK=0}}' |\
 while read keyID ; do
   echo "Reading public key "$keyID
-  PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_ec_key.pub
+  #PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_ec_key.pub
+  PKCS15-TOOL --read-public-key $keyID > tmp/exported_ec_key.pub
   echo "generating plain sha1 hash file:"
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  dd if=/dev/urandom bs=5000 count=1 >> tmp/testfile.txt 2>/dev/null
+
   # we use openssl dgst to verify signature, hash is needed for sign...
   sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
 
   echo "generating RAW ECDSA signature by pkcs15-crypt"
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
-  ST=`date +%s.%N`
+  ST=$(date +%s.%N)
   PKCS15-CRYPT --pin 11111111 -k $keyID --signature-format "openssl" -s -i tmp/testfile.txt.sha1 -o tmp/testfile.txt.pkcs11.sha1.sig
   if [ $? -ne 0 ]; then
 	failecho "pkcs15-crypt failed"
 	exit 1
   fi
-  ET=`date +%s.%N`
+  ET=$(date +%s.%N)
   echo "${ET} ${ST}"|gawk '{printf "pkcs15-tool EC SIGN time %f\n",($1 - $2)}'
-  echo "testing signature.."
-  openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
+  echo "testing signature (openssl dgst)"
+  openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt >/dev/null
   if [ $? -ne 0 ]; then
 	failecho "openssl signature test fail"
 	exit 1
@@ -629,53 +682,83 @@ done # key loop
 fi
 
 # pkcs11-tool:
-# there is no differense in -m ECDSA or -m ECDSA-SHA1 .. card always get same input (OpenSC bug...)
+# there is no differense in -m ECDSA or -m ECDSA-SHA1 .. card always get same input
+# (OpenSC bug... fixed, commit 6049cb926c980754e18b16794e365a9370f4403e)
 # pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA --input-file sign.this.txt --output-file sign.this.txt.signature
 # pkcs11-tool --sign --signature-format "openssl" --slot 1 -m ECDSA-SHA1 --input-file sign.this.txt --output-file sign.this.txt.signature
 
 #***************************************************************************************************************************
 if [ $mode == "EC-SIGN-PKCS11-TEST" ]; then
 mkdir -p tmp
+boldecho "testing ECDSA (pkcs11-tool, several mechanisms)"
+boldecho "-----------------------------------------------"
 
-ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
+ECC_SIZE_TEST=$(pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null)
 ECC_SIZE_MAX=0
 echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
 if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
 echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
 echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
 
-PKCS15-TOOL --list-public-keys|tee /dev/tty |\
-gawk -v SIZE=$ECC_SIZE_MAX -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE)OK=1;else OK=0}if($1~"ID" && OK==1){print $2;OK=0}}'|\
-while read keyID ; do
-  echo "Reading public key "$keyID
-  PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_ec_key.pub
+PKCS15-TOOL --list-public-keys|\
+gawk -v SIZE=$ECC_SIZE_MAX -F: '{if($1 ~ "FieldLength"){if(strtonum($2)<=SIZE){OK=1;fl=$2}else OK=0}if($1~"ID" && OK==1){print $2" "fl;OK=0}}' |\
+while read keyID fl; do
+  bfl=$[$fl + 7 ]
+  bfl=$[bfl / 8 ]
+  echo "Reading public key ${keyID}  field length=${fl} (${bfl} bytes)"
+
+  PKCS15-TOOL --read-public-key $keyID > tmp/exported_ec_key.pub
+
+  echo "pkcs11-tool sign and pkcs11-tools --verify"
+
+  echo "test" > tmp/testfile.txt
+  rm -f tmp/testfile.txt.pkcs11.sig
+  ST=$(date +%s.%N)
+  pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign  -m ECDSA --signature-format "sequence" --input-file tmp/testfile.txt --output-file tmp/testfile.txt.pkcs11.sig --id $keyID
+  if [ $? -ne 0 ]; then
+	failecho "pkcs11-tool failed"
+	exit 1
+  fi
+  ET=$(date +%s.%N)
+  echo "${ET} ${ST}"|gawk '{printf "pkcs11-tool EC SIGN time %f\n",($1 - $2)}'
+
+  pkcs11-tool --slot-index ${SCSlot} --verify -m ECDSA  --signature-format "sequence" --input-file tmp/testfile.txt --signature-file tmp/testfile.txt.pkcs11.sig --id $keyID|grep -q "^Signature is valid$"
+  if [ $? -ne 0 ]; then
+	failecho "openssl signature test fail"
+	exit 1
+  else
+	trueecho "Verified OK"
+  fi
+  echo "pkcs11-tool sign and openssl verify"
+  # we using openssl dgst we need to sign digest ..
   echo "generating plain sha1 hash file:"
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
   echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/testfile.txt
+  dd if=/dev/urandom bs=5000 count=1 >> tmp/testfile.txt 2>/dev/null
   # we use openssl dgst to verify signature, hash is needed for sign...
   sha1sum tmp/testfile.txt|cut -d ' ' -f 1|xxd -p -r > tmp/testfile.txt.sha1
 
   rm -f tmp/testfile.txt.pkcs11.sha1.sig
-  echo "generating RAW ECDSA signature by pkcs11-tool"
-  ST=`date +%s.%N`
-  pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign --signature-format "openssl"  -m ECDSA --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
+  echo "generating RAW ECDSA signature by pkcs11-tool $bfl"
+  rm -f tmp/testfile.txt.pkcs11.sha1.sig
+  pkcs11-tool --slot-index ${SCSlot} --pin 11111111 --sign  -m ECDSA --signature-format "openssl" --input-file tmp/testfile.txt.sha1 --output-file tmp/testfile.txt.pkcs11.sha1.sig --id $keyID
   if [ $? -ne 0 ]; then
 	failecho "pkcs11-tool failed"
 	exit 1
   fi
-  ET=`date +%s.%N`
-  echo "${ET} ${ST}"|gawk '{printf "pkcs11-tool EC SIGN time %f\n",($1 - $2)}'
-  echo "testing signature.."
-  openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
+  echo "testing signature.. (openssl)"
+  openssl dgst -sha1 -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt >/dev/null
   if [ $? -ne 0 ]; then
 	failecho "openssl signature test fail"
 	exit 1
+  else
+	trueecho "Verified OK"
   fi
 
   for d in sha1 sha224 sha256 sha384 sha512 ; do
-	D=`echo ${d}|tr [:lower:] [:upper:]`
+	D=$(echo ${d}|tr [:lower:] [:upper:])
 	rm -f tmp/testfile.txt.pkcs11.${d}.sig
 	# pkcs11 operation corresponds to:
 	# openssl dgst -sha1 -sign keys/secp384r1-key.pem -out tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
@@ -684,18 +767,26 @@ while read keyID ; do
 		failecho "pkcs11-tool failed"
 		exit 1
 	fi
-	echo "testing ECDSA-${D} signature.."
-	openssl dgst -${d} -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.${d}.sig tmp/testfile.txt
+	echo "testing ECDSA-${D} signature (openssl dgst)"
+	openssl dgst -${d} -verify tmp/exported_ec_key.pub -signature tmp/testfile.txt.pkcs11.${d}.sig tmp/testfile.txt >/dev/null
 	if [ $? -ne 0 ]; then
 		failecho "openssl signature test fail"
 		exit 1
+	else
+		trueecho "Verified OK"
+	fi
+	echo "testing ECDSA-${D} signature.. (pkcs11-tool)"
+	pkcs11-tool --slot-index ${SCSlot} --verify  --signature-format "openssl" -m ECDSA-${D} --id $keyID --input-file tmp/testfile.txt --signature-file tmp/testfile.txt.pkcs11.${d}.sig|grep -q "^Signature is valid$"
+	if [ $? -ne 0 ]; then
+		failecho "pkcs11-tool --verify failed"
+		exit 1
+	else
+		trueecho "Verified OK"
 	fi
   done # digest loop
 done # key loop
 exit $?
 fi
-
-
 #***************************************************************************************************************************
 
 
@@ -703,41 +794,49 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "EC-ECDH-TEST" ]; then
 mkdir -p tmp
-ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
-ECC_SIZE_MAX=0
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
-if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
-
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
 
   if [ $ECDH -ne 1 ]; then
 	failecho "ECDH support is working in opensc version 0.17 and above"
 	exit 1
   fi
-  while read curve id ;do
-	# skip curve if not supported by card
-	if [ $id -eq 14 ] && [ $ECC_SIZE_MAX -lt 384 ]; then continue;fi
-	if [ $id -eq 15 ] && [ $ECC_SIZE_MAX -lt 521 ]; then continue;fi
-        #Alice: key on card
+  boldecho "ECDH test"
+  boldecho "---------"
+
+(
+# not enabled in opensc myeid driver (0.15 .. 0.22)
+#secp224r1  1.3.132.0.33 224
+# not supported by opensc myeid driver (0.15 .. 0.22)
+#secp256k1 1.3.132.0.10 256
+cat <<EOP
+prime192v1 1.2.840.10045.3.1.1 12 192
+prime256v1 1.2.840.10045.3.1.7 13 256
+secp384r1  1.3.132.0.34        14 384
+secp521r1  1.3.132.0.35        15 521
+EOP
+)|
+  while read curve oid id size ;do
+	if [ $size -lt $ECC_SIZE_MIN ]; then continue; fi
+	if [ $size -gt $ECC_SIZE_MAX ]; then continue; fi
+        echo "Alice: generating key.."
         rm -f tmp/ecdh-${curve}-alice-pub.pem
         rm -f tmp/ecdh-${curve}-alice-pub.der
-        pkcs11-tool --slot-index ${SCSlot} --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
-        #extract pub key
+        #pkcs11-tool --slot-index ${SCSlot} --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
+        PKCS15-INIT --generate-key EC:${curve} --label ecdh_${curve} --id ${id} --key-usage sign,keyAgreement --auth-id 1 --pin 11111111 --so-pin 00000000
+        echo "Alice: extracting public key from card"
         PKCS15-TOOL --read-public-key  ${id} > tmp/ecdh-${curve}-alice-pub.pem
         openssl ec -in tmp/ecdh-${curve}-alice-pub.pem -out tmp/ecdh-${curve}-alice-pub.der -pubin -pubout -outform der 2>/dev/null
-        #Bob: key from openssl into tmp
+        echo "Bob: key from openssl"
         rm -f tmp/ecdh-${curve}-bob-key.pem
         rm -f tmp/ecdh-${curve}-bob-pub.pem
         rm -f tmp/ecdh-${curve}-bob-pub.der
         openssl ecparam -name ${curve} -genkey -noout -out tmp/ecdh-${curve}-bob-key.pem 2>/dev/null
-        #extract pub key
+        echo "Bob: extracting public key"
         openssl ec -in tmp/ecdh-${curve}-bob-key.pem -pubout >tmp/ecdh-${curve}-bob-pub.pem 2>/dev/null
         openssl ec -in tmp/ecdh-${curve}-bob-pub.pem -out tmp/ecdh-${curve}-bob-pub.der -pubin -pubout -outform der 2>/dev/null
-        #Bob: generate shared key by openssl
+        echo "Bob: generates shared key by openssl"
         rm -f tmp/ecdh-${curve}-bob-shared.secret
         openssl pkeyutl -derive -inkey tmp/ecdh-${curve}-bob-key.pem -peerkey tmp/ecdh-${curve}-alice-pub.pem -out tmp/ecdh-${curve}-bob-shared.secret
-        #Alice: generate shared key by openssl
+        echo "Alice: generates shared key by card"
         rm -f tmp/ecdh-${curve}-alice-shared.secret
         pkcs11-tool --slot-index ${SCSlot} --login --pin 11111111 --derive -m ECDH1-DERIVE --id ${id} --input-file tmp/ecdh-${curve}-bob-pub.der \
         --output-file tmp/ecdh-${curve}-alice-shared.secret
@@ -748,12 +847,7 @@ echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_
                failecho "shared keys different!"
                exit 1
         fi
-  done <<EOP
-prime192v1 12
-prime256v1 13
-secp384r1 14
-secp521r1 15
-EOP
+  done
 #secp256k1 - there is no easy way generate this key with opensc
 fi
 #***************************************************************************************************************************
@@ -764,42 +858,29 @@ fi
 
 # Test for EC keys:
 if [ $mode == "EC-GENERATE-KEYS" ]; then
-ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
-ECC_SIZE_MAX=0
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
-if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
+boldecho "generating EC keys"
+boldecho "------------------"
 
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,384}' && ECC_SIZE_MAX=384
-echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1, keySize={192,521}' && ECC_SIZE_MAX=521
+(
+cat << EOP
+ec:prime192v1 gen_prime192v1 192
+ec:prime256v1 gen_prime256v1 256
+ec:secp384r1  gen_secp384r1  384
+ec:secp521r1  gen_secp521r1  512
+EOP
+)|while read curve file_id size ;do
+	if [ $size -lt $ECC_SIZE_MIN ]; then continue; fi
+	if [ $size -gt $ECC_SIZE_MAX ]; then continue; fi
 
-echo "generating 192 bits EC key"
-PKCS15-INIT --generate-key ec-prime192v1  --auth-id 1 --pin 11111111 --label gen_prime192v1
-if [ $? -ne 0 ]; then
-        failecho "fail"
-	exit 1
-fi
-echo "generating 256 bits EC key"
-PKCS15-INIT --generate-key ec-prime256v1  --auth-id 1 --pin 11111111 --label gen_prime256v1
-if [ $? -ne 0 ]; then
-        failecho "fail"
-	exit 2
-fi
-if [ $ECC_SIZE_MAX -ge 384 ]; then
-	echo "generating 384 bits EC key"
-	PKCS15-INIT --generate-key ec-secp384r1 --auth-id 1 --pin 11111111 --label gen_secp384r1
+	echo "generating ${curve} key"
+	PKCS15-INIT --generate-key ${curve} --label ${file_id} --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then
 		failecho "fail"
-		exit 3
+		exit 1
+	else
+		trueecho "OK"
 	fi
-fi
-if [ $ECC_SIZE_MAX -ge 521 ]; then
-echo "generating 521 bits EC key"
-	PKCS15-INIT --generate-key ec-secp521r1  --auth-id 1 --pin 11111111 --label gen_secp521r1
-	if [ $? -ne 0 ]; then
-		failecho "fail"
-		exit 4
-	fi
-fi
+  done
 fi
 #***************************************************************************************************************************
 
@@ -811,12 +892,13 @@ fi
 #***************************************************************************************************************************
 
 if [ $mode == "RSA-UPLOAD-KEYS" ]; then
-echo "storing RSA keys"
+boldecho "storing RSA keys"
+boldecho "----------------"
 err=0
-for key in `ls keys/rsa*-key.pem`; do
+for key in $(ls keys/rsa*-key.pem); do
 	echo "${key}"
-	L=`echo "${key}"|gawk -F'-' '{print "key_"strtonum(substr($1,9))}'`
-	PKCS15-INIT --store-private-key "${key}" --auth-id=1 --pin 11111111 --so-pin 00000000 --key-usage sign,decrypt --label "${L}"
+	L=$(echo "${key}"|gawk -F'-' '{print "key_"strtonum(substr($1,9))}')
+	PKCS15-INIT --store-private-key "${key}" --key-usage sign,decrypt --label "${L}" --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then
 		err=$[$err + 1 ]
 		failecho "Unable to upload RSA key ${key}"
@@ -848,7 +930,7 @@ else
  fi
 fi
 echo "Generating ${KSIZE} RSA key"
-PKCS15-INIT --generate-key "rsa/${KSIZE}"  --auth-id 1 --pin 11111111 --label "gen_rsa_${KSIZE}"  --key-usage sign,decrypt
+PKCS15-INIT --generate-key "rsa/${KSIZE}" --label "gen_rsa_${KSIZE}" --key-usage sign,decrypt --auth-id 1 --pin 11111111 --so-pin 00000000
 if [ $? -ne 0 ]; then
 	failecho "fail"
 	exit 1
@@ -859,20 +941,24 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-SIGN-TEST" ]; then
 mkdir -p tmp
-echo "testing sign with RSA keys"
+boldecho "testing RSA signature (pkcs15-crypt)"
+boldecho "------------------------------------"
+
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
+dd if=/dev/urandom bs=5000 count=1 >> tmp/rsa_sign_testfile.txt 2>/dev/null
 
 
 #list all RSA keys 
 
 err=0
-for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
+for keyID in $(PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}') ; do
 echo "Reading public key "$keyID
-PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
-LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
+#PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
+PKCS15-TOOL --read-public-key $keyID > tmp/exported_rsa_key.pub
+LEN=$(openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+')
 if [ "x${LEN}" == "x" ]; then
 	exit 1
 fi
@@ -890,7 +976,7 @@ if [ $LEN -lt 249 ] || [ $RAWSIGN2048 -eq 1 ] ; then
 	   -i tmp/rsa_sign_testfile_${LEN}.txt \
 	   -o tmp/rsa_sign_testfile_${LEN}.txt.sign
 	if [ $? -eq 0 ]; then
-		echo "testing signature"
+		echo "testing signature (openssl rsautl)"
 		openssl rsautl -raw -pubin -verify \
 			-inkey tmp/exported_rsa_key.pub \
 			-in tmp/rsa_sign_testfile_${LEN}.txt.sign \
@@ -919,11 +1005,14 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-SIGN-PKCS11-TEST" ]; then
 mkdir -p tmp
-echo "testing sign with RSA keys"
+boldecho "testing RSA signature (pkcs11-tool, several mechanisms)"
+boldecho "-------------------------------------------------------"
+
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" > tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
 echo "testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest" >> tmp/rsa_sign_testfile.txt
+dd if=/dev/urandom bs=5000 count=1 >> tmp/rsa_sign_testfile.txt 2>/dev/null
 
 # create hashes (to test PSS)
 openssl dgst -sha1  -binary -out tmp/rsa_sign_testfile.txt.sha1 tmp/rsa_sign_testfile.txt
@@ -934,10 +1023,10 @@ openssl dgst -sha512 -binary -out tmp/rsa_sign_testfile.txt.sha512 tmp/rsa_sign_
 # list all RSA keys
 
 err=0
-for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
+for keyID in $(PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}') ; do
 echo "Reading public key "$keyID
 PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
-LEN=`openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+'`
+LEN=$(openssl rsa -in tmp/exported_rsa_key.pub -text -noout -pubin |gawk '/Public-Key:/ {print $1}' FPAT='[0-9]+')
 if [ "x${LEN}" == "x" ]; then
 	exit 1
 fi
@@ -956,7 +1045,7 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-X-509\
 	--output-file tmp/rsa_sign_testfile.txt.sign \
 	--pin 11111111
 if [ $? -eq 0 ]; then
-	echo "testing RSA-X-509 signature"
+	echo "testing RSA-X-509 signature (openssl rsautl)"
 	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign > tmp/rsa_sign_testfile.txt.sign_verify
 	cmp tmp/rsa_sign_testfile_x509.txt tmp/rsa_sign_testfile.txt.sign_verify
 	if [ $?	-ne 0 ]; then
@@ -984,7 +1073,7 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-PKCS \
 	--output-file tmp/rsa_sign_testfile.txt.sign \
 	--pin 11111111
 if [ $? -eq 0 ]; then
-	echo "testing RSA-PKCS signature"
+	echo "testing RSA-PKCS signature (openssl rsautl)"
 	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign > tmp/rsa_sign_testfile.txt.sign_verify1
 	# create testfile with padding...
 	gawk -b -v LEN=${LEN} '{LEN=LEN-3;LEN=LEN-length($0);printf("%c%c",0,1);for(i=0;i<LEN;i++)printf("%c",255);printf("%c%s",0,$0);exit}' tmp/rsa_sign_testfile_short.txt >tmp/rsa_sign_testfile.txt.sign_verify2
@@ -1004,12 +1093,12 @@ fi
 
 
 for MECHANISM in "SHA1-RSA-PKCS" "SHA256-RSA-PKCS" "SHA384-RSA-PKCS" "SHA512-RSA-PKCS" ; do
-RLEN=`test_keysize_mechanism "${MECHANISM}"`
+RLEN=$(test_keysize_mechanism "${MECHANISM}")
 if [ $RLEN -gt $BITLEN ]; then
 	continue
 fi
 echo "using pkcs11 interface to sign message, mechanism ${MECHANISM}"
-file_hash=`mechanism2hash "${MECHANISM}"`
+file_hash=$(mechanism2hash "${MECHANISM}")
 rm -f  tmp/rsa_sign_testfile.txt.sign
 # use pkcs11-tool to do same as:
 # openssl dgst -sha1 -sign _private_key.pem_ --input-file tmp/rsa_sign_testfile.txt --output-file tmp/rsa_sign_testfile.txt.sign
@@ -1019,28 +1108,39 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
 	--output-file tmp/rsa_sign_testfile.txt.sign \
 	--pin 11111111
 if [ $? -eq 0 ]; then
+	echo "sinature verification (openssl dgst)"
 #	openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign |hd
-	openssl dgst "-${file_hash}" -verify tmp/exported_rsa_key.pub -signature tmp/rsa_sign_testfile.txt.sign tmp/rsa_sign_testfile.txt
+	openssl dgst "-${file_hash}" -verify tmp/exported_rsa_key.pub -signature tmp/rsa_sign_testfile.txt.sign tmp/rsa_sign_testfile.txt >/dev/null
 	if [ $?	-ne 0 ]; then
 		failecho "openssl signature test fail"
 		err=$[$err + 1 ]
 	else
 		trueecho "Verified OK"
 	fi
+	echo "sinature verification (pkcs11-tool)"
+	pkcs11-tool --slot-index ${SCSlot} --verify  -m "${MECHANISM}" --id $keyID --input-file tmp/rsa_sign_testfile.txt --signature-file tmp/rsa_sign_testfile.txt.sign|grep -q "^Signature is valid$"
+	if [ $? -ne 0 ]; then
+		failecho "pkcs11-tool --verify failed"
+		err=$[$err + 1 ]
+	else
+		trueecho "Verified OK"
+	fi
+
 else
 	failecho "pkcs11 fail"
 	err=$[$err + 1 ]
 fi
+
 done	# mechanism loop (no PSS mechanisms)
 
 
 # test PSS signature
 for MECHANISM in "SHA1-RSA-PKCS-PSS" "SHA256-RSA-PKCS-PSS" "SHA384-RSA-PKCS-PSS" "SHA512-RSA-PKCS-PSS" ; do
-RLEN=`test_keysize_mechanism "${MECHANISM}"`
+RLEN=$(test_keysize_mechanism "${MECHANISM}")
 if [ $RLEN -gt $BITLEN ]; then
         continue
 fi
-file_hash=`mechanism2hash "${MECHANISM}"`
+file_hash=$(mechanism2hash "${MECHANISM}")
 rm -f tmp/rsa_sign_testfile.txt.${file_hash}.sign
 # use pkcs11-tool to do same operation as:
 # openssl pkeyutl -sign -pkeyopt digest:sha1 -pkeyopt rsa_padding_mode:pss -pkeyopt rsa_pss_saltlen:-1 \
@@ -1067,6 +1167,14 @@ if [ $? -eq 0 ]; then
 	else
 		trueecho "Verified OK"
 	fi
+	echo "sinature verification (pkcs11-tool)"
+	pkcs11-tool --slot-index ${SCSlot} --verify  -m "${MECHANISM}" --id $keyID --input-file tmp/rsa_sign_testfile.txt --signature-file tmp/rsa_sign_testfile.txt.${file_hash}.sign|grep -q "^Signature is valid$"
+	if [ $? -ne 0 ]; then
+		failecho "pkcs11-tool --verify failed"
+		err=$[$err + 1 ]
+        else
+		trueecho "Verified OK"
+	fi
 else
 	failecho "pkcs11 fail"
 	err=$[$err + 1 ]
@@ -1080,26 +1188,28 @@ fi
 fi
 #***************************************************************************************************************************
 if [ $mode == "RSA-DECRYPT-TEST" ]; then
-echo "testing decrypt with RSA key, listing keys"
+boldecho "testing RSA decrypt operation"
+boldecho "-----------------------------"
 mkdir -p tmp
 
 echo "testtesttesttesttest" > tmp/rsa_decrypt_testfile.txt
 
 err=0
-for keyID in `PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}'` ; do
+for keyID in $(PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}') ; do
 echo "Reading public key "$keyID
-PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
+#PKCS15-TOOL --read-public-key $keyID |tee tmp/exported_rsa_key.pub
+PKCS15-TOOL --read-public-key $keyID > tmp/exported_rsa_key.pub
 if [ $? -ne 0 ]; then
 	failecho "pkcs15-tool failed"
 	exit 1
 fi
 openssl rsa -pubin -in tmp/exported_rsa_key.pub -text -noout|grep bit
 echo "using openssl to encrypt test message"
-openssl rsautl -encrypt -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_testfile.txt -out tmp/rsa_encrypted_testfile.txt
+openssl rsautl -encrypt -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_testfile.txt -out tmp/rsa_encrypted_testfile.txt || exit 1
 echo "using pkcs11 interface to decrypt test message"
 rm -f  tmp/rsa_pkcs11_tool_decrypted_testfile.txt
 
-ST=`date +%s.%N`
+ST=$(date +%s.%N)
 pkcs11-tool --slot-index ${SCSlot} --decrypt \
 	--id $keyID \
 	--input-file tmp/rsa_encrypted_testfile.txt \
@@ -1109,7 +1219,7 @@ if [ $? -ne 0 ]; then
 	failecho "pkcs11-tool failed"
 	exit 1
 fi
-ET=`date +%s.%N`
+ET=$(date +%s.%N)
 echo "${ET} ${ST}"|gawk '{printf "pkcs11-tool RSA DECRYPT time %f\n",($1 - $2)}'
 
 cmp tmp/rsa_decrypt_testfile.txt tmp/rsa_pkcs11_tool_decrypted_testfile.txt
@@ -1133,7 +1243,7 @@ fi
 #***************************************************************************************************************************
 if [ $mode == "PKCS11-EC-TEST" ]; then
 
-	ECC_SIZE_TEST=`pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null`
+	ECC_SIZE_TEST=$(pkcs11-tool --slot-index ${SCSlot} -M 2>/dev/null)
 	ECC_SIZE_MAX=0
 	echo ${ECC_SIZE_TEST}|grep -q -F -e 'ECDSA-SHA1' && ECC_SIZE_MAX=256
 	if [ $ECC_SIZE_MAX -eq 0 ]; then warnecho "card does not support EC funcfions";exit 0;fi
@@ -1152,42 +1262,125 @@ if [ $mode == "PKCS11-EC-TEST" ]; then
 fi
 #***************************************************************************************************************************
 if [ $mode == "DES-AES-UPLOAD-KEYS" ]; then
-	echo "Uploading AES/DES keys"
+	boldecho "Uploading AES/DES keys"
+	boldecho "----------------------"
 	err=0
-	echo "pppppppppppppppppppppppppppppppp" > tmp/desaes.key
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=16 > tmp/aes_128.key 2>/dev/null
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=24 > tmp/aes_192.key 2>/dev/null
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=32 > tmp/aes_256.key 2>/dev/null
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=8  > tmp/des_64.key  2>/dev/null
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=16 > tmp/des_128.key 2>/dev/null
+	echo "pppppppppppppppppppppppppppppppp"|dd count=1 bs=24 > tmp/des_192.key 2>/dev/null
 # MyEID DES upload is fixed by 6d98f8c8d8d3c6b56e3a600d46a56bfcc938bc68
 # MyEID support for DES is not checked here.. (version 3.3.3 does not support DES ...)
 	if [ $OPENSC_VERSION -ge 20000 ]; then
 		echo "DES 64:"
-		PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm des/64  --auth-id 01  --pin=11111111 --id 80
+		PKCS15-INIT --store-secret-key tmp/des_64.key --secret-key-algorithm des/64 --id 80 --auth-id=1 --pin 11111111 --so-pin 00000000
 		if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 	fi
 # 2des ..
 	echo "3DES 128:"
-	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm 3des/128 --auth-id 01  --pin=11111111 --id 81
+	PKCS15-INIT --store-secret-key tmp/des_128.key --secret-key-algorithm 3des/128 --id 81 --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 # 3des = 3des/192
 	echo "3DES 192:"
-#	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm 3des/192 --auth-id 01  --pin=11111111 --id 82
-	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm 3des     --auth-id 01  --pin=11111111 --id 82
+#	PKCS15-INIT --store-secret-key tmp/des_192.key --secret-key-algorithm 3des/192 --id 82 --auth-id=1 --pin 11111111 --so-pin 00000000
+	PKCS15-INIT --store-secret-key tmp/des_192.key --secret-key-algorithm 3des     --id 82 --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 	echo "AES 128:"
-	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm aes128   --auth-id 01  --pin=11111111 --id 85
+	PKCS15-INIT --store-secret-key tmp/aes_128.key --secret-key-algorithm aes128   --id 85 --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then err=$[$err + 1 ] ;failecho "FAIL";else trueecho "OK"; fi
-# MyEID driver not support this, opensc must be patched to use AES192 with OsEID card
+# MyEID driver does not support this, opensc must be patched to use AES192 with OsEID card
 #	if [ ${CARD_TYPE} == "OsEID" ]; then
 #		echo "AES 192:"
-#		PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm aes192   --auth-id 01  --pin=11111111 --id 86
+#		PKCS15-INIT --store-secret-key tmp/aes_192.key --secret-key-algorithm aes192 --id 86 --auth-id=1 --pin 11111111 --so-pin 00000000
 #		if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 #	fi
 	echo "AES 256:"
-	PKCS15-INIT --store-secret-key tmp/desaes.key --secret-key-algorithm aes256   --auth-id 01  --pin=11111111 --id 87
+	PKCS15-INIT --store-secret-key tmp/aes_256.key --secret-key-algorithm aes256 --id 87 --auth-id=1 --pin 11111111 --so-pin 00000000 --key-usage keyEncipherment,dataEncipherment
 	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 	if [ $err -gt 0 ]; then
 		failecho "Symetric key upload: ${err} errors!"
 		exit 1
 	fi
+	echo "AES 256, extractable:"
+	PKCS15-INIT --store-secret-key tmp/aes_256.key --secret-key-algorithm aes256 --id 88 --auth-id=1 --pin 11111111 --so-pin 00000000 --extractable
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+	if [ $err -gt 0 ]; then
+		failecho "Symetric key upload: ${err} errors!"
+		exit 1
+	fi
+	exit 0
+fi
+#
+if [ $mode == "DES-AES-TEST" ]; then
+	boldecho "DES AES test"
+	boldecho "------------"
+	err=0
+	echo "AES-ECB and AES-CBC test"
+	VECTOR="00000000000000000000000000000000"
+	dd if=/dev/random bs=32 count=1 >tmp/aes_plain.data 2>/dev/null
+	openssl enc -aes-128-cbc -nopad -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -iv "${VECTOR}" -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--decrypt --id 85 -m AES-CBC --iv "${VECTOR}" \
+	        --input-file tmp/aes_ciphertext_openssl.data --output-file tmp/aes_plain_test.data
+	cmp tmp/aes_plain.data tmp/aes_plain_test.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+	if [ $err -gt 0 ]; then
+		failecho "Symetric key test: ${err} errors!"
+		exit 1
+	fi
+	exit 0
+fi
+#***************************************************************************************************************************
+if [ $mode == "UNWRAP-WRAP-TEST" ]; then
+	# waiting for #2268....
+	boldecho "UNWRAP/WRAP test"
+	boldecho "----------------"
+	err=0
+	# Sun 04 Apr 2021 08:24:44 AM CEST (OpenSC GIT 1a3666364dc434f4bbfd4154012c5d4e4dc23cb2 + https://github.com/OpenSC/OpenSC/pull/2268)
+	# tested - MyEID 4.5.5 - erased card, security attributes: 3f00[11 3F FF], 5015[11 1F FF]
+	echo "UNWRAP and WRAP test /unwrap: RSA-PKCS, AES-CBC-PAD/wrap: AES-CBC-PAD/"
+	echo "generating RSA key (token)"
+	PKCS15-INIT --generate-key "rsa:1024" --label "gen_rsa_unwrap" --key-usage keyEncipherment,decrypt --id 70 --auth-id 1 --pin 11111111 --so-pin 00000000
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+	echo "reading public part of RSA key"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 --read-object --type pubkey --id=70 -o tmp/rsa_pub_unwrap.key
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
 
+	echo "creating 1st AES key"
+	KEY="000102030405060708090a0b0c0d0e0f"
+	echo -n $KEY|xxd -p -r > tmp/aes_plain_test.key
+	echo "Using generated RSA key - public key - to wrap AES key (openssl, mechanism RSA-PKCS)"
+	openssl rsautl -encrypt -pubin --keyform der -inkey tmp/rsa_pub_unwrap.key -in tmp/aes_plain_test.key -out tmp/aes_wrapped_test.key
+	echo "Unwrapping AES key on token (mechanism RSA-PKCS)"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 --unwrap --mechanism RSA-PKCS --id 70 -i tmp/aes_wrapped_test.key --key-type AES:16 \
+		--application-id 75 --application-label "unwraped-aes-key" --usage-wrap
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "creating 2nd AES key"
+	KEY2="ff0102030405060708090a0b0c0d0e0f"
+	echo -n $KEY2|xxd -p -r > tmp/aes_plain_test2.key
+	VECTOR="07070707070707070707070707070707"
+	echo "Wrappinf 2nd AES key by 1st AES key (openssl, mechanism AES-CBC-PAD)"
+	openssl enc -aes-128-cbc -in tmp/aes_plain_test2.key -out tmp/aes_wrapped_by_aes.key -iv "${VECTOR}" -K $KEY
+	echo "Using 1st AES key to unwrap 2nd AES key on token (mechanism AES-CBC-PAD)"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 --unwrap --mechanism AES-CBC-PAD --id 75 -i tmp/aes_wrapped_by_aes.key --iv $VECTOR \
+		--key-type AES:16 --extractable --application-id 76 --application-label "unwraped-aes-key2" --usage-decrypt
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "wrapping 2nd AES key by 1st AES key (token)"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 --wrap --mechanism AES-CBC-PAD --id 75 --application-id 76 \
+		--output-file tmp/exported_aes.key --iv "00000000000000000000000000000000"
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+	echo "comparing..."
+	openssl enc -aes-128-cbc -d -in tmp/exported_aes.key -iv "00000000000000000000000000000000" -K $KEY -out tmp/check_wrapped.key
+	cmp tmp/check_wrapped.key tmp/aes_plain_test2.key
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+	if [ $err -gt 0 ]; then
+		failecho "UNWRAP/WRAP test failed"
+		exit 1
+	fi
 	exit 0
 fi
 #***************************************************************************************************************************

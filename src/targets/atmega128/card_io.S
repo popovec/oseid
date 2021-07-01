@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2018,2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -337,8 +337,6 @@ card_io_tx0_repeat_0:
 	rjmp	card_io_tx0_buffer_loop
 
 card_io_tx0_ok:
-	clr	r24
-	clr	r25
 card_io_tx0_fail:
 #ifdef TX_LEN16
 	pop	r29
@@ -585,7 +583,8 @@ card_io_idle3:
 	inc	r23
 	brne	card_io_idle4
 	sts	null_send,r23	// clear null_send
-
+#if 0
+// specific mode, ignore PPS
 // test if this is PTS frame
 // X is pointer to frame, r24 is counter of characters
 	sub	r26,r24
@@ -594,11 +593,12 @@ card_io_idle3:
 	ld	r23,X+		// load CLA
 	cpi	r23,0xff
 	breq	card_io_pts	// PTS class
+#endif
 card_io_idle4:
 // uint16_ result .. (in future bit 15 protocol T0/T1)
 	clr	r25
 	ret
-
+#if 0
 card_io_pts:
 // handle this as PTS, ignore any PTS that does not match correct
 // parameters for OsEID
@@ -662,7 +662,7 @@ card_io_ignore_pts:
 	clr	r24			// no byte is received
 	clr	r25			// in future bit 15 - protocol T0/T1
 	ret
-
+#endif
 
 
 	.global TIMER3_OVF_vect

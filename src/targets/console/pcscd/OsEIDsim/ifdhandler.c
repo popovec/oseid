@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2016-2017,2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2016-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -228,11 +228,9 @@ IFDHSetProtocolParameters (DWORD Lun, DWORD Protocol,
   if (Protocol == SCARD_PROTOCOL_T0)
     {
       Log1 (PCSC_LOG_INFO, "Protocol 0 PTS");
-      if (proto != 0)
-	{
-	  WritePort (Lun, 4, (uint8_t *) "> 0\n");
+      WritePort (Lun, 4, (uint8_t *) "> 0\n");
 
-	  if (RET_OK == ReadPort (Lun, &blen, buffer))
+      if (RET_OK == ReadPort (Lun, &blen, buffer))
 	    if (blen == 1)
 	      if (*buffer == 0)
 		{
@@ -240,18 +238,13 @@ IFDHSetProtocolParameters (DWORD Lun, DWORD Protocol,
 		  Log1 (PCSC_LOG_INFO, "Protocol 0 confirmed");
 		  return IFD_SUCCESS;
 		}
-	}
-      else
-	return IFD_SUCCESS;
     }
   else if (Protocol == SCARD_PROTOCOL_T1)
     {
       Log1 (PCSC_LOG_INFO, "Protocol 1");
-      if (proto != 1)
-	{
-	  WritePort (Lun, 4, (uint8_t *) "> 1\n");
+      WritePort (Lun, 4, (uint8_t *) "> 1\n");
 
-	  if (RET_OK == ReadPort (Lun, &blen, buffer))
+      if (RET_OK == ReadPort (Lun, &blen, buffer))
 	    if (blen == 1)
 	      if (*buffer == 1)
 		{
@@ -259,9 +252,6 @@ IFDHSetProtocolParameters (DWORD Lun, DWORD Protocol,
 		  Log1 (PCSC_LOG_INFO, "Protocol 1 confirmed");
 		  return IFD_SUCCESS;
 		}
-	}
-      else
-	return IFD_SUCCESS;
     }
 
   return IFD_PROTOCOL_NOT_SUPPORTED;

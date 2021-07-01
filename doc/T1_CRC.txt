@@ -1,0 +1,876 @@
+T1 protocol with CRC
+---------------------
+Author: Peter Popovec <popovec.peter@gmail.com>
+Date: Wed 03 Mar 2021
+
+This document was created during the development of the OsEID card
+(https://popovec.github.io/OsEID/), specifically during the implementation
+of the T1 protocol.
+
+Note: At the time of writing this document, the public version of the OsEID
+project that supports the T1 protocol (card version based on atmega128 or
+AVR128DA) is not available, The T1 protocol is only supported in the OsEID
+token and OsEID simulators.
+
+After T1 protocol with LRC was fully implemented and tested on several card
+readers (TPDU/APDU transport, win10/linux), I decided to implement CRC
+checksumming for T1 protocol.
+
+
+Since development is done on linux platform, we will take advantage of the
+source code for the CCID driver:
+
+https://github.com/LudovicRousseau/CCID/tree/master/src/openct
+
+Already routine inspection of the code in:
+
+https://github.com/LudovicRousseau/CCID/blob/master/src/openct/checksum.c
+line 23: /* Correct Table?  */
+
+suggests us, that we run into a problems....
+
+
+There is suggestion about CRC calculation for T1 protocol in ISO 7816-3:2006
+but this refers to ISO/IEC 13239.  But here again we do not get a clear
+result about exact type of CRC..
+
+Code for CRC calculation in linux driver is table based, but I do not have
+enough space for tables in MCU used in OsEID project.  I deduced from tables
+in checksum.c that polynomial used for CRC calculation is:
+
+ x^16 + X^12 + x^5 + 1.
+
+
+Code used in OsEID project:
+
+uint16_t t1_crc(uint8_t * data_p, uint16_t length)
+{
+        uint8_t i;
+        uint8_t data;
+        uint16_t crc = 0xffff;
+
+        do {
+                crc ^= *(data_p++);
+                for (i = 0; i < 8; i++) {
+                        if (crc & 1)
+                                crc = (crc >> 1) ^ 0x8408;
+                        else
+                                crc >>= 1;
+                        data >>= 1;
+                }
+        } while (--length);
+        return (crc);
+}
+
+Just for clearance about CRC calculation ..  direct/reverse bit processing
+(highest bit first or lowest bit first) with same polynomial: 
+
+Polynomial x^16 + X^12 + x^5 + 1 corresponds to value 0x1021 (with bit 16
+set to 1), but because reverse order of processed bits here reversed 0x8408
+polynomial is used.
+
+x^16 + X^12 + x^5 + 1
+1  0001 0000 0010 0001   -> 0x1021
+   1000 0010 0000 1000 1 -> 0x8408
+
+Another problem is initialization ..  CRC is initialized by 0 ?  by
+0xffff or another value?
+
+And there is another questions, order of result bytes in block..  Code in
+linux driver stores CRC quite unhappily...  Why? here example:
+
+If we need send a block for example:
+0x00, 0xc1, 0x01, 0xfe the CRC calculated by code above is:
+
+0x54, 0x4e.
+
+We can construct two variants of block:
+
+a) 0x00, 0xc1, 0x01, 0xfe, 0x54, 0x4e
+b) 0x00, 0xc1, 0x01, 0xfe, 0x4e, 0x54
+
+
+What block is better ? 
+
+Let's calculate CRC of block inclusive CRC
+a) 0x00, 0xc1, 0x01, 0xfe, 0x54, 0x4e  [0xd7, 0x3a]
+b) 0x00, 0xc1, 0x01, 0xfe, 0x4e, 0x54  [0x00, 0x00]
+
+Without mathematical proofs ..  CRC has such a property that result of block
+inclusive CRC is 0.  Option b) is therefore significantly better (simplifies
+CRC check - is more similar to LRC check - if result is zero, block is
+correct), but for T1 CRC the linux code uses option a).
+
+I will not discuss it further.  I adapt OsEID T1 code to match the CRC
+values as transmitted/expected by linux CCID driver.
+
+
+For tests _Gemalto_ card reader was used, only TPDU transport (detailed
+information about readers at end of this document).
+
+Here snapshot of relevant part of communication (pcscd/scriptor, command: select MF):
+
+00000008 [140276346824448] ifdhandler.c:1154:IFDHPowerICC() action: PowerUp, usb:08e6/3437:libudev:0:/dev/bus/usb/005/061 (lun: 0)
+00000010 [140276346824448] -> 000000 62 00 00 00 00 00 06 01 00 00 
+00057961 [140276346824448] <- 000000 80 0F 00 00 00 00 06 00 00 00 3B D5 96 02 80 71 FE 65 01 4F 73 45 49 44 5E 
+00000022 [140276346824448] eventhandler.c:289:EHStatusHandlerThread() powerState: POWER_STATE_POWERED
+
+00000005 [140276338431744] ifdhandler.c:818:IFDHSetProtocolParameters() Set speed to 300000 bauds
+00000004 [140276338431744] towitoko/atr.c:334:ATR_GetDefaultProtocol() T=0 Protocol Found
+00000004 [140276338431744] towitoko/atr.c:342:ATR_GetDefaultProtocol() default protocol: T=0
+00000004 [140276338431744] towitoko/atr.c:334:ATR_GetDefaultProtocol() T=1 Protocol Found
+00000006 [140276338431744] PPS: Sending request: FF 11 96 78 
+00000006 [140276338431744] -> 000000 6F 04 00 00 00 00 08 00 00 00 FF 11 96 78 
+00019905 [140276338431744] <- 000000 80 04 00 00 00 00 08 00 00 00 FF 11 96 78 
+00000027 [140276338431744] PPS: Receiving confirm: FF 11 96 78 
+00000018 [140276338431744] ifdhandler.c:979:IFDHSetProtocolParameters() BWI/CWI (TB3) present: 0x65
+00000072 [140276338431744] ifdhandler.c:1013:IFDHSetProtocolParameters() IFSC (TA3) present: 254
+00000016 [140276338431744] ifdhandler.c:1017:IFDHSetProtocolParameters() Timeout: 5810 ms
+00000015 [140276338431744] commands.c:2254:SetParameters() length: 7 bytes
+00000018 [140276338431744] -> 000000 61 07 00 00 00 00 09 01 00 00 96 11 02 65 00 FE 00 
+00001648 [140276338431744] <- 000000 82 07 00 00 00 00 09 00 00 01 96 11 02 65 00 FE 00 
+00000013 [140276338431744] ifdhandler.c:1074:IFDHSetProtocolParameters() IFSC (TA3) present: 254
+00000011 [140276338431744] ifdhandler.c:1081:IFDHSetProtocolParameters() Negotiate IFSD at 254
+00000017 [140276338431744] sending: 00 C1 01 FE 54 4E 
+00000013 [140276338431744] -> 000000 6F 06 00 00 00 00 0A 00 00 00 00 C1 01 FE 54 4E 
+00182077 [140276338431744] <- 000000 80 06 00 00 00 00 0A 00 00 00 00 E1 01 FE 57 75 
+00000021 [140276338431744] received: 00 E1 01 FE 57 75 
+
+00000008 [140276338431744] commands.c:2228:CmdXfrBlockTPDU_T1() T=1: 5 and 65548 bytes
+00000008 [140276338431744] openct/proto-t1.c:580:t1_build() more bit: 0
+00000009 [140276338431744] sending: 00 00 05 00 A4 00 00 00 B8 DA 
+00000011 [140276338431744] -> 000000 6F 0A 00 00 00 00 0C 00 00 00 00 00 05 00 A4 00 00 00 B8 DA 
+00309787 [140276338431744] <- 000000 80 19 00 00 00 00 0C 00 00 00 00 20 14 6F 17 81 02 7F FF 82 01 38 83 02 3F 00 86 03 11 3F FF 85 02 10 29 
+00000025 [140276338431744] received: 00 20 14 6F 17 81 02 7F FF 82 01 38 83 02 3F 00 86 03 11 3F FF 85 02 10 29 
+00000013 [140276338431744] openct/proto-t1.c:356:t1_transceive() 
+00000018 [140276338431744] sending: 00 90 00 20 6E 
+00000014 [140276338431744] -> 000000 6F 05 00 00 00 00 0D 00 00 00 00 90 00 20 6E 
+00002885 [140276338431744] <- 000000 80 0C 00 00 00 00 0D 00 00 00 00 60 07 00 02 8A 01 AA 90 00 A6 33 
+00000012 [140276338431744] received: 00 60 07 00 02 8A 01 AA 90 00 A6 33 
+00000010 [140276338431744] sending: 00 80 00 B5 FF 
+00000011 [140276338431744] -> 000000 6F 05 00 00 00 00 0E 00 00 00 00 80 00 B5 FF 
+00002965 [140276338431744] <- 000000 80 05 00 00 00 00 0E 00 00 00 00 00 00 39 33 
+00000011 [140276338431744] received: 00 00 00 39 33 
+00000015 [140276338431744] SW: 6F 17 81 02 7F FF 82 01 38 83 02 3F 00 86 03 11 3F FF 85 02 00 02 8A 01 AA 90 00 
+
+
+Card is working as expected.  Of course, I have tested lot of operations .. 
+no errors.
+
+Another card reader: _Standard Microsystems Corp_ with TPDU level exchange
+was tested without any error (linux).
+
+
+You may be interested in the difference between the windows driver and the
+linux driver when using a card with a T1 protocol that uses CRC instead LRC.
+
+Tests on Win10 (64 bit), OS build 19042.746, Version 20H2, _Gemalto_ reader.
+
+Card is not working.  Let's go to do some sniffing .. 
+
+Captured on wire (https://github.com/popovec/tpdu-logger):
+Note: captured data on _Gemalto_ card reader are the same as capture data on 
+      _Standard Microsystems Corp_ card reader.
+
+> 00 c1 01 fe ec d1	
+// linux driver generates 00 c1 01 fe 54 4e 
+< 00 81 00 ac 27
+// card is idle, because  Rule 7.4.3 - do not repeat S block or R block ...
+> 00 81 00 50 60
+> 00 82 00 a0 60
+> 00 c0 00 00 50
+> 00 c0 00 00 50
+
+Difference is in 1st T1 block (S request).  CRC is different.  Card response
+is R block and then T1 machine is dead.
+
+I was looking for a polynomial that uses win 10 to calculate CRC.  Seems
+this CRC match the CRC-16/ARC from https://crccalc.com/ Polynomial is
+0x8005..  But, is this direct or reverse polynomial ?
+
+Reversed 0x8005 = 1000 0000 0000 0101 => 
+                  1010 0000 0000 0001 = 0xA001) polynomial: X^16+X^15+X^2+1
+
+Finally, I found that the same CRC as calculated by windows, corresponds to
+code below:
+
+
+uint16_t t1_crc(uint8_t * data_p, uint16_t length)
+{
+        uint8_t i;
+        uint8_t data;
+        uint16_t crc = 0;
+
+        do {
+                crc ^= *(data_p++);
+                for (i = 0; i < 8; i++) {
+                        if (crc & 1)
+                                crc = (crc >> 1) ^ 0xA001;
+                        else
+                                crc >>= 1;
+                        data >>= 1;
+                }
+        } while (--length);
+        return (crc);
+}
+
+
+Well, we will adjust the CRC calculation and try the card with WIN 10.
+
+Captured on wire:
+
+> 00 c1 01 fe ec d1 
+< 00 e1 01 fe 26 d0
+> 00 00 10 00 a4 04 00 0b a0 00 00 03 97 43 49 44 5f 01 00 f1 9a // unknown CRC
+< 00 e1 01 fe 26 d0
+
+After S_response to IFS, I-block from reader arrives, but there is unknown
+CRC .. (S_response is retransmited  rule 7.3).
+
+And here are the following misunderstandings:
+
+> 00 00 05 00 ca 7f 68 00 95 21
+< 00 20 02 6a 88 c6 84
+> 00 81 00 50 60 
+
+card reader signalizes the CRC error ...
+
+< 00 20 02 6a 88 c6 84 
+> 00 81 00 50 60
+< 00 20 02 6a 88 c6 84 
+
+resync .. 
+> 00 c0 00 00 50 
+< 00 e0 00 c0 49 
+> 00 00 05 00 ca 7f 68 00 95 21 
+< 00 20 02 6a 88 c6 84 
+> 00 81 00 50 60 
+< 00 20 02 6a 88 c6 84 
+> 00 81 00 50 60 
+< 00 20 02 6a 88 c6 84 
+> 00 c0 00 00 50 
+< 00 e0 00 c0 49 
+> 00 00 05 00 ca 7f 68 00 95 21
+< 00 20 02 6a 88 c6 
+
+---------------------------------------------------------------------------------------------------
+Another card reader (TPDU based) _Realtec_ linux ccid driver, data from driver: 00 C1 01 FE 54 4E
+but captured on wire: 00 c1 01 fe 90 a8 (same data captured on wire with WIN 10 driver).
+In this case, I think there is a bug in the firmware.
+
+
+---------------------------------------------------------------------------------------------------
+Next test libacsccid1 ACR38 AC1038 reader.
+pcscd:
+
+00000008 [140276098127616] sending: 00 C1 01 F8 31 78 
+00000009 [140276098127616] -> 000000 01 A1 00 06 00 C1 01 F8 31 78 
+00181978 [140276098127616] <- 000000 01 00 00 05 00 E1 01 F8 32 
+00000013 [140276098127616] received: 00 E1 01 F8 32 
+00000101
+
+captured on wire:
+> ff 11 95 7b
+> ff 11 95 7b
+> 00 c1 01 f8 31 78
+> 00 e1 01 f8 32 43
+> 00 c1 01 f8 31 78
+> 00 e1 01 f8 32 43
+> 00 c1 01 f8 31 78
+> 00 e1 01 f8 32 43
+
+Where last byte is discarded ? dump from USB:
+
+0000  00 f0 f9 fa 13 93 ff ff 53 03 02 2e 08 00 2d 00   ........S.....-.
+0010  72 7b 3f 60 00 00 00 00 44 50 00 00 8d ff ff ff   r{?`....DP......
+0020  0a 00 00 00 0a 00 00 00 00 00 00 00 00 00 00 00   ................
+0030  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0040  01 a1 00 06 00 c1 01 f8 31 78                     ........1x
+
+0000  00 f0 f9 fa 13 93 ff ff 43 03 02 2e 08 00 2d 3e   ........C.....->
+0010  72 7b 3f 60 00 00 00 00 ef 53 00 00 00 00 00 00   r{?`.....S......
+0020  0a 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0030  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+
+0000  00 f9 f9 fa 13 93 ff ff 53 03 82 2e 08 00 2d 3c   ........S.....-<
+0010  72 7b 3f 60 00 00 00 00 12 54 00 00 8d ff ff ff   r{?`.....T......
+0020  40 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   @...............
+0030  00 00 00 00 00 00 00 00 00 02 00 00 00 00 00 00   ................
+
+0000  00 f9 f9 fa 13 93 ff ff 43 03 82 2e 08 00 2d 00   ........C.....-.
+0010  72 7b 3f 60 00 00 00 00 c0 5b 00 00 00 00 00 00   r{?`.....[......
+0020  09 00 00 00 09 00 00 00 00 00 00 00 00 00 00 00   ................
+0030  00 00 00 00 00 00 00 00 00 02 00 00 00 00 00 00   ................
+0040  01 00 00 05 00 e1 01 f8 32                        ........2
+
+
+Ok, this is not fixable by driver.. seems this is a firmware bug. 
+
+---------------------------------------------------------------------------------------------------
+
+
+One more test .. with _Alcor_ reader (APDU transport)
+
+058f:9540 Alcor Micro Corp. AU9540 Smartcard Reader (APDU transport)
+pcscd:
+00000097 [140276338431744] ifdhandler.c:1154:IFDHPowerICC() action: PowerUp, usb:058f/9540:libudev:0:/dev/bus/usb/005/059 (lun: 0)
+00000072 [140276338431744] -> 000000 62 00 00 00 00 00 07 00 00 00 
+00180848 [140276338431744] <- 000000 80 0F 00 00 00 00 07 00 00 00 3B D5 96 02 80 71 FE 65 01 4F 73 45 49 44 5E 
+00000021 [140276338431744] eventhandler.c:406:EHStatusHandlerThread() powerState: POWER_STATE_POWERED
+00000165 [140276338431744] eventhandler.c:423:EHStatusHandlerThread() Card inserted into Alcor Micro AU9560 00 00
+00000147 [140276338431744] Card ATR: 3B D5 96 02 80 71 FE 65 01 4F 73 45 49 44 5E 
+....
+....
+00000052 [140276114913024] ifdhandler.c:818:IFDHSetProtocolParameters() Set speed to 231250 bauds
+00000053 [140276114913024] ifdhandler.c:979:IFDHSetProtocolParameters() BWI/CWI (TB3) present: 0x65
+00000054 [140276114913024] ifdhandler.c:1013:IFDHSetProtocolParameters() IFSC (TA3) present: 254
+00000052 [140276114913024] ifdhandler.c:1017:IFDHSetProtocolParameters() Timeout: 7241 ms
+00000054 [140276114913024] commands.c:2254:SetParameters() length: 7 bytes
+00000100 [140276114913024] -> 000000 61 07 00 00 00 00 08 01 00 00 96 11 02 65 00 FE 00 
+00066642 [140276114913024] <- 000000 82 07 00 00 00 00 08 00 00 01 96 11 02 65 00 FE 00 
+00000018 [140276114913024] ifdhandler.c:1074:IFDHSetProtocolParameters() IFSC (TA3) present: 254
+00000011 [140276114913024] ifdhandler.c:1087:IFDHSetProtocolParameters() T=1: IFSC=254, IFSD=254
+00000010 [140276114913024] winscard.c:431:SCardConnect() Active Protocol: T=1
+00000010 [140276114913024] winscard.c:456:SCardConnect() hCard Identity: 14982382
+00000011 [140276114913024] winscard.c:518:SCardConnect() UnrefReader() count was: 2
+00000012 [140276114913024] winscard_svc.c:511:ContextThread() CONNECT rv=0x0 for client 15
+01322926 [140276338431744] ccid_usb.c:1352:InterruptRead() after (0) (2)
+00000020 [140276338431744] ifdhandler.c:1821:IFDHICCPresence() usb:058f/9540:libudev:0:/dev/bus/usb/005/059 (lun: 0)
+00000012 [140276338431744] -> 000000 65 00 00 00 00 00 09 00 00 00 
+00002951 [140276338431744] <- 000000 81 00 00 00 00 00 09 00 00 00 
+00000011 [140276338431744] ifdhandler.c:1942:IFDHICCPresence() Card present
+00000014 [140276338431744] ifdhandler.c:310:IFDHPolling() usb:058f/9540:libudev:0:/dev/bus/usb/005/059 (lun: 0) 600000 ms
+00000011 [140276338431744] ccid_usb.c:1306:InterruptRead() before (0)
+01539834 [140276114913024] winscard_svc.c:362:ContextThread() Received command: TRANSMIT from client 15
+00000025 [140276114913024] readerfactory.c:848:RFReaderInfoById() RefReader() count was: 1
+00000009 [140276114913024] winscard.c:1601:SCardTransmit() Send Protocol: T=1
+00000007 [140276114913024] APDU: 00 A4 00 00 00 
+00000008 [140276114913024] ifdhandler.c:1303:IFDHTransmitToICC() usb:058f/9540:libudev:0:/dev/bus/usb/005/059 (lun: 0)
+00000009 [140276114913024] commands.c:1623:CmdXfrBlockAPDU_extended() T=0 (extended): 5 bytes
+00000008 [140276114913024] -> 000000 6F 05 00 00 00 00 0A 00 00 00 00 A4 00 00 00 
+01871892 [140276114913024] <- 000000 80 00 00 00 00 00 0A 41 FB 00 
+00000032 [140276114913024] commands.c:1523:CCID_Receive Hardware error
+00000011 [140276114913024] SW: 
+00000010 [140276114913024] ifdwrapper.c:543:IFDTransmit() Card not transacted: 612
+00000009 [140276114913024] winscard.c:1626:SCardTransmit() Card not transacted: 0x80100016
+
+Checksum for block transmitted by reader correspond to polynomial 0x8408: init 0xffff
+But the card reader is not able to read block with this CRC back... 
+
+Captured on wire:
+> 00 c1 01 fe 54 4e
+< 00 e1 01 fe 57 75
+> 00 c1 01 fe 54 4e
+< 00 e1 01 fe 57 75
+> 00 c1 01 fe 54 4e
+< 00 e1 01 fe 57 75
+> 00 00 05 00 a4 00 00 00 b8 da
+< 00 20 14 6f 17 81 02 7f ff 82 01 38 83 02 3f 00 86 03 11 3f ff 85 02 10 29
+> 00 81 00 ac 27
+< 00 20 14 6f 17 81 02 7f ff 82 01 38 83 02 3f 00 86 03 11 3f ff 85 02 10 29 
+> 00 81 00 ac 27 
+< 00 20 14 6f 17 81 02 7f ff 82 01 38 83 02 3f 00 86 03 11 3f ff 85 02 10 29 
+> 00 c0 00 f3 99 
+< 00 e0 00 d0 aa
+
+It seems that the CRC still does not match what the reader expects.
+
+Conclusion:
+
+I assume, there is no way to implement  T1 protocol, that  uses CRC for
+checksumming (due to problems with card readers drivers and card readers
+firmware).
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+Reader info:
+------------
+Bus 002 Device 006: ID 0bda:0169 Realtek Semiconductor Corp. Mass Storage Device
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            0 
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0        64
+  idVendor           0x0bda Realtek Semiconductor Corp.
+  idProduct          0x0169 Mass Storage Device
+  bcdDevice           61.23
+  iManufacturer           1 
+  iProduct                2 
+  iSerial                 3 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength       0x0074
+    bNumInterfaces          2
+    bConfigurationValue     1
+    iConfiguration          4 
+    bmAttributes         0x80
+      (Bus Powered)
+    MaxPower              500mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           3
+      bInterfaceClass        11 Chip/SmartCard
+      bInterfaceSubClass      0 
+      bInterfaceProtocol      0 
+      iInterface              6 
+      ChipCard Interface Descriptor:
+        bLength                54
+        bDescriptorType        33
+        bcdCCID              1.10  (Warning: Only accurate for version 1.0)
+        nMaxSlotIndex           0
+        bVoltageSupport         7  5.0V 3.0V 1.8V 
+        dwProtocols             3  T=0 T=1
+        dwDefaultClock       3750
+        dwMaxiumumClock      7500
+        bNumClockSupported      0
+        dwDataRate          10080 bps
+        dwMaxDataRate      312500 bps
+        bNumDataRatesSupp.      0
+        dwMaxIFSD             254
+        dwSyncProtocols  00000000 
+        dwMechanical     00000000 
+        dwFeatures       00010030
+          Auto clock change
+          Auto baud rate change
+          TPDU level exchange
+        dwMaxCCIDMsgLen       271
+        bClassGetResponse      00
+        bClassEnvelope         00
+        wlcdLayout           none
+        bPINSupport             0 
+        bMaxCCIDBusySlots       1
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x83  EP 3 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               8
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x05  EP 5 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0200  1x 512 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x86  EP 6 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0200  1x 512 bytes
+        bInterval               0
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        1
+      bAlternateSetting       0
+      bNumEndpoints           2
+      bInterfaceClass         8 Mass Storage
+      bInterfaceSubClass      6 SCSI
+      bInterfaceProtocol     80 Bulk-Only
+      iInterface              5 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x01  EP 1 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0200  1x 512 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x82  EP 2 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0200  1x 512 bytes
+        bInterval               0
+
+Bus 005 Device 003: ID 058f:9540 Alcor Micro Corp. AU9540 Smartcard Reader
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            0 
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x058f Alcor Micro Corp.
+  idProduct          0x9540 AU9540 Smartcard Reader
+  bcdDevice            1.20
+  iManufacturer           1 
+  iProduct                2 
+  iSerial                 0 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength       0x005d
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xa0
+      (Bus Powered)
+      Remote Wakeup
+    MaxPower               50mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           3
+      bInterfaceClass        11 Chip/SmartCard
+      bInterfaceSubClass      0 
+      bInterfaceProtocol      0 
+      iInterface              0 
+      ChipCard Interface Descriptor:
+        bLength                54
+        bDescriptorType        33
+        bcdCCID              1.10  (Warning: Only accurate for version 1.0)
+        nMaxSlotIndex           0
+        bVoltageSupport         7  5.0V 3.0V 1.8V 
+        dwProtocols             3  T=0 T=1
+        dwDefaultClock       3700
+        dwMaxiumumClock      3700
+        bNumClockSupported      1
+        dwDataRate           9946 bps
+        dwMaxDataRate      318280 bps
+        bNumDataRatesSupp.     53
+        dwMaxIFSD             254
+        dwSyncProtocols  00000007  2-wire 3-wire I2C
+        dwMechanical     00000000 
+        dwFeatures       000404BE
+          Auto configuration based on ATR
+          Auto activation on insert
+          Auto voltage selection
+          Auto clock change
+          Auto baud rate change
+          Auto PPS made by CCID
+          Auto IFSD exchange
+          Short and extended APDU level exchange
+        dwMaxCCIDMsgLen       272
+        bClassGetResponse    echo
+        bClassEnvelope       echo
+        wlcdLayout           none
+        bPINSupport             0 
+        bMaxCCIDBusySlots       1
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0004  1x 4 bytes
+        bInterval              32
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x02  EP 2 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0010  1x 16 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x83  EP 3 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0010  1x 16 bytes
+        bInterval               0
+
+
+Bus 005 Device 067: ID 08e6:3437 Gemalto (was Gemplus) GemPC Twin SmartCard Reader
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            0 
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x08e6 Gemalto (was Gemplus)
+  idProduct          0x3437 GemPC Twin SmartCard Reader
+  bcdDevice            2.00
+  iManufacturer           1 
+  iProduct                2 
+  iSerial                 3 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength       0x005d
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0xa0
+      (Bus Powered)
+      Remote Wakeup
+    MaxPower               50mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           3
+      bInterfaceClass        11 Chip/SmartCard
+      bInterfaceSubClass      0 
+      bInterfaceProtocol      0 
+      iInterface              0 
+      ChipCard Interface Descriptor:
+        bLength                54
+        bDescriptorType        33
+        bcdCCID              1.01  (Warning: Only accurate for version 1.0)
+        nMaxSlotIndex           0
+        bVoltageSupport         7  5.0V 3.0V 1.8V 
+        dwProtocols             3  T=0 T=1
+        dwDefaultClock       4800
+        dwMaxiumumClock      4800
+        bNumClockSupported      0
+        dwDataRate          12903 bps
+        dwMaxDataRate      825806 bps
+        bNumDataRatesSupp.     53
+        dwMaxIFSD             254
+        dwSyncProtocols  00000000 
+        dwMechanical     00000000 
+        dwFeatures       00010230
+          Auto clock change
+          Auto baud rate change
+          NAD value other than 0x00 accepted
+          TPDU level exchange
+        dwMaxCCIDMsgLen       271
+        bClassGetResponse      00
+        bClassEnvelope         00
+        wlcdLayout           none
+        bPINSupport             0 
+        bMaxCCIDBusySlots       1
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x01  EP 1 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x82  EP 2 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x83  EP 3 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0008  1x 8 bytes
+        bInterval              16
+
+
+Bus 008 Device 046: ID 072f:9000 Advanced Card Systems, Ltd ACR38 AC1038-based Smart Card Reader
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               1.10
+  bDeviceClass            0 
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0         8
+  idVendor           0x072f Advanced Card Systems, Ltd
+  idProduct          0x9000 ACR38 AC1038-based Smart Card Reader
+  bcdDevice            1.00
+  iManufacturer           1 ACS      
+  iProduct                2 ACR38 USB Reader         
+  iSerial                 0 
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength       0x0027
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          0 
+    bmAttributes         0x80
+      (Bus Powered)
+    MaxPower              100mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           3
+      bInterfaceClass         0 
+      bInterfaceSubClass      0 
+      bInterfaceProtocol      0 
+      iInterface              0 
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x81  EP 1 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0008  1x 8 bytes
+        bInterval               2
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x02  EP 2 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x82  EP 2 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+Device Status:     0x0000
+  (Bus Powered)
+
+
+Bus 008 Device 047: ID 0424:1104 Standard Microsystems Corp. 
+Device Descriptor:
+  bLength                18
+  bDescriptorType         1
+  bcdUSB               2.00
+  bDeviceClass            0 
+  bDeviceSubClass         0 
+  bDeviceProtocol         0 
+  bMaxPacketSize0        16
+  idVendor           0x0424 Standard Microsystems Corp.
+  idProduct          0x1104 
+  bcdDevice            2.22
+  iManufacturer           1 SMSC
+  iProduct                2 SMSC USX101x Reader 
+  iSerial                 5 68EA783C
+  bNumConfigurations      1
+  Configuration Descriptor:
+    bLength                 9
+    bDescriptorType         2
+    wTotalLength       0x005d
+    bNumInterfaces          1
+    bConfigurationValue     1
+    iConfiguration          3 CCID
+    bmAttributes         0xa0
+      (Bus Powered)
+      Remote Wakeup
+    MaxPower              120mA
+    Interface Descriptor:
+      bLength                 9
+      bDescriptorType         4
+      bInterfaceNumber        0
+      bAlternateSetting       0
+      bNumEndpoints           3
+      bInterfaceClass        11 Chip/SmartCard
+      bInterfaceSubClass      0 
+      bInterfaceProtocol      0 
+      iInterface              4 CCID Interface
+      ChipCard Interface Descriptor:
+        bLength                54
+        bDescriptorType        33
+        bcdCCID              1.10  (Warning: Only accurate for version 1.0)
+        nMaxSlotIndex           0
+        bVoltageSupport         7  5.0V 3.0V 1.8V 
+        dwProtocols             3  T=0 T=1
+        dwDefaultClock       4800
+        dwMaxiumumClock     16000
+        bNumClockSupported      0
+        dwDataRate          12903 bps
+        dwMaxDataRate      826000 bps
+        bNumDataRatesSupp.      0
+        dwMaxIFSD             254
+        dwSyncProtocols  00000000 
+        dwMechanical     00000000 
+        dwFeatures       000100B2
+          Auto configuration based on ATR
+          Auto clock change
+          Auto baud rate change
+          Auto PPS made by CCID
+          TPDU level exchange
+        dwMaxCCIDMsgLen       271
+        bClassGetResponse    echo
+        bClassEnvelope       echo
+        wlcdLayout           none
+        bPINSupport             0 
+        bMaxCCIDBusySlots       1
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x01  EP 1 OUT
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x82  EP 2 IN
+        bmAttributes            2
+          Transfer Type            Bulk
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0040  1x 64 bytes
+        bInterval               0
+      Endpoint Descriptor:
+        bLength                 7
+        bDescriptorType         5
+        bEndpointAddress     0x83  EP 3 IN
+        bmAttributes            3
+          Transfer Type            Interrupt
+          Synch Type               None
+          Usage Type               Data
+        wMaxPacketSize     0x0008  1x 8 bytes
+        bInterval              16
+Device Status:     0x0000
+  (Bus Powered)
+

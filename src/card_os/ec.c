@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -172,12 +172,12 @@ uint8_t __attribute__((weak)) mp_shiftr (bignum_t * r)
 {
   return bn_shiftr (r);
 }
-
+/*
 uint8_t __attribute__((weak)) mp_shiftr_c (bignum_t * r, uint8_t carry)
 {
   return bn_shiftr_c (r, carry);
 }
-
+*/
 void __attribute__((weak)) mp_mod (bigbignum_t * result, bignum_t * mod)
 {
   bn_mod (result, mod);

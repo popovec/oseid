@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -29,9 +29,10 @@
 #ifndef APDU_CMD_LEN
 #define APDU_CMD_LEN 261+5
 #endif
-// 257 bytes (this buffer is used as case of apdu chaining and RSA proprietary padding..)
+// 258 bytes (this buffer is used as case of APDU chaining
+// and for RSA operarion with padding indicator (P2 = 0x86)
 #ifndef APDU_RESP_LEN
-#define APDU_RESP_LEN 257
+#define APDU_RESP_LEN 258
 #endif
 void card_poll (void);
 
@@ -42,31 +43,23 @@ struct iso7816_response
   uint8_t protocol;		// 0 T0 1 T1
   uint16_t Nc;			// 0, Lc not present, 1..65535 Lc
   uint16_t Ne;			// 0, Le not present, 1..65535 Le  (iso allow 65536 here, but for limited RAM in hardware this is not used)
-  uint8_t chaining_active;
+  uint8_t chaining_ins;
+  uint8_t chaining_state;
   uint16_t len16;
-  uint16_t tmp_len;		// how many bytes are  stored in response (in case of flag == R_TMP)
-  uint8_t flag;			//check #define below ..
+  uint16_t tmp_len;		// length of chained APDU (except last APDU part)
+  uint16_t chain_len;		// length of chained APDU (whole collected data)
   uint8_t data[APDU_RESP_LEN];
   uint8_t input[APDU_CMD_LEN];
 };
 
-// definition of values in struct iso7816_response.flag
-// response data in buffer invalid
-#define  R_NO_DATA  0
-// response data is available in buffer
-#define  R_RESP_READY  1
-// no response data in buffer, buffer is used to other data (temporary)
-#define  R_TMP	    2
-// no response data in buffer, buffer is used by envelope command
-#define  R_ENVELOPE	    3
-
-
-uint8_t resp_ready (struct iso7816_response *r, uint16_t len);
+#define RESP_READY(x) {r->len16 = (x); return S0x6100;}
 
 // 0x9000
 #define S_RET_OK   0
-#define S_RET_GET_RESPONSE 1		// used by GET RESPONSE to signalize data must be returned
-#define S0x6100 0x10		// response length in low byte
+// used by GET RESPONSE to signalize data must be returned
+#define S_RET_GET_RESPONSE 1
+// response length in low byte
+#define S0x6100 0x10
 
 #define S0x6281 0x21
 #define S0x6282 0x22
@@ -92,7 +85,8 @@ uint8_t resp_ready (struct iso7816_response *r, uint16_t len);
 
 #define S0x6581 0x51
 
-#define S0x6700 0x70		//fixed 6700
+// fixed 6700
+#define S0x6700 0x70
 
 #define S0x6883	0x83
 #define S0x6884	0x84
@@ -112,13 +106,22 @@ uint8_t resp_ready (struct iso7816_response *r, uint16_t len);
 #define S0x6a88 0xa8
 #define S0x6a89 0xa9
 
-#define S0x6b00 	0xb0	//fixed 6b00
+// fixed 6b00
+#define S0x6b00 	0xb0
+// wrong Le, low byte is used to signalize correct Le
+#define S0x6c00		0xc0
+// fixed 6d00
+#define S0x6d00 	0xd0
+// fixed 6e00
+#define S0x6e00 	0xe0
+// fixed 6f00
+#define S0x6f00 	0xf0
 
-#define S0x6c00		0xc0	//same as 0x61xx
-
-#define S0x6d00 	0xd0	//fixed 6d00
-#define S0x6e00 	0xe0	//fixed 6e00
-#define S0x6f00 	0xf0	//fixed 6f00
-
-
+// APDU_CHAIN_RUNNING is mask for APDU_CHAIN_ACTIVE and APDU_CHAIN_START
+// there is test chaining_state <= APDU_CHAIN_START in code, do not change values!
+#define APDU_CHAIN_INACTIVE  0
+#define APDU_CHAIN_START     1
+#define APDU_CHAIN_ACTIVE    2
+#define APDU_CHAIN_RUNNING   3
+#define APDU_CHAIN_LAST      4
 #endif

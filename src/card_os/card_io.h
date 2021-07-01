@@ -27,23 +27,23 @@
     void card_io_init(void)
      - I/O subsystem is initialized and ATR is send to reader
 
-    uint8_t card_io_tx (uint8_t * data, uint16_t len);
+    void card_io_tx (uint8_t * data, uint16_t len);
      - transmit data from buffer pointed by "data", length is
        defined in "len" variable. Minimal transmit size is 1 byte,
        if len==0 then 65536 bytes are transmitted.
-     - return 255 on error (T0 protocol, reader signalize
-       error in parity.. )
-     - return 0 - all ok
 
      uint16_t card_io_rx (uint8_t * data, uint16_t len);
      - read data from reader, store to buffer pointed by "data"
        maximal number of received bytes in "len". If reader transmit
        more data as expected in "len", rest of data are discarded.
        (transmit end is detected by timeout after latest received char)
+       Discard is not signalized, for protocol T1 the Le field can be
+       dropped silently.
      - if len == 0, no character are stored into buffer (T0 protocol allow
        only 255 character to be transmitted, here 0 is not interpreted as 256)
-     - return numbers of received chars (0..32767), bit 15 is used to signalize protocol T0/1
-       Of cource maximal sice is limited by Hw.
+     - On error return 0, then 1st byte in buffer signalize error:
+       1 - parity error (only for T0 transport)
+       2 - PPS error (read PPS handling below)
 
      void card_io_start_null (void);
      - setup I/O subsystem to transmit NULL bytes
@@ -52,9 +52,26 @@
      void card_io_stop_null (void);
      - setup I/O subsystem to not transmit NULL bytes
 
-     uint8_t card_io_reset (void);
-     - return 1 if card reset was activated (and ATR was send to reader)
-       repeated cals then return 0 until RST is not reactivated.
+     CLASS FFh - card in specific mode (TA2 present in ATR):
+	- io layer is not responsible to handle PPS (CLASS FFh / NAD FFh)
+        - frame is passed to caller
+
+     CLASS FFh - card in negotiable mode
+	- if 1st byte in frame is 0xff, then:
+		a) If this is 1st frame after ATR, this is PPS frame (see below)
+		   (ISO7816-3:2006,Figure 4)
+		b) If this is not 1st frame after ATR, this frame is ignored
+                   CLA 0xff is invalid, NAD 0xff is invalid.
+		   (ISO7816-3:2006, 6.3.1 NOTE 1)
+                   IO layer signalize this as error 2 (see above card_io_rx)
+
+
+      PPS handling:
+        PPS0 is checked for supported protocols, PPS1 is checked for valid F/D. For
+        valid PPS IO layer generates a response frame and this frame is returned to
+        caller. Caller can use protocol value in PPS frame to select T0/1 protocol.
+        Caller is responsible to transmit this frame back. IO layer then
+        changes parameters of transmitions to negotiated values.
 
      RST handling:
 
@@ -71,7 +88,7 @@
 */
 void card_io_init (void);
 uint16_t card_io_rx (uint8_t * data, uint16_t len);
-uint8_t card_io_tx (uint8_t * data, uint16_t len);
+void card_io_tx (uint8_t * data, uint16_t len);
 uint8_t card_io_reset (void);
 void card_io_start_null (void);
 void card_io_stop_null (void);
