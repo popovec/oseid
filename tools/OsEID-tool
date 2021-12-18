@@ -158,6 +158,7 @@ else
 	echo "CSR [key] [subject] - generate certificate signing request"
 	echo "CRT [key] [subject] - generate self signed certificate"
 	echo "DES-AES-UPLOAD-KEYS - upload 3DES, AES 128 and AES 256 key"
+	echo "SYM-CRYPT-TEST - AES ECB/CBC/CBC-PAD, (OpenSC patch test)"
 	echo "RND-TEST - test random generator entropy"
 	# echo "FAST-TEST"
 	# echo "FULL-TEST"
@@ -484,11 +485,9 @@ if [ "x$mode" == "xFULL-TEST" ] || [ "x$mode" == "xFAST-TEST" ]; then
 		$0 EC-SIGN-PKCS11-TEST
 	fi
 	$0 EC-ECDH-TEST
-
 	$0 DES-AES-UPLOAD-KEYS
-	# waiting for #2268
-	# $0 UNWRAP-WRAP-TEST
-
+	# $0 SYM-CRYPT-TEST (waiting for patch..)
+	$0 UNWRAP-WRAP-TEST
 	$0 ERASE-CARD
 	exit 0
 fi
@@ -1313,19 +1312,74 @@ if [ $mode == "DES-AES-UPLOAD-KEYS" ]; then
 	exit 0
 fi
 #
-if [ $mode == "DES-AES-TEST" ]; then
-	boldecho "DES AES test"
-	boldecho "------------"
+if [ $mode == "SYM-CRYPT-TEST" ]; then
+	boldecho " symmetric encryption test"
+	boldecho "--------------------------"
 	err=0
-	echo "AES-ECB and AES-CBC test"
+	echo "AES-CBC-PAD test (small data block < 1024 bytes, C_Encrypt)"
 	VECTOR="00000000000000000000000000000000"
-	dd if=/dev/random bs=32 count=1 >tmp/aes_plain.data 2>/dev/null
+	dd if=/dev/urandom bs=33 count=10 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
+	openssl enc -aes-128-cbc -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -iv "${VECTOR}" -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--encrypt --id 85 -m AES-CBC-PAD --iv "${VECTOR}" \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "AES-CBC-PAD test (data block > 1024 bytes C_EncryptUpdate + C_EncryptFinalize)"
+	VECTOR="000000000000000000000000000000aa"
+	dd if=/dev/ruandom bs=33 count=100 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
+	openssl enc -aes-128-cbc -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -iv "${VECTOR}" -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--encrypt --id 85 -m AES-CBC-PAD --iv "${VECTOR}" \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "AES-CBC test (data block < 1024 bytes C_Encrypt)"
+	VECTOR="00ff00000000000000000000000000aa"
+	dd if=/dev/urandom bs=32 count=45 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
 	openssl enc -aes-128-cbc -nopad -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -iv "${VECTOR}" -K "70707070707070707070707070707070"
 	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
-		--decrypt --id 85 -m AES-CBC --iv "${VECTOR}" \
-	        --input-file tmp/aes_ciphertext_openssl.data --output-file tmp/aes_plain_test.data
-	cmp tmp/aes_plain.data tmp/aes_plain_test.data
+		--encrypt --id 85 -m AES-CBC --iv "${VECTOR}" \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
 	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "AES-CBC test (data block > 1024 bytes C_EncryptUpdate + C_EncryptFinalize)"
+	VECTOR="00ff00000000000000000000000000aa"
+	dd if=/dev/urandom bs=32 count=45 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
+	openssl enc -aes-128-cbc -nopad -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -iv "${VECTOR}" -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--encrypt --id 85 -m AES-CBC --iv "${VECTOR}" \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "AES-ECB test (data block < 1024 bytes C_Encrypt)"
+	dd if=/dev/urandom bs=32 count=10 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
+	openssl enc -aes-128-ecb -nopad -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--encrypt --id 85 -m AES-ECB \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
+	echo "AES-ECB test (data block > 1024 bytes C_EncryptUpdate + C_EncryptFinalize)"
+	dd if=/dev/urandom bs=32 count=100 >tmp/aes_plain.data 2>/dev/null
+	rm -f tmp/aes_ciphertext_openssl.data tmp/aes_ciphertext_pkcs11.data tmp/aes_plain_pkcs11.data
+	openssl enc -aes-128-ecb -nopad -in tmp/aes_plain.data -out tmp/aes_ciphertext_openssl.data -K "70707070707070707070707070707070"
+	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 \
+		--encrypt --id 85 -m AES-ECB \
+	        --input-file tmp/aes_plain.data --output-file tmp/aes_ciphertext_pkcs11.data
+	cmp tmp/aes_ciphertext_pkcs11.data tmp/aes_ciphertext_openssl.data
+	if [ $? -ne 0 ]; then err=$[$err + 1 ]; failecho "FAIL";else trueecho "OK"; fi
+
 	if [ $err -gt 0 ]; then
 		failecho "Symetric key test: ${err} errors!"
 		exit 1
