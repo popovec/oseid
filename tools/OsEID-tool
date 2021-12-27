@@ -1209,6 +1209,12 @@ boldecho "-----------------------------"
 mkdir -p tmp
 
 echo "testtesttesttesttest" > tmp/rsa_decrypt_testfile.txt
+TEST_OAEP=0;
+set -o pipefail
+pkcs11-tool --slot-index ${SCSlot} -M |grep -q -w RSA-PKCS-OAEP
+if [ $? == 0 ]; then
+	TEST_OAEP=1
+fi
 
 err=0
 for keyID in $(PKCS15-TOOL --list-public-keys|gawk -F: '{if($1 ~ "ModLength"){if(strtonum($2)>=512)OK=1;else OK=0};if($1~"ID" && OK==1){print $2;OK=0}}') ; do
@@ -1245,6 +1251,38 @@ if [ $? -eq 0 ]; then
 else
 	failecho "error in decrypt"
 	err=$[$err + 1 ]
+fi
+if [ $TEST_OAEP == 1 ]; then
+ echo "0123456789test0123456789" >tmp/oaep_test.plaintext
+ KEY_LEN=`wc -m < tmp/exported_rsa_key.pub`
+ # skil small keys (below 1024 bits)
+ if [ $KEY_LEN -gt 250 ]; then
+	 openssl pkeyutl -encrypt -pubin -inkey tmp/exported_rsa_key.pub \
+		-pkeyopt rsa_padding_mode:oaep \
+		-pkeyopt rsa_oaep_md:sha1 \
+		-in tmp/oaep_test.plaintext \
+		-out tmp/oaep_test.ciphertext
+	 if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
+	 echo "using pkcs11 interface to decrypt test message (OAEP mode)"
+	 rm -f  tmp/rsa_pkcs11_tool_decrypted_testfile.txt
+	 pkcs11-tool --slot-index ${SCSlot} --decrypt \
+		--id $keyID \
+		--input-file tmp/oaep_test.ciphertext \
+		--output-file tmp/rsa_pkcs11_tool_decrypted_testfile.txt \
+		--mgf MGF1-SHA1 --hash-algorithm SHA-1 \
+		-m RSA-PKCS-OAEP --pin 11111111
+	if [ $? -ne 0 ]; then
+		failecho "pkcs11-tool failed"
+		exit 1
+	fi
+	cmp tmp/oaep_test.plaintext tmp/rsa_pkcs11_tool_decrypted_testfile.txt
+	if [ $? -eq 0 ]; then
+		trueecho "OK"
+	else
+		failecho "error in decrypt"
+		err=$[$err + 1 ]
+	fi
+ fi
 fi
 done
 if [ $err -gt 0 ]; then
