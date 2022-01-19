@@ -1,0 +1,44 @@
+name: Coverity CI
+
+# We only want to test master or explicitly via coverity branch
+on:
+  push:
+    branches: [master, coverity]
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - run: sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools
+    - name: Download Coverity Build Tool
+      run: |
+        wget -nv --post-data "token=${{ secrets.COVERITY_SCAN_TOKEN }}&project=popovec%2Foseid" \
+          -O cov-analysis.tar.gz \
+          https://scan.coverity.com/download/cxx/linux64
+        mkdir cov-analysis
+        tar -xzf cov-analysis.tar.gz --strip 1 -C cov-analysis
+      shell: bash
+
+    - name: Build with cov-build
+      run: |
+        export PATH="${PWD}/cov-analysis/bin:${PATH}"
+        cd src
+        cov-build --dir cov-int make -f Makefile.console
+        tar -czvf ../cov-int.tgz cov-int
+      shell: bash    
+
+    - name: Submit results to Coverity Scan
+      run: |
+        ls
+        curl \
+          --form project="popovec%2Foseid" \
+          --form token="${{ secrets.COVERITY_SCAN_TOKEN }}" \
+          --form email="popovec.peter@gmail.com" \
+          --form file=@cov-int.tgz \
+          --form version="${{ github.sha }}" \
+          --form description="coverity-scan-action ${{ github.repository }} / ${{ github.ref }}" \
+          "https://scan.coverity.com/builds?project=popovec%2Foseid"
+      shell: bash
+
