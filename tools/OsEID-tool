@@ -988,8 +988,8 @@ if [ $LEN -lt 249 ] || [ $RAWSIGN2048 -eq 1 ] ; then
 	if [ $? -eq 0 ]; then
 		echo "testing signature (openssl pkeyutl)"
 		openssl pkeyutl -pubin -verifyrecover \
-			-pkeyopt rsa_padding_mode:none \
 			-inkey tmp/exported_rsa_key.pub \
+			-pkeyopt rsa_padding_mode:none \
 			-in tmp/rsa_sign_testfile_${LEN}.txt.sign \
 			-out tmp/rsa_sign_testfile_${LEN}.txt.check
 		if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
@@ -1061,7 +1061,7 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-X-509\
 	--pin 11111111
 if [ $? -eq 0 ]; then
 	echo "testing RSA-X-509 signature (openssl pkeyutl)"
-	openssl pkeyutl -pubin -verifyrecover -inkey tmp/exported_rsa_key.pub -in tmp/rsa_sign_testfile.txt.sign -pkeyopt rsa_padding_mode:none -out tmp/rsa_sign_testfile.txt.sign_verify
+	openssl pkeyutl -pubin -verifyrecover -in tmp/rsa_sign_testfile.txt.sign -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:none -out tmp/rsa_sign_testfile.txt.sign_verify
 	if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
 	cmp tmp/rsa_sign_testfile_x509.txt tmp/rsa_sign_testfile.txt.sign_verify
 	if [ $?	-ne 0 ]; then
@@ -1091,7 +1091,7 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-PKCS \
 if [ $? -eq 0 ]; then
 	echo "testing RSA-PKCS signature (openssl pkeyutl)"
 	#openssl rsautl -raw -verify -pubin -inkey tmp/exported_rsa_key.pub < tmp/rsa_sign_testfile.txt.sign > tmp/rsa_sign_testfile.txt.sign_verify
-	openssl pkeyutl -pubin -verifyrecover -inkey tmp/exported_rsa_key.pub -in tmp/rsa_sign_testfile.txt.sign -pkeyopt rsa_padding_mode:none -out tmp/rsa_sign_testfile.txt.sign_verify1
+	openssl pkeyutl -pubin -verifyrecover -in tmp/rsa_sign_testfile.txt.sign -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:none -out tmp/rsa_sign_testfile.txt.sign_verify1
 	if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
 	# create testfile with padding...
 	gawk -b -v LEN=${LEN} '{LEN=LEN-3;LEN=LEN-length($0);printf("%c%c",0,1);for(i=0;i<LEN;i++)printf("%c",255);printf("%c%s",0,$0);exit}' tmp/rsa_sign_testfile_short.txt >tmp/rsa_sign_testfile.txt.sign_verify2
@@ -1160,9 +1160,9 @@ fi
 file_hash=$(mechanism2hash "${MECHANISM}")
 rm -f tmp/rsa_sign_testfile.txt.${file_hash}.sign
 # use pkcs11-tool to do same operation as:
-# openssl pkeyutl -sign -pkeyopt digest:sha1 -pkeyopt rsa_padding_mode:pss -pkeyopt rsa_pss_saltlen:-1 \
+# openssl pkeyutl -sign \
 #	-in tmp/rsa_sign_testfile.txt.sha1 \
-#	-inkey _private_key.pem_ \
+#	-inkey _private_key.pem_ -pkeyopt digest:sha1 -pkeyopt rsa_padding_mode:pss -pkeyopt rsa_pss_saltlen:-1 \
 #	-out tmp/rsa_sign_testfile.txt.sha1.sign
 echo "using pkcs11 interface to sign message, mechanism ${MECHANISM}"
 pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
@@ -1173,10 +1173,10 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
 if [ $? -eq 0 ]; then
 	openssl pkeyutl -verify -in tmp/rsa_sign_testfile.txt.${file_hash} \
 		 -sigfile tmp/rsa_sign_testfile.txt.${file_hash}.sign \
-		 -pkeyopt rsa_padding_mode:pss \
+         -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:pss \
 		 -pkeyopt rsa_pss_saltlen:-1 \
 		 -pkeyopt digest:${file_hash} \
-		 -pubin -inkey tmp/exported_rsa_key.pub
+		 -pubin
 	if [ $?	-ne 0 ]; then
 		failecho "openssl signature test fail"
 		err=$[$err + 1 ]
@@ -1257,7 +1257,8 @@ if [ $TEST_OAEP == 1 ]; then
  KEY_LEN=`wc -m < tmp/exported_rsa_key.pub`
  # skil small keys (below 1024 bits)
  if [ $KEY_LEN -gt 250 ]; then
-	 openssl pkeyutl -encrypt -pubin -inkey tmp/exported_rsa_key.pub \
+	 openssl pkeyutl -encrypt -pubin \
+        -inkey tmp/exported_rsa_key.pub \
 		-pkeyopt rsa_padding_mode:oaep \
 		-pkeyopt rsa_oaep_md:sha1 \
 		-in tmp/oaep_test.plaintext \
