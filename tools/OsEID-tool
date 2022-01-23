@@ -1171,12 +1171,11 @@ pkcs11-tool --slot-index ${SCSlot} --sign  -m "${MECHANISM}" \
 	--output-file tmp/rsa_sign_testfile.txt.${file_hash}.sign \
 	--pin 11111111
 if [ $? -eq 0 ]; then
-	openssl pkeyutl -verify -in tmp/rsa_sign_testfile.txt.${file_hash} \
+	openssl pkeyutl -pubin -verify -in tmp/rsa_sign_testfile.txt.${file_hash} \
 		 -sigfile tmp/rsa_sign_testfile.txt.${file_hash}.sign \
-         -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:pss \
+	         -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:pss \
 		 -pkeyopt rsa_pss_saltlen:-1 \
-		 -pkeyopt digest:${file_hash} \
-		 -pubin
+		 -pkeyopt digest:${file_hash}
 	if [ $?	-ne 0 ]; then
 		failecho "openssl signature test fail"
 		err=$[$err + 1 ]
@@ -1454,7 +1453,7 @@ if [ $mode == "UNWRAP-WRAP-TEST" ]; then
 	KEY="000102030405060708090a0b0c0d0e0f"
 	echo -n $KEY|xxd -p -r > tmp/aes_plain_test.key
 	echo "Using generated RSA key - public key - to wrap AES key (openssl, mechanism RSA-PKCS)"
-	openssl pkeyutl -encrypt -pubin --keyform der -inkey tmp/rsa_pub_unwrap.key -in tmp/aes_plain_test.key -out tmp/aes_wrapped_test.key
+	openssl pkeyutl -encrypt -pubin -keyform DER -inkey tmp/rsa_pub_unwrap.key -in tmp/aes_plain_test.key -out tmp/aes_wrapped_test.key
 	if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
 	echo "Unwrapping AES key on token (mechanism RSA-PKCS)"
 	pkcs11-tool --slot-index ${SCSlot} --login --pin=11111111 --unwrap --mechanism RSA-PKCS --id 70 -i tmp/aes_wrapped_test.key --key-type AES:16 \
