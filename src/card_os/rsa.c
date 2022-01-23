@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -1018,8 +1018,14 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
 // prime P is already loaded in TMP3
 // Garner's recombination
 //  m1 - m2
-  bn_sub_mod (M1, M2, TMP3);
 
+// We assume that P > Q, but openSSL 3.0 generates Q > P
+// (approximately half the number of cases)
+// TMP1 = M2 mod P
+  memset(TMP1, 0, RSA_BYTES);
+  bn_add_mod (TMP1, M2, TMP3);
+// (m1 - m2) mod p
+  bn_sub_mod (M1, TMP1, TMP3);
 // multiply and reduce h = qInv.(m1 - m2) mod p
   if (0 == get_rsa_key_part (TMP1, KEY_RSA_qInv))
     {
@@ -1041,6 +1047,7 @@ rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size)
   rsa_mul (M_P, (rsa_num *) H, TMP1);
 
   memset (TMP3, 0, RSA_BYTES);
+  // M_Q is M2
   rsa_add_long (M_P, M_Q);
 
   NPRINT ("final result:\n", M_P, rsa_get_len () * 2);
