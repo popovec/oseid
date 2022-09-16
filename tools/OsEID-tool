@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -634,11 +634,21 @@ while read curve oid size ;do
 		continue
 	 fi
 	fi
+	C=`PKCS15-TOOL -D |grep ${curve}|wc -l`
+	if [ $C != 2 ]; then
+		failecho "fail"
+		exit 1
+	fi
 	echo "uploading self signed cert for key/curve ${curve}"
 	PKCS15-INIT -X keys/${curve}-cert.pem --label "${curve}" --auth-id=1 --pin 11111111 --so-pin 00000000
 	if [ $? -ne 0 ]; then
 	        failecho "fail"
 	        exit 2
+	fi
+	C=`PKCS15-TOOL -D |grep ${curve}|wc -l`
+	if [ $C != 3 ]; then
+		failecho "fail"
+		exit 2
 	fi
 done
 exit $?
@@ -827,8 +837,10 @@ EOP
         rm -f tmp/ecdh-${curve}-alice-pub.der
         #pkcs11-tool --slot-index ${SCSlot} --login --pin 11111111 --keypairgen --key-type EC:${curve} --id ${id} --label ecdh_${curve} --usage-derive --usage-sign
         PKCS15-INIT --generate-key EC:${curve} --label ecdh_${curve} --id ${id} --key-usage sign,keyAgreement --auth-id 1 --pin 11111111 --so-pin 00000000
+        if [ $? -ne 0 ]; then failecho "Unable to generate EC key";exit 1;fi
         echo "Alice: extracting public key from card"
         PKCS15-TOOL --read-public-key  ${id} > tmp/ecdh-${curve}-alice-pub.pem
+        if [ $? -ne 0 ]; then failecho "unable to read key";exit 1;fi
         openssl ec -in tmp/ecdh-${curve}-alice-pub.pem -out tmp/ecdh-${curve}-alice-pub.der -pubin -pubout -outform der 2>/dev/null
         if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
         echo "Bob: key from openssl"
@@ -858,6 +870,7 @@ EOP
                exit 1
         fi
   done
+  exit $?
 #secp256k1 - there is no easy way generate this key with opensc
 fi
 #***************************************************************************************************************************
@@ -888,9 +901,16 @@ EOP
 		failecho "fail"
 		exit 1
 	else
-		trueecho "OK"
+		C=`PKCS15-TOOL -D |grep ${file_id}|wc -l`
+		if [ $C != 2 ]; then
+			failecho "fail"
+			exit 1
+		else
+			trueecho "OK"
+		fi
 	fi
   done
+  exit $?
 fi
 #***************************************************************************************************************************
 
@@ -912,6 +932,11 @@ for key in $(ls keys/rsa*-key.pem); do
 	if [ $? -ne 0 ]; then
 		err=$[$err + 1 ]
 		failecho "Unable to upload RSA key ${key}"
+	fi
+	C=`PKCS15-TOOL -D |grep ${L}|wc -l`
+	if [ $C != 2 ]; then
+		err=$[$err + 1 ]
+		failecho "Unable to find RSA key ${key}"
 	fi
 done
 if [ $err -gt 0 ]; then
@@ -943,6 +968,11 @@ echo "Generating ${KSIZE} RSA key"
 PKCS15-INIT --generate-key "rsa/${KSIZE}" --label "gen_rsa_${KSIZE}" --key-usage sign,decrypt --auth-id 1 --pin 11111111 --so-pin 00000000
 if [ $? -ne 0 ]; then
 	failecho "fail"
+	exit 1
+fi
+C=`PKCS15-TOOL -D |grep "gen_rsa_${KSIZE}"|wc -l`
+if [ $C != 2 ]; then
+	failecho "RSA-GENERATE-KEYS: unable to find generated key"
 	exit 1
 fi
 echo "Listing keys:"
@@ -1464,7 +1494,7 @@ if [ $mode == "UNWRAP-WRAP-TEST" ]; then
 	KEY2="ff0102030405060708090a0b0c0d0e0f"
 	echo -n $KEY2|xxd -p -r > tmp/aes_plain_test2.key
 	VECTOR="07070707070707070707070707070707"
-	echo "Wrappinf 2nd AES key by 1st AES key (openssl, mechanism AES-CBC-PAD)"
+	echo "Wrapping 2nd AES key by 1st AES key (openssl, mechanism AES-CBC-PAD)"
 	openssl enc -aes-128-cbc -in tmp/aes_plain_test2.key -out tmp/aes_wrapped_by_aes.key -iv "${VECTOR}" -K $KEY
 	if [ $? -ne 0 ]; then failecho "openssl fail";exit 1;fi
 	echo "Using 1st AES key to unwrap 2nd AES key on token (mechanism AES-CBC-PAD)"
