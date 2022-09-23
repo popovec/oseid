@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -55,6 +55,7 @@ indent -linux -l100
 #include "aes.h"
 #include "constants.h"
 #include "bn_lib.h"
+#include "mem_device.h"
 
 #define M_CLASS message[0]
 #define M_CMD message[1]
@@ -1771,6 +1772,9 @@ uint8_t myeid_get_data(uint8_t * message, struct iso7816_response *r)
 #ifdef HW_SERIAL_NUMBER
 		get_HW_serial_number(response + 8);
 #endif
+		ret = device_get_change_counter();
+		response[18] = ret >> 8;
+		response[19] = ret & 0xff;
 		RESP_READY(20);
 	case 0xa1:
 	case 0xa2:

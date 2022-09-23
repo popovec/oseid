@@ -296,6 +296,7 @@ ECC_SIZE_MAX=0
 
 RESP=$(read_card "00 CA 01 A0 00" "${SCReaderFlag}" "${SCReader}")
 CARD_SERIAL=$(echo  $RESP|gawk '{for(i=9;i<19;i++) printf $i" ";print""}')
+CARD_CHANGE_COUNTER=$(echo  $RESP|gawk '{for(i=19;i<21;i++) printf $i" ";print""}')
 CARD_VERSION=$(echo $RESP|gawk '{for(i=6;i<9;i++) printf $i" ";print""}')
 CARD_VER=$(echo "${RESP}"|gawk '{v=0;for(i=6;i<9;i++) {v*=100;v+=strtonum("0x"$i)};printf v;exit}')
 if [ $CARD_VER -ge 40000 ]; then
@@ -395,6 +396,7 @@ fi
 if [ $mode == "INFO" ]; then
    echo "Card serial number: ${CARD_SERIAL}"
    echo "Card version number: ${CARD_VERSION}"
+   echo "Card change counter: ${CARD_CHANGE_COUNTER}"
 
    if [ $CARD_VER -ge 40000 ]; then
         echo "${CARD_CAPABILITIES}"|gawk ' {
@@ -573,6 +575,7 @@ if [ $mode == "ERASE-CARD" ]; then
 #		failecho "unable to erase card"
 #		exit 1
 #	fi
+	PKCS15-TOOL --clear-cache 2>/dev/null
 	exit 0
 fi
 

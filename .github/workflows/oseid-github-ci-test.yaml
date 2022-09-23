@@ -14,7 +14,7 @@ jobs:
         run: |
           sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools gcc-avr avr-libc binutils-avr srecord
           sudo apt-get install opensc
-      - name: OsEID - AVR targest
+      - name: OsEID - cross compilation for AVR devices
         run: |
           cd src
           make -f Makefile.AVR128DA

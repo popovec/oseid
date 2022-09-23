@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2017 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -51,3 +51,11 @@ This memory is used for security data that may change more often
 // size 0 = 256 bytes
 uint8_t sec_device_read_block(void *buffer, uint16_t offset, uint8_t size);
 uint8_t sec_device_write_block(void *buffer, uint16_t offset, uint8_t size);
+
+/****************************************************************
+
+every change in the card's file system is tracked by a change counter
+This function is used to read the change counter value.
+
+****************************************************************/
+uint16_t device_get_change_counter(void);

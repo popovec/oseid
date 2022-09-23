@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -50,6 +50,14 @@ osccal_min_loop:
 		rjmp	osccal_min_loop
 osccal_min_end:	ret
 
+// uint16_t device_get_change_counter()
+		.global device_get_change_counter
+		.type   device_get_change_counter, @function
+
+device_get_change_counter:
+	clr	r25
+	ldi	r24,1
+	ret
 
 // return 0 if all ok
 // uint8_t sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
