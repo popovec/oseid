@@ -82,7 +82,7 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=5
 HAVE +=         -DEC_MUL_WINDOW=4
-HAVE +=         -DSEC_MEM_SIZE=512
+HAVE +=         -DSEC_MEM_SIZE=508
 
 # ECC size (in bytes 24,32,48,72 (72 bytes may work with 2 bits window for point multiplications)
 CFLAGS += -DMP_BYTES=72

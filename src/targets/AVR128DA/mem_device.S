@@ -28,16 +28,52 @@
 // 0x00000 .. 0x0FFFF bytes is for program
 // 0x10000 .. 0x1FFFF for data
 
-// EEPROM 0x000-0x1ff
+// EEPROM 0x000-0x1fb - sec_device
+//        0x1fc-0x1ff - change_counter
 */
 
-// uint16_t device_get_change_counter()
-		.global	device_get_change_counter
-		.type	device_get_change_counter, @function
+// uint16_t get_change_counter(void);
+		.global device_get_change_counter
+		.type device_get_change_counter, @function
+
+// to avoid EEPROM damage, there is 4 bytes reserved for special counter
+// two bytes are decrementing by clearing bits .. i.e.
+// initial value = 0xffff, then 0x7fff, 0x3fff, ... 0x0003, 0x001,0x0000
+// This allow us to count from 0 to 16 (17 steps).
+// If value match 0x0000, second counter is incremented and these two bytes
+// are "erased" to 0xffff.
 
 device_get_change_counter:
-	clr	r25
-	ldi	r24,1
+	ldi     r30,0xfc	// end of EEPROM
+	ldi     r31,0x15
+// load bits..
+	ldd     r20,Z+0
+	ldd     r21,Z+1
+// read counter value
+	ldd	r22,Z+2
+	ldd	r23,Z+3
+// multiply by 17
+	ldi	r26,17
+	mul	r22,r26
+	movw	r24,r0
+	mul	r23,r26
+	add	r25,r0
+// correct initial 0xffff value in EEPROM
+	adiw	r24,16
+	clr	r1
+// negate
+	com	r20
+	com	r21
+1:
+	mov	r0,r20
+	or	r0,r21
+	breq	1f		// all zeros - end
+// insert new zero, test
+	lsl	r21
+	rol	r20
+	adiw	r24,1
+	rjmp	1b
+1:
 	ret
 
 // return 0 if all ok
@@ -97,6 +133,11 @@ sec_device_block:
 	brne	1b
 	ret
 
+// raise error
+4:
+	ldi	r24,1
+	ret
+
 //eeprom write:
 2:
 // TODO here only EEERWR mode is used, but there is way to use
@@ -113,7 +154,9 @@ sec_device_block:
 	st	Z+,r0
 	dec	r24
 	brne	1b
-// wait for NVM (busy), on error newer ending loop
+
+device_wait_eeprom:
+// wait for NVM (busy), on error never ending loop
 	cli
 2:	lds	r25,0x1002	// NVMCTRL.STATUS
 	andi	r25,0x73
@@ -126,13 +169,51 @@ sec_device_block:
 //	ldi	r22,0x9d	// KEY for CCP (self programing) - already set
 	out	0x34, r22
 	sts	0x1000, r1	// NOCMD
-// r24 is zero ..
 	ret
 
-// raise error
-4:
-	ldi	r24,1
-	ret
+// 2 bytes used as counter per bit .. 0xffff, 0x7fff, 0x3fff ..
+// 2 bytes as normal counter
+device_update_change_counter:
+	ldi     r22,0x9d        // KEY for CCP (self programing)
+// do not change r24! (see below, device_write_block2)
+	ldi     r30,0xfc	// end of EEPROM
+	ldi     r31,0x15
+
+	ldd     r20,Z+0
+	ldd     r21,Z+1
+	ldd	r26,Z+2
+	ldd	r27,Z+3
+// 0xffff  , 0x7fff/1, 0x3fff/1, 0x1fff/1,
+// 0x0fff/1, 0x07ff/1, 0x03ff/1, 0x01ff/1,
+// 0x00ff/1, 0x007f/1, 0x003f/1, 0x001f/1.
+// 0x000f/1, 0x000f/1, 0x0003/1, 0x0001/1.
+// 0x0000/0 => 0xffff
+	lsr	r20
+	ror	r21
+	brcs	1f
+
+// increment counter, erase bit counter
+	adiw	r26,1
+// erase before write
+	out	0x34, r22	// write key to CCP
+	ldi	r23,0x1a	// erase 4 bytes
+	sts	0x1000,r23	// write command for NVM
+	st	Z,r1		// erase 4 bytes..
+	rcall	device_wait_eeprom
+
+// write only new counter value
+	adiw	r30,2
+	movw	r20,r26
+1:
+	ldi	r23,0x12	// EEWR - write only
+// unlock Configuration change protection
+//	ldi	r22,0x9d	// KEY for CCP (self programing) - already set
+	out	0x34, r22       // write key to CCP
+	sts	0x1000, r23     // write command for NVM
+	st	Z+,r20
+	st	Z+,r21
+	rjmp	device_wait_eeprom
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -365,7 +446,8 @@ device_write_block2:
 		brts	1f		// for function "device_write_ff" return  bytes ..
 		clr	r24
 1:
-		ret
+		rjmp	device_update_change_counter
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 // int16_t device_write_ff (uint16_t offset, uint8_t size);
 
