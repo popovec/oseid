@@ -22,6 +22,12 @@ jobs:
           make -f Makefile.atmega128
           make -f Makefile.simulavr
           cd ..
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: OsEID-AVR-build
+          path:
+            src/build/*
       - name: OsEID compile and run
         run: |
           cd src
