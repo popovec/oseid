@@ -158,8 +158,9 @@ else
 	echo "CSR [key] [subject] - generate certificate signing request"
 	echo "CRT [key] [subject] - generate self signed certificate"
 	echo "DES-AES-UPLOAD-KEYS - upload 3DES, AES 128 and AES 256 key"
-	echo "SYM-CRYPT-TEST - AES ECB/CBC/CBC-PAD, (OpenSC patch test)"
+	echo "SYM-CRYPT-TEST - AES ECB/CBC/CBC-PAD"
 	echo "RND-TEST - test random generator entropy"
+	#echo "RSA-PQ-TEST - test RSA operation for key where Q > P"
 	# echo "FAST-TEST"
 	# echo "FULL-TEST"
 	exit 0
@@ -494,7 +495,8 @@ if [ "x$mode" == "xFULL-TEST" ] || [ "x$mode" == "xFAST-TEST" ]; then
 	fi
 	$0 EC-ECDH-TEST
 	$0 DES-AES-UPLOAD-KEYS
-	# $0 SYM-CRYPT-TEST (waiting for patch..)
+	$0 SYM-CRYPT-TEST
+	# $0 SYM-ENCRYPT-TEST
 	$0 UNWRAP-WRAP-TEST
 	$0 ERASE-CARD
 	exit 0
@@ -1632,4 +1634,64 @@ fi
 fi
 done
 fi # CRT, CSR
+#***************************************************************************************************************************
+# switched P Q (P < Q) test
+if [ $mode == "RSA-PQ-TEST" ]; then
+
+echo -n  ttt > tmp/input.data
+cat << EOP > tmp/test_key.pem
+-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDHWeqV9nR9VhOi
+U8IAvHkfTzXfEumrApVWyvcd24pV+BGCGDoq4iloD/sZntWkQAOMw95wntjnfNNh
+kC4B4kSLzlIAjz94P/mG1vPUg2wORrjWTGfaYXWtUIkd0yMPYj1UyxTA6DLcM+3P
+EqBgxbIsNAfyvsJLgYvyezYokEHnn1aFkjdunoyI3ns/Ifdm0zpCA156iUc5FHJX
+eOEDKVprxIcRacrZA9aFWGOvmDJgbTBbVvVcXYFh8FTFJURhITqhSVVMljI8Dk09
+IleGuStJc6mO/Nplp1rdlig/tQoPPrrlHM7nVdrRS5MN+5FQ3DKrSZG5H724C/F8
+gP6Goc8lAgMBAAECggEALm5Uq1OBC80/2vPPsIy1WFPCbB/TUVuTbWjuGCPxazcR
+Wt/qMmFFPCHWvf+m6m/nc8KOHWR+CCKkeCmU8abiCL8IDe3PXmJmK6AGoBVxFj0m
+IXGf0bcX6cNjgFEULinXN5fqUEj0yaGFrtB7jraVGmMPA9ym09/LOPG2Kkn5M6lY
+v/HNVwNveC22egFEjfYLrVl6Ns5ZeubiSfwohzYNtjIFggqyQ0eiLrvxB3u5aD8V
+cu6+zsaQxtKwa8PkQUNEh0io2/IEg5JJ541wOHQ0WP1rt4pA+QZth1m8ePUpED4M
+9AOq5aKlf47WHm5IxLN4iuoAKkYBlLLAxjYQfeKJOQKBgQDH6SDAEYFjTkELCUEj
+2iHXY00z0XGgwSWei0JkL8vh77MeJ6a8Aq1uXZ+BubyX/28eSNFRruaUeC7jkaeT
+1XQLH6oLbqaRF3hG2hiOyjgDeDHS4tPmB2Jv7fSs4h80r7IlrE+/DpxunFl7X73v
+frV9WFT4D24pl+QQRzuRZCFKfQKBgQD/SJt05J/4/SU7c/T7/3cMpqJq32vyK2ZX
+CfHCSj4HtOXFm0glH1YCWQTjuyM2uY2R+TpPxmnypYOekWrHnbNz/8WqxO2UchOY
+erjIcMIymAZtYRjB7rm8mMKFHE87AzrnX+SHz2g8NVeyq+gwFT2NAPf6cvqZRm9G
+dfCDsnUPyQKBgC882S5JdKeAkEIJV8ke/CwnHNEHxq/TtA34niGKYcTrnQmdGPsI
+Lu8LVGuU9gl8pEclscB5cabXl0zS2CRIpfkS7F1zMgzK3PLxCiiDhCTdu/g2/Rc3
+23zTX6OScwlCEvhv9RASZciFTWenwfvblwsdWkabbs6JQ6zNCDhczrkJAoGAIJty
+l9y3/kK/Zbeq/CEmYKxMJKCDFjyq5sUzZyC6iZt2meX6shstjkE2mawGlG/hAFs4
+MoZidAbmJ/PlErg2+sMZyXU773EexaQvRBL7CyFV+NSlJ+hJOyi79+qkyCHifTlH
+ZH1+j+o0WHMSxkmAQil0gz36emd/wR1BamD6CNkCgYB43ZayXc44bnIaA7E1fslb
+IrpQuRJ9Xo18cCV2umL6cXtrCPVHNKgJsq/9mcGfhOx0Um0F0+0mPOxxX3wgFVA0
+Z9Gs/waEVftWAznI2JK6HfukYsqcLxeD0H8xNAUfmENd8Yww0ZFABIwOQ7CKqCSm
+IgFwNWdoQn6A+u2n7KBEBg==
+-----END PRIVATE KEY-----
+EOP
+
+PKCS15-INIT --store-private-key tmp/test_key.pem --key-usage sign,decrypt --label "QP" --id aa --auth-id=1 --pin 11111111 --so-pin 00000000
+PKCS15-TOOL --read-public-key aa  -o tmp/test_pub.key
+rm -f tmp/test1 /tmp/test2
+
+openssl rsa -in tmp/test_key.pem -text -noout >tmp/test_key.pem.txt
+openssl pkeyutl -sign -inkey tmp/test_key.pem -in tmp/input.data -out tmp/test1
+openssl pkeyutl -pubin -verifyrecover -inkey tmp/test_pub.key -pkeyopt rsa_padding_mode:none -in tmp/test1 -out tmp/test1_recover
+
+pkcs11-tool --slot-index ${SCSlot} --sign  -m RSA-PKCS \
+        --id aa \
+        --input-file tmp/input.data \
+        --output-file tmp/test2 \
+        --pin 11111111
+openssl pkeyutl -pubin -verifyrecover -inkey tmp/test_pub.key -pkeyopt rsa_padding_mode:none -in tmp/test2 -out tmp/test2_recover
+cmp tmp/test1 tmp/test2
+if [ $? -eq 0 ]; then
+        trueecho "OK"
+else
+	hd tmp/test1_recover
+	hd tmp/test2_recover
+        failecho "error"
+	exit 1
+fi
+fi
 #***************************************************************************************************************************
