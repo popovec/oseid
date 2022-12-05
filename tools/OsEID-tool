@@ -365,10 +365,10 @@ fi
 if [ $OPENSC_VERSION -ge 18000 ]; then
 	RAWSIGN2048=1
 fi
-if [ $OPENSC_VERSION -gt 22000 ]; then
+if [ $OPENSC_VERSION -gt 23000 ]; then
 	warnecho "not tested opensc version detected"
 	opensc-tool -i
-	warnecho "this code is tested in opensc versions 0.21 .. 0.22"
+	warnecho "this code is tested in opensc versions 0.21 .. 0.23"
 fi
 
 
@@ -776,7 +776,7 @@ while read keyID fl; do
   fi
 
   for d in sha1 sha224 sha256 sha384 sha512 ; do
-	D=$(echo ${d}|tr [:lower:] [:upper:])
+	D=$(echo ${d}|tr '[[:lower:]]' '[[:upper:]]')
 	rm -f tmp/testfile.txt.pkcs11.${d}.sig
 	# pkcs11 operation corresponds to:
 	# openssl dgst -sha1 -sign keys/secp384r1-key.pem -out tmp/testfile.txt.pkcs11.sha1.sig tmp/testfile.txt
