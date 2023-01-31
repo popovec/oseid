@@ -140,7 +140,7 @@ $(BUILD)rnd.o:	 $(TARGET)rnd.c  card_os/rnd.h
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rnd.o  $(TARGET)rnd.c -I card_os
 
 $(BUILD)des_arch.o:	$(TARGET_LIB)/des.S  card_os/des.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)des_arch.o  $(TARGET_LIB)/des.S -I card_os
+		$(CC) $(CFLAGS) $(HAVE) -DDES_INDIRECT_REG=0 -c -o $(BUILD)des_arch.o  $(TARGET_LIB)/des.S -I card_os
 
 $(BUILD)aes_arch.o:	$(TARGET_LIB)/aes.S  card_os/aes.h
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)aes_arch.o  $(TARGET_LIB)/aes.S -I card_os

@@ -6,7 +6,7 @@
     This is designed to be a part of OsEID (Open source Electronic ID)
     https:/oseid.sourceforge.io
 
-    Copyright (C) 2017,2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,8 +21,8 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    DES cipher implementation for 8 bit AVR (attiny/atmega)
-    -------------------------------------------------------
+    DES cipher implementation for 8 bit AVR (attiny/atmega/AVR-D)
+    -------------------------------------------------------------
 
     Code is designed to be small, with minimal RAM usage, only 15 or 16 bytes 
     in stack, (depends on PC size), + 18 bytes in stack if C ABI is needed).
@@ -33,13 +33,18 @@
     clock cycles, 3DES below 149500 clock cycles.  Two more bytes is needed
     in RAM if 3DES is enabled.
 
+    Because AVR-D series does not allow indirect addressing of registers
+    r0..r31, there is separate version for AVR-D series MCU. This code is
+    slightly longer (854 bytes). You need to define "DES_INDIRECT_REG 0" for
+    AVR-D series MCU.
+
     Code is modified, does not use standard permutations as described by DES
     original (NIST) description.
 
     Message expansion (E), Permuted choice 1 (PC-1) and Permuted choice 2
     (PC-2) are merged into one 56 bit long message expansion.  This expanded
-    message is directly XORed by plain key.  S-box addresses are selected from
-    result of XOR operation by table.  S-boxes are merged to one table (256
+    message is directly XOR-ed by plain key. S-box addresses are selected from
+    result of XOR operation by table. S-boxes are merged to one table (256
     bytes).
 
     Initial and inverse initial permutation is done by procedures. Key
@@ -77,7 +82,7 @@
  key  = DES:  8 bytes (bit 0 is parity bit, same format as for openssl)
         3DES: 24 bytes (EDE mode)
 
- mode:  (plase use values from des.h)
+ mode:  (please use values from des.h)
          0 (DES_ENCRYPTION_MODE)            =>  DES encrypt
          3 (DES_DECRYPTION_MODE)            =>  DES decrypt
        0xc (DES_ENCRYPTION_MODE | DES_3DES) => 3DES encrypt
@@ -85,6 +90,10 @@
 
  void des_run (uint8_t *data, uint8_t *key, uint8_t mode);
 */
+
+#ifndef DES_INDIRECT_REG
+#define DES_INDIRECT_REG 1
+#endif
 
 #if ENABLE_DES56
 	.global des_56to64
@@ -147,6 +156,7 @@ des_56to64:
 #endif
 #endif
 
+#if DES_INDIRECT_REG == 1
         .global des_run
         .type   des_run, @function
 
@@ -370,8 +380,8 @@ des_loop:
 	push	r14
 	push	r15
 //////////////////////////////////////////////////
-// from key XORed with expanded message part create adresses into S-boxes
-// use addresses to get nibbless
+// from key XOR-ed with expanded message part create addresses into S-boxes
+// use addresses to get nibbles
 // sbox offset
 	ldi	r20,3
 // Flag in bit 7 in r24 for "permute" subroutine for oneshot mode
@@ -515,7 +525,406 @@ iip_loop2:
 	clr	r1
 //////////////////////////////////////////////////
 	ret
+#else
+// code for AVR- D series MCU
+        .global des_run
+        .type   des_run, @function
 
+
+// WARNING this function can be used in two modes:
+// oneshot: set bit 7 in r24
+//          Z = permutation table
+//          result is in r21
+// loop mode:
+//          r24 set by macro PERM_END - number of bytes
+//          X - position of result string
+// clobber 22,10,24,25,r28,r29
+// input position is coded in permutation table
+
+// number of loops (macro) - half carry is used to test loop end
+// because full carry (C) or (M) is used to test one shot mode
+#define PERM_END(a)	(0x1f+a)
+
+/////////////////////////////////////////////////////////////////////////////////////////////
+// r31:30 - permutation table
+// r27:26 - result (XOR)
+// r24 input (how many bytes is to be calculated, PERM_END macro...)
+// r21 output (for one run)
+des_permute_loop:
+// XOR byte into result
+	ld	r25,X
+	eor	r21,r25
+        st      X+,r21
+	brhs	des_permute_end
+des_permute:
+        ldi     r21,0x80        // counter/byte result (test C bit after ROR.. )
+des_permute_byte:
+        lpm     r10,Z+          // load data from permutation table
+        mov     r25,r10         // copy
+        andi    r25,0x0f        // byte offset in FROM
+
+	in	r28, 0x3d
+	in	r29, 0x3e
+	add	r28,r25
+	adc	r29,r1		// zero
+
+        ldd	r25,Y+2		// load byte, rotate to get selected bit into C
+	sbrc	r10,4
+	swap	r25
+// rotate byte
+#ifndef DES_ROT_FAST
+des_permute_byte_rotation:
+	subi	r25,(-0x20)	// test carry to bit 7
+        rol     r25
+        sbrs    r10,7
+        rjmp    des_permute_byte_rotation
+#else
+	sbrs	r10,6
+	rol	r25
+	sbrs	r10,6
+	rol	r25
+	sbrs	r10,5
+	rol	r25
+	rol	r25
+#endif
+// store bit into result
+        ror     r21
+        brcc    des_permute_byte
+// if bit 7 in R24 is set, do return, result byte in r21, no pointer in X is used
+	subi	r24,1
+	brpl	des_permute_loop
+des_permute_end:
+	ret
+/////////////////////////////////////////////////////////////////////////////////////////////
+des_rot:
+// one or two rotations
+	sbrs    r17,0
+	rcall	des_rot1
+des_rot1:
+// left or right rotation
+	sbrc	r20,1
+	rjmp	des_rot_r
+des_rot_l:
+	bst	r4,3
+	rol	r0
+	bld	r0,0
+	bst	r7,7
+	rol	r2
+	rol	r3
+	rol	r4
+	rol	r5
+	rol	r6
+	rol	r7
+	bld	r4,4
+	ret
+
+des_rot_r:
+	bst	r4,4
+	ror	r7
+	bld	r7,7
+	bst	r0,0
+	ror	r6
+	ror	r5
+	ror	r4
+	ror	r3
+	ror	r2
+	ror	r0
+	bld	r4,3
+	ret
+
+des_run:
+//////////////////////////////////////////////////
+// save registers
+.irp	reg,2,3,4,5,6,7,8,9,10,/*11,*/12,13,14,15,16,17,28,29
+	push	\reg
+.endr
+// save encrypt/decrypt, des/3des mode ..
+// key position
+	movw	r30,r22
+// data position
+	movw	r26,r24	// from
+#ifdef DES3
+// adjust key position for 3des
+	cpi	r20,15
+	brne	des3_loop
+	adiw	r30,16
+des3_loop:
+#endif
+// save position of data (result)
+	push	r26
+	push	r27
+
+// initial permutation
+	ldi	r24,8
+1:
+	ld	r25,X+
+	ror	r25
+	ror	r23
+	ror	r25
+	ror	r15
+	ror	r25
+	ror	r22
+	ror	r25
+	ror	r14
+	ror	r25
+	ror	r19
+	ror	r25
+	ror	r13
+	ror	r25
+	ror	r18
+	ror	r25
+	ror	r12
+	dec	r24
+	brne	1b
+//////////////////////////////////////////////////
+//--------------------------------------------------------------------------------------
+// permute key (in RAM  pointer in Z) result in r0,r2..r7
+	ldi	r28,7
+1:
+	ldi	r27,8
+2:
+	ld	r25,Z
+	rol	r25
+	st	Z+,r25
+	ror	r24
+	dec	r27
+	brne	2b
+#if defined (DES3)
+// save key position
+	movw	r8,r30
+#endif
+	sbiw	r30,8
+	push	r24
+	dec	r28
+	brne	1b
+// convert key to get one 56 bit key for simple
+// rotate operation
+	pop	r7
+	pop	r6
+	pop	r5
+	pop	r4
+	pop	r0
+	pop	r2
+	pop	r3
+	swap	r4
+
+// r0,r2-r7 key
+// r8,9 3des only - key position
+// r10 used in permute subroutine
+// r11 unused
+// r12..r15 message R part
+// r16,17 (below) rotation counter
+// r18..r19,r22,r23 message L part (reused if L part is on stack)
+// r20 flags (3DES/DEC, encipher/decipher)
+// message part is on stack, then
+// 	r18,r19,r21,r22,23,24,25 working registers
+//
+// prerotation
+	sbrc	r20,1
+	rcall	des_rot_l
+//////////////////////////////////////////////////
+// here is main DES loop (16x)
+// shift size (per bit,1/2 rotations, if all bits==0, this is loop end
+	ldi	r16,0x81
+	ldi	r17,0x03
+//////////////////////////////////////////////////
+des_loop:
+	rcall	des_rot
+//////////////////////////////////////////////////
+// push L
+	push	r23
+	push	r22
+	push	r19
+	push	r18
+// push R
+	push	r15
+	push	r14
+	push	r13
+	push	r12
+//////////////////////////////////////////////////
+// create working space on stack (WS)
+#if 0
+	push	r1
+	push	r1
+	push	r1
+	push	r1
+#else
+#if defined (__AVR_2_BYTE_PC__ )
+	rcall 	.
+	rcall 	.
+#elif defined (__AVR_3_BYTE_PC__)
+	rcall	.
+	push	r1
+#else
+#error Unknown PC size
+#endif
+#endif
+//////////////////////////////////////////////////
+// push Working KEY to stack (WK)
+#if 0
+.irp	reg,7,6,5,4,3,2,0
+	push	\reg
+.endr
+// result position on stack (Working KEY - already XOR-ed with key)
+        in      r26, 0x3d
+        in      r27, 0x3e
+	adiw	r26,1
+#else
+.irp	reg,7,6,5,4,3,2
+	push	\reg
+.endr
+// result position on stack (Working KEY to XOR with permuted message)
+        in      r26, 0x3d
+        in      r27, 0x3e
+	push	r0
+#endif
+//////////////////////////////////////////////////
+// permute R message part expand to 56 bites not 48!
+// permutation table
+	ldi	r30,lo8(PERM_MSG)
+	ldi	r31,hi8(PERM_MSG)
+	ldi	r24,PERM_END(7)
+// input R (on stack, offset encoded in permutation table)
+	rcall	des_permute
+//////////////////////////////////////////////////
+// from key XOR-ed with expanded message part create addresses into S-boxes
+// use addresses to get nibbles
+// sbox offset
+	ldi	r22,3
+// Flag in bit 7 in r24 for "permute" subroutine for oneshot mode
+// Beware, permute decrement r24, and bit 0 is used in next code
+// to get odd/even loop
+	ldi	r24,0x89
+// permutation table  (already in r30,31 by increment r30,31 in "permute")
+//	ldi	r30,lo8(PERM_S_ADDR)
+//	ldi	r31,hi8(PERM_S_ADDR)
+// RESULT pointer in X (on stack)
+// this is not for permute subroutine, bit 7 in reg r24 is set!
+// FROM: read perm data from r1..r7 (input position coded in permutation table)
+
+get_sbox_loop0:
+	ldi	r21,0x20	// only 6 bits
+	rcall	des_permute_byte
+// do not change r30,31
+	movw	r18,r30		//save Z
+// load s-box offset
+	or	r21,r22	// sbox offset
+	ldi	r30,lo8(S_BOX)
+	ldi	r31,hi8(S_BOX)
+	add	r30,r21
+	adc	r31,r1	//zero
+// test odd/even round
+	sbrs    r24,0
+	rjmp	get_sbox_le0
+	andi	r23,0xf0
+	lpm	r28,Z+
+	andi	r28,0x0f
+	or	r28,r23
+	st	X+,r28
+// move to next sbox ..
+	dec	r22
+get_sbox_le0:
+// for odd and even round preload r23
+        lpm     r23,Z+
+// renew position in permutation table
+	movw	r30,r18	//renew Z
+	brpl	get_sbox_loop0
+//////////////////////////////////////////////////
+// permutation table (already in r30,31 by increment r30,31 in "permute")
+//	ldi	r30,lo8(PERM_R)
+//	ldi	r31,hi8(PERM_R)
+// input Wr (on stack, offset encoded in permutation table)
+// adjust output pointer
+	adiw	r26,4
+// output L part (on stack, pointer to result in X)
+	ldi	r24,PERM_END(4)
+	rcall	des_permute
+//////////////////////////////////////////////////
+#if 0
+// remove WK - no need anymore
+.irp	reg,18,18,18,18,18,18,18
+	pop	\reg
+.endr
+// remove WS
+	pop	r18
+	pop	r18
+	pop	r18
+	pop	r18
+// remove old R (copy of R is in r12..14)
+	pop	r18
+	pop	r19
+	pop	r22
+	pop	r23
+#else
+// this is XMEGA core, we don't need to use cli/sei
+	sbiw	r26,5
+	out	0x3d,r26
+	out	0x3e,r27
+#endif
+// swap R <-> L 2nd part
+// old R in r12..14
+	movw	r22,r14
+	movw	r18,r12
+// L part (already XOR-ed with result of this round)
+	pop	r12
+	pop	r13
+	pop	r14
+	pop	r15
+//
+//////////////////////////////////////////////////
+// loop end ?
+	lsr	r16
+	ror	r17
+	brne	des_loop
+//////////////////////////////////////////////////
+//--------------------------------------------------------------------------------------
+#if defined(DES3)
+// renew key
+	movw	r30,r8
+// adjust key position for 3DES decrypt
+	sbrc	r20,0
+	sbiw	r30,16
+#endif
+// inverse initial perm
+	pop	r27
+	pop	r26
+	ldi	r24,8
+1:
+	ror	r18
+	rol	r25
+	ror	r12
+	rol	r25
+	ror	r19
+	rol	r25
+	ror	r13
+	rol	r25
+	ror	r22
+	rol	r25
+	ror	r14
+	rol	r25
+	ror	r23
+	rol	r25
+	ror	r15
+	rol	r25
+	st	X+,r25
+	dec	r24
+	brne	1b
+#ifdef DES3
+// move result pointer back
+	sbiw	r26,8
+	subi	r20,6
+	brcs	1f
+	rjmp	 des3_loop
+1:
+#endif
+//////////////////////////////////////////////////
+// restore registers
+.irp	reg,29,28,17,16,15,14,13,12,/*11,*/10,9,8,7,6,5,4,3,2
+	pop	\reg
+.endr
+//////////////////////////////////////////////////
+	ret
+#endif
 //echo "0,0,0,0,3,10,12,0,5,0,0,0,9,15,0,7,12,2,24,8,14,6,15,0,11,11,1,3,13,4,23,4,0,0,0,0,29,19,0,27,23,18,26,31,31,20,28,17,16,0,27,8,19,30,0,21,25,0,28,16,7,22,20,24"
 //|tr ',' '\n'|awk '{if(j>7){j=0;print""};j++;bit=and($1,7);nib=0;if(bit<4){nib=1;};printf("0x%1x%1x,",and(bit,3)*2+nib,int($1/8))}'
 // warning, check C code for original tables, awk script may not correspond to the current state
