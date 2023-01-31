@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ Filesystem is designed for memory with default state "all bits on" EEPROM/FLASH
 For default state "all pins zero" there is recommendation to invert all write/read operation
 in mem_device layer.
 */
-
+/* *INDENT-OFF* */
 // for devices with small EEPROM use reduced PIN structure
 #ifndef SEC_MEM_SIZE
 #define SEC_MEM_SIZE 1024
@@ -1141,49 +1141,30 @@ end:
   if (device_write_block (buffer, 0, size))
     for (;;);
 
-  uint16_t i;
-  uint8_t e = 0xff;
-
-// write to sec_device, if error, jump to newer ending loop
-  for (i = 0; i < SEC_MEM_SIZE; i++)
-    if (sec_device_write_block (&e, i, 1))
-      for (;;);
+  if(sec_device_format())
+    for (;;);
 
   // lifecycle must be set to 1 because no pins exists..
 
   set_lifecycle (1);
 }
 
-uint8_t
-fs_erase_card (uint8_t * acl)
+/* *INDENT-ON* */
+uint8_t fs_erase_card(uint8_t * acl)
 {
-  uint16_t i = 0, j;
-  int16_t ret;
-  DPRINT ("%s\n", __FUNCTION__);
+	DPRINT("%s\n", __FUNCTION__);
 
-  // if MF exists, do ACL check
-  fci_sel.fs.uuid = 0;
-  if (RET_SEARCH_OK == fs_search_file (&fci_sel, 0x3f00, NULL, S_DF))
-    {
-      if (check_DF_security (SEC_DELETE))
-	return S0x6982;		//security status not satisfied
-    }
-  for (;;)
-    {
-      ret = device_write_ff (i, 0);	// 0 = 256
-      if (ret < 0)
-	break;
-      // to prevent overlap on 64kiB device
-      j = ret + i;
-      if (j < i)
-	break;
-      i = j;
-    }
-
-  fs_mkfs (acl);
-  return S_RET_OK;
+	// if MF exists, do ACL check
+	fci_sel.fs.uuid = 0;
+	if (RET_SEARCH_OK == fs_search_file(&fci_sel, 0x3f00, NULL, S_DF)) {
+		if (check_DF_security(SEC_DELETE))
+			return S0x6982;	//security status not satisfied
+	}
+	device_format();
+	fs_mkfs(acl);
+	return S_RET_OK;
 }
-
+/* *INDENT-OFF* */
 void
 fs_init (void)
 {
@@ -1704,25 +1685,24 @@ fs_update_binary (uint8_t * buffer, uint16_t offset)
     return S0x6581;		//memory fail
   return S_RET_OK;
 }
+/* *INDENT-ON* */
 
-static uint8_t
-fs_ff (uint16_t offset, uint16_t size)
+static uint8_t fs_ff(uint16_t offset, uint16_t size)
 {
-  int16_t ret;
+	card_io_start_null();
 
-  card_io_start_null ();
+	while (size > 256) {
+		if (device_write_ff(offset, 0))
+			return S0x6581;	//memory fail
+		offset += 256;
+		size -= 256;
+	}
 
-  while (size)
-    {
-      ret = device_write_ff (offset, (size >= 256 ? 0 : size));
-      if (ret <= 0)
-	return S0x6581;		//memory fail
-      size -= ret;
-      offset += ret;
-    }
-  return S_RET_OK;
+	if (device_write_ff(offset, size))
+		return S0x6581;	//memory fail
+	return S_RET_OK;
 }
-
+/* *INDENT-OFF* */
 uint8_t
 fs_erase_binary (uint16_t offset)
 {

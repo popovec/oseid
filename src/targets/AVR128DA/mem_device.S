@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2020-2022 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2020-2023 Peter Popovec, popovec.peter@gmail.com
 
     This is AVR128DA memory subsystem for OsEID project, based on
     other OsEID memory susbsystem for  devices: atmega128, xmega128a4u...
@@ -28,9 +28,12 @@
 // 0x00000 .. 0x0FFFF bytes is for program
 // 0x10000 .. 0x1FFFF for data
 
-// EEPROM 0x000-0x1fb - sec_device
+// EEPROM 0x000-0x1df - sec_device
+//	  0x1e0-0x1fb - unused
 //        0x1fc-0x1ff - change_counter
 */
+
+
 
 // uint16_t get_change_counter(void);
 		.global device_get_change_counter
@@ -87,6 +90,9 @@ device_get_change_counter:
 		.global	sec_device_read_block
 		.type	sec_device_read_block, @function
 
+		.global	sec_device_format
+		.type	sec_device_format, @function
+
 sec_device_read_block:
 	clt
 	rjmp	sec_device_block
@@ -113,15 +119,6 @@ sec_device_block:
 // counter (r24) interpreted as 1..256 (0=256)
 // address (r27,r26) in range  0x1400..0x15ff
 
-// wait for NVM (busy)
-	cli
-1:	lds	r25,0x1002	// NVMCTRL.STATUS
-	andi	r25,3
-	brne	1b
-	sei
-// OK NVM is idle, clear NVM errors..
-	sts	0x1002,r1
-
 // test write/read
 	brts	2f
 
@@ -143,38 +140,47 @@ sec_device_block:
 // TODO here only EEERWR mode is used, but there is way to use
 // EEWR mode without EEBER to prevent unnecesary erase operation...
 
-// unlock Configuration change protection
-//	ldi	r22,0xd8	// KEY for CCP
-	ldi	r22,0x9d	// KEY for CCP (self programing)
 	ldi	r23,0x13	// EEERWR operation (erase and write)
-	out	0x34, r22	// write key to CCP
-	sts	0x1000, r23	// write command for NVM
+	rcall	nvm_command
 1:
 	ld	r0,X+
 	st	Z+,r0
 	dec	r24
 	brne	1b
 
-device_wait_eeprom:
+nvm_wait_and_clear:
 // wait for NVM (busy), on error never ending loop
 	cli
-2:	lds	r25,0x1002	// NVMCTRL.STATUS
-	andi	r25,0x73
+2:	lds	r23,0x1002	// NVMCTRL.STATUS
+	andi	r23,0x73
 	brne	2b
 	sei
-
-
 // clear NVM command
+// r23 = 0
+nvm_command:
 // unlock Configuration change protection
-//	ldi	r22,0x9d	// KEY for CCP (self programing) - already set
-	out	0x34, r22
-	sts	0x1000, r1	// NOCMD
+	ldi	r22,0x9d	// KEY for CCP (self programing)
+	out	0x34, r22	// write key to CCP
+	sts	0x1000, r23	// write command for NVM
+	ret
+
+sec_device_format:
+	ldi	r30,0
+	ldi	r31,0
+	ldi	r24,15		// 15 pages per 32 bytes
+1:
+	ldi	r23,0x1d	// EEMBER32 (erase 32 bytes)
+	rcall	nvm_command
+	st	Z+,r1
+	rcall	nvm_wait_and_clear
+	adiw	r30,31
+	dec	r24
+	brne	1b
 	ret
 
 // 2 bytes used as counter per bit .. 0xffff, 0x7fff, 0x3fff ..
 // 2 bytes as normal counter
 device_update_change_counter:
-	ldi     r22,0x9d        // KEY for CCP (self programing)
 // do not change r24! (see below, device_write_block2)
 	ldi     r30,0xfc	// end of EEPROM
 	ldi     r31,0x15
@@ -195,24 +201,20 @@ device_update_change_counter:
 // increment counter, erase bit counter
 	adiw	r26,1
 // erase before write
-	out	0x34, r22	// write key to CCP
 	ldi	r23,0x1a	// erase 4 bytes
-	sts	0x1000,r23	// write command for NVM
+	rcall	nvm_command
 	st	Z,r1		// erase 4 bytes..
-	rcall	device_wait_eeprom
+	rcall	nvm_wait_and_clear
 
 // write only new counter value
 	adiw	r30,2
 	movw	r20,r26
 1:
 	ldi	r23,0x12	// EEWR - write only
-// unlock Configuration change protection
-//	ldi	r22,0x9d	// KEY for CCP (self programing) - already set
-	out	0x34, r22       // write key to CCP
-	sts	0x1000, r23     // write command for NVM
+	rcall	nvm_command
 	st	Z+,r20
 	st	Z+,r21
-	rjmp	device_wait_eeprom
+	rjmp	nvm_wait_and_clear
 
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -344,37 +346,20 @@ device_update_page:
 3:
 // renew FLASH address
 		movw	r30,r24
-// KEY for CCP (SPM)
-		ldi	r22,0x9d
 // r1 != 0 if page erase is needed
 		tst	r1
 		breq	device_update_page_W
+
 // perform page erase
 // unlock Configuration change protection
 		ldi	r23,0x08	// FLPER Flash Page Erase Enable
-		out	0x34, r22	// write key to CCP
-		sts	0x1000, r23	// write command for NVM
-
+		rcall	nvm_command
 		spm			// perform page erase
-#warning check NVM error code
-// wait for NVM (busy), on error newer ending loop
-	        cli
-1:		lds     r23,0x1002      // NVMCTRL.STATUS
-	        andi    r23,0x03
-	        brne    1b
-	        sei
-// clear NVM command
-// unlock Configuration change protection
-		clr	r1
-		out     0x34, r22
-		sts     0x1000, r1      // NOCMD
+		rcall	nvm_wait_and_clear
 
 device_update_page_W:
-
-// unlock Configuration change protection
 		ldi	r23,0x02	// FLWR Flash Write Enable
-		out	0x34, r22	// write key to CCP
-		sts	0x1000, r23	// write command for NVM
+		rcall	nvm_command
 
 // write page copy in RAM to FLASH
 
@@ -397,20 +382,10 @@ device_update_page_W:
 		adiw	r30,2
 		dec	r23
 		brne	10b
-// wait for NVM (busy), on error newer ending loop
-#warning check NVM error code
-	        cli
-1:		lds     r23,0x1002      // NVMCTRL.STATUS
-		out	0x1f,r23	// GPIOR3 .. for debug
-	        andi    r23,0x3
-	        brne    1b
-	        sei
-// clear NVM command
-// unlock Configuration change protection
+
+		rcall	nvm_wait_and_clear
+
 		clr	r1		// ABI
-		out     0x34, r22
-		sts     0x1000, r1      // NOCMD
-//
 // deallocate page on stack
 		in	r18,0x3d	// TODO is this needed (AVR128DA ?)
 		in	r19,0x3e
@@ -436,54 +411,37 @@ device_write_block2:
 		rcall	device_block_check
 
 		rcall	device_update_page
-
-		tst	r20		// test counter, some bytes to next page ?
-		breq	1f		// no skip...
-
+		cpse	r20,r1		// test counter, some bytes to next page ?
 		rcall	device_update_page
-
-1:
-		brts	1f		// for function "device_write_ff" return  bytes ..
 		clr	r24
-1:
 		rjmp	device_update_change_counter
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
-// int16_t device_write_ff (uint16_t offset, uint8_t size);
+// uint8_t device_write_ff (uint16_t offset, uint8_t size);
 
 		.global	device_write_ff
 		.type	device_write_ff, @function
 device_write_ff:
-// size into r20 (counter)
+		set			// flag clear flash
 		mov	r20,r22
-// offset into r22
 		movw	r22,r24
-// check size
-		mov	r0,r20
-		dec	r0
-		add	r24,r0
-		adc	r25,r1
-		brcc	1f
-// size must be clamped
-		mov	r20,r0
-		neg	r20
-1:
 		ldi	r25,0x40	// fake ram address
-		set			// flag update FLASH by 0xFF (erase)
-		push	r20
-		rcall	device_write_block2
-// test error code (0=ok)
-		tst	r24
-		brne	1f
-// all OK, return number of bytes ...
-// load size back, size in range 1...256 (change 0 to 0x100)
-		pop	r24
-		ldi	r25,1
-		cpse	r24,r1
-		ldi	r25,0
-		ret
+		rjmp	device_write_block2
+
+// initialize FLASH
+
+		.global	device_format
+		.type	device_format, @function
+device_format:
+		clr	r25
 1:
-		pop	r0
-// negative return value = error
-		ldi	r25,0xff
+		clr	r22
+		clr	r24
+		push	r25
+		rcall	device_write_ff
+		pop	r25
+		inc	r25
+		cpi	r25,0
+		brne	1b
+		clr	r24
 		ret

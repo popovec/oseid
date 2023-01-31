@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -32,14 +32,10 @@
 
 uint8_t device_read_block (void *buffer, uint16_t offset, uint8_t size);
 uint8_t device_write_block (void *buffer, uint16_t offset, uint8_t size);
+uint8_t device_write_ff (uint16_t offset, uint8_t size);
 
-// fill block at offset _offset_ with value 0xff of maximal length _size_
-// minimal _size_ is 1 maximal 256 (0 = 256)
-// return number of filled bytes (in range 1-256)
-// return value <=0 is error
-// if offset + size is out of memory, clear only to memory end
-int16_t device_write_ff (uint16_t offset, uint8_t size);
-
+// clear memory device
+uint8_t device_format(void);
 
 /****************************************************************
 
@@ -51,6 +47,8 @@ This memory is used for security data that may change more often
 // size 0 = 256 bytes
 uint8_t sec_device_read_block(void *buffer, uint16_t offset, uint8_t size);
 uint8_t sec_device_write_block(void *buffer, uint16_t offset, uint8_t size);
+// clear sec memory
+uint8_t sec_device_format(void);
 
 /****************************************************************
 

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -50,24 +50,51 @@ osccal_min_loop:
 		rjmp	osccal_min_loop
 osccal_min_end:	ret
 
-// uint16_t device_get_change_counter()
-		.global device_get_change_counter
-		.type   device_get_change_counter, @function
-
-device_get_change_counter:
-	clr	r25
-	ldi	r24,1
-	ret
 
 // return 0 if all ok
 // uint8_t sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
 // uint8_t sec_device_read_block (void *buffer, uint8_t offset, uint8_t size)
+// uint8_t sec_device_format()
 
 		.global	sec_device_write_block
 		.type	sec_device_write_block, @function
 
 		.global	sec_device_read_block
 		.type	sec_device_read_block, @function
+
+		.global	sec_device_format
+		.type	sec_device_format, @function
+
+sec_device_format:
+	rcall	osccal_min
+
+	ldi	r27,8
+	ldi	r26,0
+
+	ldi	r24,0xff
+1:
+// set EEPROM address
+	out	0x1f,r27
+	out	0x1e,r26
+// write eeprom ..
+	out	0x1d,r24	// EEPROM data register
+	cli
+	sbi	0x1c,2		// master write
+	sbi	0x1c,1		// write
+	sei
+// wait for write end
+2:
+	sbic	0x1c,1
+	rjmp	2b
+
+// inc address
+	adiw	r26,1
+// test end address
+	cpi	r27,0x10
+	brne	1b
+
+	clr	r24
+	ret
 
 sec_device_read_block:
 	clt
@@ -130,6 +157,32 @@ sec_device_write:
 4:
 	ldi	r24,1
 	ret
+
+
+device_get_change_counter:
+// set EEPROM address
+	ldi	r26,0x00	// lo part
+	ldi	r27,0x06	// hi part
+	out	0x1f,r27
+	out	0x1e,r26
+// trigger read operation
+	sbi	0x1c,0
+// increment EEPROM address
+	adiw	r26,1
+// load data from EEPROM
+	in	r25,0x1d
+	out	0x1f,r27
+	out	0x1e,r26
+// trigger read operation
+	sbi	0x1c,0
+// load data from EEPROM
+	in	r24,0x1d
+// increment counter (initial value is 0xffff, return 0, this is used in
+// update_change_counter code too
+	adiw	r24,1
+	ret
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -143,7 +196,7 @@ sec_device_write:
 		.type	device_read_block, @function
 
 device_read_block:
-		call	device_block_check
+		rcall	device_block_check
 		movw	r26,r24	// buffer
 		movw	r30,r22	// offset
 		ldi	r21,1	// rampZ
@@ -156,6 +209,26 @@ device_read_block_loop:
 		clr	r24
 		ret
 
+device_block_check:
+		mov	r0, r20	// size
+		dec	r0	// size -1
+		movw	r18,r22	// offset
+		add	r18,r0
+		adc	r19,r1
+		brcs	device_block_check_fail
+		cpi	r19,0xff
+		brne	device_block_check_ok
+device_block_check_fail:
+// remove 1st return address, set error into r24 do return
+		pop	r0
+		pop	r0
+		ldi	r24,1
+device_block_check_ok:
+		ret
+
+// uint16_t device_get_change_counter()
+		.global device_get_change_counter
+		.type   device_get_change_counter, @function
 
 		.section	.flash_end,"ax",@progbits
 error_trap:
@@ -178,7 +251,13 @@ device_update_page:
 		breq	error_trap
 // test RAM address (must be in range 0x0100 0x10ff for atmega128)
 // (0x100 to 0x40ff for atmega1284)
+#ifdef __AVR_ATmega128__
+// simulavr, atmgega128
+		cpi	r23,0x11
+#else
+// simulavr1284
 		cpi	r23,0x41
+#endif
 		brcc	error_trap
 		and	r23,r23
 		breq	error_trap
@@ -312,93 +391,79 @@ rww:
 		.type	device_write_block,@function
 
 device_write_block:
-		rcall	device_block_check
-
 		clt			// flag update FLASH
+
+device_write_block2:
+		call	device_block_check
 		call	osccal_min
 		movw	r18,r24		// save RAM address
 		movw	r24,r22		// FLASH address
 		movw	r22,r18		// restore RAM address
 		rcall	device_update_page
-
+		sei
 		tst	r20		// test counter, some bytes to next page ?
 		breq	1f		// no skip...
 
 		inc	r31		// next page
 		movw	r24,r30		// new flash address
 		movw	r22,r26		// new RAM addres
+		cli
 		rcall	device_update_page
+		sei
 1:
-		clr	r24
-		rjmp	device_write_end
+// update change counter
+		call	device_get_change_counter
+// write back
+		rcall	eewrite
+		sbiw	r26,1
+// write back
+	        mov	r24,r25
+		rcall	eewrite
+// restore return value
+		movw	r24,r30
+		sei
+		ret
+
+eewrite:
+		cli
+		out	0x1f,r27	// write adress
+	        out     0x1e,r26
+		out	0x1d,r24	// EEPROM data register
+		sbi     0x1c,2          // master writer
+		sbi     0x1c,1          // write
+		// wait for write end
+2:
+                sbic    0x1c,1
+                rjmp    2b
+		sei
+		ret
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
-// int16_t device_write_ff (uint16_t offset, uint8_t size);
-
-// fill block at offset _offset_ with value 0xff of maximal length _size_
-// return number of filled bytes (-1 on error)
-// if offset + size is out of memory, clear only to memory end
+// uint8_t device_write_ff (uint16_t offset, uint8_t size);
 
 		.global	device_write_ff
 		.type	device_write_ff, @function
 device_write_ff:
-// check offset - no write after 0xff00...
-		cpi	r25,0xff
-		brne	1f
-// return error (r24 is not needed only set r25 to 0xff = negative number)
-//		ldi	r24,0xff
-		ldi	r25,0xff
-		ret
-1:
-// expand size to 16 bites value
+		set			// flag clear flash
 		mov	r20,r22
-		ldi	r21,1
-		cpse	r20,r1
-		clr	r21
+		movw	r22,r24
+		ldi	r25,0x10	// fake ram address
+		rjmp	device_write_block2
 
-// number of bytes to clear in page (1-256) into r23,r22
-		mov	r22,r24
-		neg	r22
-// expand number of bytes to be erased (write 0xff) in page to 16 bit variable
-		ldi	r23,1
-		cpse	r22,r1
-		clr	r23
-// compare calculated size (r23,r22) with real requestet size (r21,r20)
-		cp	r20,r22
-		cpc	r21,r23
-		brcs	1f
-// reduce size to requested size
-		movw	r20,r22
+// initialize FLASH
+
+		.global	device_format
+		.type	device_format, @function
+device_format:
+		clr	r25
 1:
-// save size (as return value)
-		push	r20
-		push	r21
-		call	osccal_min
-		ldi	r23,2		// fake RAM address only high byte is tested
-//		ldi	r22,3
-		set			//FLAG set bytes to 0xff
-//r21 is not used, r20 is size in range 1..256 0 = 256
-		rcall	device_update_page
-// return value 1..256
+		clr	r22
+		clr	r24
+		push	r25
+		rcall	device_write_ff
 		pop	r25
-		pop	r24
-device_write_end:
-		sei
-		ret
-
-device_block_check:
-		mov	r0, r20	// size
-		dec	r0	// size -1
-		movw	r18,r22	// offset
-		add	r18,r0
-		adc	r19,r1
-		brcs	device_block_check_fail
-		cpi	r19,0xff
-		brne	device_block_check_ok
-device_block_check_fail:
-// remove 1st return address, set error into r24 do return
-		pop	r0
-		pop	r0
-		ldi	r24,1
-device_block_check_ok:
+		inc	r25
+		cpi	r25,0xff
+		brne	1b
+		clr	r24
 		ret

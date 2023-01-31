@@ -212,11 +212,16 @@ program:	program-isp
 
 programRead:	programRead-isp
 
+eepromRead:	eepromRead-isp
+
 program-isp:	$(BUILD)card.hex
 		avrdude -p x128a4u -c avrispmkII -e -v -U flash:w:$(BUILD)card.hex
 
 programRead-isp:
 		avrdude -p x128a4u -c avrispmkII -v -U flash:r:rom_asm_verify.bin:r
+
+eepromRead-isp:
+		avrdude -p x128a4u -c avrispmkII -v -U eeprom:r:eeprom_verify.bin:r
 
 fuses:		$(BUILD)card.FUSEBYTE2.bin
 		avrdude -p x128a4u -c avrispmkII -v -U fuse2:w:$(BUILD)card.FUSEBYTE2.bin:r

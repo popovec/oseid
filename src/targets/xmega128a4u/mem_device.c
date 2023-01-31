@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -36,11 +36,7 @@
 #include <util/atomic.h>
 #include "mem_device.h"
 
-
-uint16_t device_get_change_counter(){
-	return 1;
-}
-
+/* *INDENT-OFF* */
 //forward definitions:
 
 void
@@ -166,43 +162,20 @@ device_write_block (void *buffer, uint16_t offset, uint8_t size)
       device_write_page (p_base, p_data, p_data, no_erase);
     }
   while (s > 0);
+  eeprom_update_word((uint16_t *)1020,device_get_change_counter());
   return 0;
 }
 
-// fill block at offset _offset_ with value 0xff of maximal length _size_
-// return number of filled bytes (-1 on error)
-int16_t
-device_write_ff (uint16_t offset, uint8_t size_in)
+/* *INDENT-ON* */
+// fill block at offset _offset_ with value 0xff
+uint8_t device_write_ff(uint16_t offset, uint8_t size)
 {
-  uint16_t s;
-  uint16_t p_base;
-  uint16_t p_offset;
-  uint8_t p_data[256];
-  uint16_t size = size_in;
+	uint8_t b[256];
 
-  if (size_in == 0)
-    size = 256;
-  // offset is in range 0-65535, no check is needed
-
-  // get page start (aligned)
-  p_base = offset & 0xff00;
-  // get position of new data in page
-  p_offset = offset & 255;
-
-  // copy old data (0 - 256)
-  device_read_block (p_data, p_base, 0);
-
-  s = 256 - p_offset;
-  if (s > size)
-    s = size;
-
-  memset (p_data + p_offset, 0xff, s);
-
-  // write to flash
-  device_write_page (p_base, p_data, p_data, 0);
-  return s;
+	memset(b, 0xff, 256);
+	return device_write_block(b, offset, size);
 }
-
+/* *INDENT-OFF* */
 // read max 256 bytes from flash into buffer (0 = 256)
 uint8_t
 device_read_block (void *buffer, uint16_t offset, uint8_t size)
@@ -234,36 +207,62 @@ device_read_block (void *buffer, uint16_t offset, uint8_t size)
     );				//
   return 0;
 }
+/* *INDENT-ON* */
 
-
-// 1023 byte for security informations
-uint8_t
-sec_device_read_block (void *buffer, uint16_t offset, uint8_t size)
+// 1000 byte for security informations
+// last 4 bytes (1020 - 1023) reserved for change counter
+uint8_t sec_device_read_block(void *buffer, uint16_t offset, uint8_t size)
 {
-  uint16_t eeprom = offset, s;
+	uint16_t eeprom = offset, s;
 
-  s = size ? size : 256;
-  if (eeprom + s -1 > 1023)
-    return 1;
+	s = size ? size : 256;
+	if (eeprom + s - 1 > 1000)
+		return 1;
 
-  eeprom_read_block (buffer, (uint8_t *) (eeprom), s);
-  return 0;
+	eeprom_read_block(buffer, (uint8_t *) (eeprom), s);
+	return 0;
 }
 
-
-uint8_t
-sec_device_write_block (void *buffer, uint16_t offset, uint8_t size)
+uint8_t sec_device_write_block(void *buffer, uint16_t offset, uint8_t size)
 {
-  uint16_t eeprom = offset, s;
+	uint16_t eeprom = offset, s;
 
-  s = size ? size : 256;
-  if (eeprom + s -1 > 1023)
-    return 1;
+	s = size ? size : 256;
+	if (eeprom + s - 1 > 1000)
+		return 1;
 
-  cli ();
-  eeprom_update_block (buffer, (uint8_t *) (eeprom), s);
-  eeprom_busy_wait ();
-  sei ();
+	cli();
+	eeprom_update_block(buffer, (uint8_t *) (eeprom), s);
+	eeprom_busy_wait();
+	sei();
 
-  return 0;
+	return 0;
+}
+
+uint8_t sec_device_format()
+{
+	uint8_t b[1024];
+
+	memset(b, 0xff, 1024);
+	cli();
+	eeprom_update_block(b, 0, 1020);
+	eeprom_busy_wait();
+	sei();
+	return 0;
+}
+
+uint8_t device_format()
+{
+	uint32_t i;
+
+	for (i = 0; i < 65536; i += 256)
+		device_write_ff(i, 0);
+
+	return 0;
+}
+
+uint16_t device_get_change_counter()
+{
+
+	return 1 + eeprom_read_word((const uint16_t *)1020);
 }

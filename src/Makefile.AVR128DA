@@ -82,7 +82,8 @@ builddir:
 HAVE =          -DRSA_BYTES=128
 HAVE +=		-DE_BITS=5
 HAVE +=         -DEC_MUL_WINDOW=4
-HAVE +=         -DSEC_MEM_SIZE=508
+# 512- 32 bytes (reserved + change counter)
+HAVE +=         -DSEC_MEM_SIZE=480
 
 # ECC size (in bytes 24,32,48,72 (72 bytes may work with 2 bits window for point multiplications)
 CFLAGS += -DMP_BYTES=72
@@ -218,8 +219,11 @@ program:	$(BUILD)card.hex
 
 lock:
 		upditool -b 115200 -P $(PROG_PORT_PATH) -p avr128da32 -U lock0:w:0:m
-eeprom_read:
-		upditool -b 115200 -P $(PROG_PORT_PATH) -p avr128da32 -U eeprom:r:eeprom.bin:r
+eepromRead:
+		upditool -b 230400 -P $(PROG_PORT_PATH) -p avr128da32 -U eeprom:r:eeprom.bin:r
+
+programRead:
+		upditool -b 230400 -P $(PROG_PORT_PATH) -p avr128da32 -U flash:r:flash.bin:r
 
 #-----------------------------------------------------------------------------------------------------------------------------------------------------
 # for pyupdi (https://github.com/mraardvark/pyupdi,  tested with commit 3d163b83e01967c924c0903cc994d38bde3d5d32)
