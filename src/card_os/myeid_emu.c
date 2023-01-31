@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -908,9 +908,9 @@ static uint8_t des_aes_cipher(struct iso7816_response *r, uint8_t mode)
 #endif
 		if (ksize == 16) {
 			memcpy(data, data + 16, 8);
-			flag = DES_3DES;
+			flag |= DES_3DES;
 		} else if (ksize == 24)
-			flag = DES_3DES;
+			flag |= DES_3DES;
 		else if (ksize != 8)
 			return S0x6981;	//incorect file type
 	} else if (type == AES_KEY_EF) {
