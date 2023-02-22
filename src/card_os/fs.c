@@ -371,7 +371,6 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	    offset = response.mem_offset;
 	  goto fs_search_file_cont;
 	}
-      offset = 0;
       // test for FS end
       if (response.fs.id == 0xffff)
 	{
@@ -400,6 +399,7 @@ fs_search_file (struct fs_response *entry, uint16_t id, uint8_t * data,
 	    entry->fs.id = data_count;
 	  return RET_SEARCH_END;
 	}
+      offset = 0;
       // calculate maximal uuid
       if (max_uuid < response.fs.uuid)
 	max_uuid = response.fs.uuid;
