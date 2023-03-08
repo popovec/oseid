@@ -78,7 +78,7 @@ static void __attribute__((noinline)) card_io_tx1(uint8_t * message, uint16_t re
 
 static void return_status(uint8_t status)
 {
-	// reuse P1,P2 as buffer for status (optionaly for protocol T0 use INS as procedure byte)
+	// reuse P1,P2 as buffer for status (optionally for protocol T0 use INS as procedure byte)
 	uint8_t *message = iso_response.input + 2;
 	uint16_t Ne, Na;
 	uint16_t ret = 2;
@@ -221,7 +221,7 @@ static uint8_t iso7816_get_challenge(uint8_t * message, struct iso7816_response 
 
 	DPRINT("%s %02x %02x %02X\n", __FUNCTION__, M_P1, M_P2, M_P3);
 
-// TODO if P1 == 2 challange for authentification ..
+// TODO if P1 == 2 challenge for authentication ..
 	if (M_P1 != 0 || M_P2 != 0)
 		return S0x6a86;	//incorrect P1,P2
 
@@ -354,8 +354,10 @@ static uint8_t iso7816_delete_file(uint8_t * message, __attribute__((unused))
 	if (M_P1 | M_P2)
 		return S0x6a86;	//Incorrect parameters P1-P2
 
-// TODO, LC==2, data field contain file ID to be deleted (From ETSI TS 102 222 V4.2.0 (2005-10))
-// Nc is not 0, checked in parser
+	// ISO7816-9:2017(E), Table 3:
+	// for encoding P1=0, P2=0 the command data field is empty.
+	// Nc value already checked in parser
+
 	return fs_delete_file();
 }
 
@@ -465,27 +467,46 @@ static const struct f_table __flash cla00[] = {
 #else
 static struct f_table cla00[] = {
 #endif
-	{APDU_Lc_empty, 0x0e, iso7816_erase_binary},	// iso7816-4/7.2.7  Ne = 0, Nc 0 (in future 0 or 2, end of erased data in data field)
-	{APDU_Le_empty, 0x20, iso7816_verify},	// iso7816-4/7.5.6  Ne = 0
-	{APDU_Le_empty, 0x22, security_env_set_reset},	// iso7816-4/7.5,11 Ne = 0
-	{APDU_Nc | APDU_Le_empty, 0x24, change_reference_data},	// iso7816-4/7.5.7  Ne = 0
-	{ATTR_T0_Le_present | APDU_LONG, 0x2a, security_operation},	// iso7816-8....???, Nc = 0 for wrap operation,
-	{APDU_Nc | APDU_Le_empty, 0x2c, reset_retry_counter},	// iso7816-4/7.5.10 Ne = 0
-	{APDU_Lc_empty | APDU_Le_empty, 0x2e, deauthenticate},	// MyEID doc
-	{APDU_Le_empty, 0x44, myeid_activate_applet},	// MyEID doc
-	{ATTR_T0_Le_present, 0x46, myeid_generate_key},	// iso7816-8
-	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0x84, iso7816_get_challenge},	//iso7816-4/7.5.3 Nc = 0
+	// ISO7816-4:2013(E)/11.2.7, partial implementation, allowed only Ne = 0, Nc = 0
+	// (in future Nc = 0 or Nc = 2, end of erased data in data in data field)
+	{APDU_Lc_empty | APDU_Le_empty, 0x0e, iso7816_erase_binary},
+	// ISO7816-4:2013(E)/11.5.6, there is no implementation for P1 = 0xff,
+	{APDU_Le_empty, 0x20, iso7816_verify},
+	// ISO7816-4:2013(E)/11.5.11, GET is not implemented, only Ne = 0 is allowed
+	{APDU_Le_empty, 0x22, security_env_set_reset},
+	//  ISO7816-4:2013(E)/11.5.7
+	{APDU_Nc | APDU_Le_empty, 0x24, change_reference_data},
+	// ISO7816-8:2019(E)/5.3.1
+	{ATTR_T0_Le_present | APDU_LONG, 0x2a, security_operation},
+	// ISO7816-4:2013(E)/11.5.10
+	{APDU_Nc | APDU_Le_empty, 0x2c, reset_retry_counter},
+	// MyEID doc
+	{APDU_Lc_empty | APDU_Le_empty, 0x2e, deauthenticate},
+	// MyEID doc
+	{APDU_Le_empty, 0x44, myeid_activate_applet},
+	// ISO7816-8:2019(E)/5.2
+	{ATTR_T0_Le_present, 0x46, myeid_generate_key},
+	// ISO7816-4:2013(E)/11.3.5
+	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0x84, iso7816_get_challenge},
+	// ISO7816-4:2013(E)/11.5.5
 	{ATTR_T0_Le_present | APDU_Nc, 0x86, myeid_ecdh_derive},
-	// Nc 0..255, Ne 1..256
+	// ISO7816-4:2013(E)/11.1.1
 	{ATTR_T0_Le_present, 0xa4, iso7816_select_file},
-	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xb0, iso7816_read_binary},	// iso7816-4/7.2.3 Nc = 0,  Nc > 0 for 0xb1
-	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xc0, iso7816_get_response},	// iso7816-4/7.6.2 Nc = 0
+	// ISO7816-4:2013(E)/11.2.3
+	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xb0, iso7816_read_binary},
+	// ISO7816-4:2013(E)/11.7.1
+	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xc0, iso7816_get_response},
 	//{0, 0xc2, iso7816_envelope},
-	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xca, myeid_get_data},	// iso7816-4/7.4.2 Nc = 0, Nc > 0 for 0xcb...
-	{APDU_Nc | APDU_Le_empty, 0xd6, iso7816_update_binary},	// iso7816-4/7.2.5 Ne = 0, Nc 1..255
-	{APDU_Nc | APDU_Le_empty | APDU_LONG, 0xda, myeid_put_data},	// iso7816-4/7.4.3 Ne = 0, Nc 1..256 (extended APDU)
-	{APDU_Nc | APDU_Le_empty, 0xe0, iso7816_create_file},	// Nc 1..255  Ne 0
-	{APDU_Le_empty, 0xe4, iso7816_delete_file},	// Nc 0, Ne 0 / Nc 2, Ne 0 in future (ID in data field)
+	// ISO7816-4:2013(E)/11.4.3
+	{APDU_Ne | APDU_Lc_empty | ATTR_T0_P3NE, 0xca, myeid_get_data},
+	// ISO7816-4:2013(E)/11.2.5
+	{APDU_Nc | APDU_Le_empty, 0xd6, iso7816_update_binary},
+	// ISO7816-4:2013(E)/11.4.6
+	{APDU_Nc | APDU_Le_empty | APDU_LONG, 0xda, myeid_put_data},
+	// ISO7816-9:2017(E)/6.2
+	{APDU_Nc | APDU_Le_empty, 0xe0, iso7816_create_file},
+	// ISO7816-9:2017(E)/6.3
+	{APDU_Lc_empty | APDU_Le_empty, 0xe4, iso7816_delete_file},
 	{0xff}
 };
 
@@ -746,7 +767,7 @@ static uint8_t parse_apdu(uint16_t input_len)
 	// concatenate this APDU with previous APDU (if chain is not running chain_len = 0)
 	// then only this single APDU is in APDU input buffer
 	// this does not affect GET_RESPONSE, because always Nc is 0
-	// and this does not affect chaning, because chained ADPU has Nc > 0
+	// and this does not affect chaining, because chained ADPU has Nc > 0
 	if (Nc) {
 		if (r->chain_len + Nc > APDU_RESP_LEN) {
 			DPRINT("No space in buffer\n");
@@ -834,7 +855,7 @@ input:
           contain a response. APDU chain can continue but next APDU is not concatenated
           with already sprocessed APDU. The GET_RESPONSE can be inserted into chain
           to retrieve data.
-	- If comand return any another return code, APDU chaining is interrupted.
+	- If command return any another return code, APDU chaining is interrupted.
 */
 
 	ret = ((c->func) (message, r));
