@@ -647,6 +647,7 @@ AES/DES  tag 0x80, value 0x80 - pkcs#7 padding
 			s_env |= (M_P2 >> 1) & 3;
 			DPRINT("decipher requested, s_env=%02x\n", s_env);
 			break;
+		default:
 			// unknown template
 			return S0x6985;	//    Conditions not satisfied
 		}
