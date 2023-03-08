@@ -1,9 +1,9 @@
 /*
     myeid_emu.h
 
-    This is part of MyECC (My Elliptic Curve Cryptography)
+    This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,22 +21,24 @@
     myeid emulation header file
 
 */
-/* *INDENT-OFF* */
 #ifndef CS_MYEID_H
 #define CS_MYEID_H
 /* myeid_emu.c */
 
-uint8_t security_env_set_reset(uint8_t * message,
-				__attribute__((unused)) struct iso7816_response *r);
+uint8_t security_env_set_reset(uint8_t * message, __attribute__((unused))
+			       struct iso7816_response *r);
 
 uint8_t security_operation(uint8_t * message, struct iso7816_response *r);
+
 uint8_t myeid_generate_key(uint8_t * message, struct iso7816_response *r);
+
 uint8_t myeid_get_data(uint8_t * message, struct iso7816_response *r);
-uint8_t myeid_put_data(uint8_t * message,
-				__attribute__((unused)) struct iso7816_response *r);
-uint8_t
-myeid_activate_applet( __attribute__((unused)) uint8_t * message,
-				__attribute__((unused)) struct iso7816_response *r);
+
+uint8_t myeid_put_data(uint8_t * message, __attribute__((unused))
+		       struct iso7816_response *r);
+
+uint8_t myeid_activate_applet( __attribute__((unused)) uint8_t * message, __attribute__((unused))
+			      struct iso7816_response *r);
 
 uint8_t myeid_ecdh_derive(uint8_t * message, struct iso7816_response *r);
 
@@ -45,4 +47,3 @@ void get_HW_serial_number(uint8_t * s);
 #endif
 
 #endif
-/* *INDENT-ON* */
