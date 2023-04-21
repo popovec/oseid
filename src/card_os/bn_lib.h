@@ -43,6 +43,7 @@ uint8_t bn_set_bitlen(uint16_t blen);
 
 void bn_swap(void *a, void *b);
 uint8_t __attribute__((weak)) bn_is_zero(void *k);
+uint8_t __attribute__((weak)) bn_is_one(void *k);
 uint8_t __attribute__((weak)) bn_neg(void *a);
 
 uint8_t __attribute__((weak)) bn_add_v(void *r, void *a, uint8_t len, uint8_t carry);

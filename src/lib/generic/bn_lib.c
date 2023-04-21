@@ -87,6 +87,21 @@ void bn_swap(void *a, void *b)
 	}
 }
 
+uint8_t __attribute__((weak)) bn_is_one(void *k)
+{
+	uint8_t j, ret;
+	uint8_t len = mod_len;
+	uint8_t *val = (uint8_t *) k;
+
+	j = *(val++);
+	j--;
+	while(len--)
+		j |= *(val++);
+
+	ret = (j == 0);
+	return ret;
+}
+
 uint8_t __attribute__((weak)) bn_is_zero(void *k)
 {
 	uint8_t j = 0, ret;
@@ -94,8 +109,7 @@ uint8_t __attribute__((weak)) bn_is_zero(void *k)
 	uint8_t *val = (uint8_t *) k;
 
 	do {
-		j |= *val;
-		val++;
+		j |= *(val++);
 	}
 	while (--len);
 
