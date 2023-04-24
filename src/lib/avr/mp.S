@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,7 +18,9 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    Atmega assembler, base routines for aritmetics for EC and RSA
+    AVR/Atmega assembler, base routines for aritmetics for EC and RSA
+
+    the size of the operand is in the range 1..256 bytes (0 = 256 bytes!)
 
 */
 #include "rsa.h"
@@ -30,19 +32,32 @@
 
 
 /////////////////////////////////////////////////////////////
-        .global mp_is_zero
-        .type   mp_is_zero, @function
-	.section .text.mp_is_zero,"ax",@progbits
+        .global bn_is_one
+        .type   bn_is_one, @function
+	.section .text.mp_is_one,"ax",@progbits
 
-mp_is_zero:
+bn_is_one:
+	movw	r30,r24
+	lds	r24,mod_len
+	ld	r25,Z+
+	dec	r25
+	rjmp	bp_is_
+
+/////////////////////////////////////////////////////////////
+        .global bn_is_zero
+        .type   bn_is_zero, @function
+	.section .text.mp_is_zero,"ax",@progbits
+bn_is_zero:
+//mp_is_zero:
 	movw	r30,r24
 	lds	r24,mod_len
 	clr	r25
-mp_is_zero_loop:
+bp_is_zero_loop:
 	ld	r0,Z+
 	or	r25,r0
+bp_is_:
 	dec	r24
-	brne	mp_is_zero_loop
+	brne	bp_is_zero_loop
 // carry on non zero, non carry on zero
 	cp	r24,r25
 	sbc	r24,r24
