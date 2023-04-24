@@ -1088,8 +1088,7 @@ static uint8_t __attribute__((noinline))
 
 // if exp. result "a"==1, then "n" is candidate for probably prime number
 // invert bit 1 in "a" to use bn_test_zero()
-		a->value[0] ^= 1;
-		if (bn_is_zero(a))
+		if (bn_is_one(a))
 			continue;	// OK, candidate, do next iteration
 
 // keep squaring "a", test "a" pow 2 mod "n"
@@ -1101,9 +1100,6 @@ static uint8_t __attribute__((noinline))
 
 // use goto for this loop ================================================
  mr_squaring_loop:
-
-// return 'a' value back
-		a->value[0] ^= 1;
 
 // if result "a"==(n-1) then "n" is candidate for probably prime number
 		if (0 == memcmp(a, &t[0], rsa_get_len()))
@@ -1118,9 +1114,7 @@ static uint8_t __attribute__((noinline))
 		memcpy(a, &t[1], rsa_get_len());
 
 // test if squared result of exp. "a"==1
-// invert bit 1 in "a" to use bn_test_zero()
-		a->value[0] ^= 1;
-		if (bn_is_zero(a))
+		if (bn_is_one(a))
 			return 1;	// definitively composite
 
 		goto mr_squaring_loop;
@@ -1164,8 +1158,7 @@ uint8_t __attribute__((weak)) prime_gcd(rsa_num * p)
 			break;
 	}
 // test if U is 1
-	u->value[0] ^= 1;
-	ret = bn_is_zero(u);
+	ret = bn_is_one(u);
 	rsa_set_len(oldlen);
 	return ret;
 }
