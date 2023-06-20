@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -132,8 +132,21 @@ static void return_status(uint8_t status)
 		// if needed (for short/extended APDU)
 		if (Ne > 256)
 			Ne = 256;
-		if (Ne > Na)
+		if (Ne > Na) {
+#ifdef PROTOCOL_T0
+			if (iso_response.protocol == 0) {
+				// If T0 protocol is in use, the card reader expects
+				// a response of exactly the same length as entered
+				// in the Ne field (1..256 bytes). We will return
+				// information about the exact length of the response.
+				message[0] = 0x6c;
+				message[1] = Na & 0xff;
+				ret = 2;
+				break;
+			}
+#endif
 			Ne = Na;
+		}
 		memcpy(message, iso_response.data, Ne);
 		// calculate how many data is now in buffer
 		Na -= Ne;
