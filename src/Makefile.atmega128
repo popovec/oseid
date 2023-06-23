@@ -6,7 +6,7 @@ CPU=atmega128
 #WARNING! there is a limitation in usbtiny, write over 64k _fail_ on atmega128
 #PRG=usbtiny -B 10
 #PRG=dapa_i2c
-PRG=avrispmkII
+PRG=avrispmkII -B 2
 PRGCPU=m128
 
 ifeq ($(CARD_SERIAL),)
@@ -50,7 +50,12 @@ CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
 # inlude only T0 protocol code
 CFLAGS += -DPROTOCOL_T0
-CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_SPECIFIC
+CFLAGS += -DPROTOCOL_T1
+#CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_SPECIFIC
+CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+CFLAGS += -DT1_TRANSPORT
+CFLAGS += -DT1_IFS=254
+#CFLAGS += -DT1_CRC
 
 all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
@@ -104,7 +109,7 @@ $(BUILD)avr.o:	$(TARGET)avr.c
 		$(CC) $(CFLAGS) -c -o $(BUILD)avr.o $(TARGET)avr.c
 
 $(BUILD)card_io.o:	$(TARGET)card_io.S card_os/card_io.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET)
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET) -Icard_os
 
 $(BUILD)mem_device.o:	 $(TARGET)mem_device.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o  $(TARGET)mem_device.S -I card_os

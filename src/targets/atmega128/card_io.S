@@ -24,32 +24,67 @@
 
 */
 #include <avr/io.h>
-//#include <avr/interrupt.h>
+#include "card_io.h"
 
+
+#if !defined (TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE) && !defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
+#define TRANSMISSION_PROTOCOL_MODE_SPECIFIC
+#endif
+
+#if defined (TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE) && defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
+#error both TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE and TRANSMISSION_PROTOCOL_MODE_SPECIFIC defined
+#endif
+
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1) && defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
+#error SPECIFIC mode and both T0,T1 protocol defined..
+#endif
+
+
+// For TX: (T0 mode), if receiver generates too many requests for
+// retransmit, after "STOP_IO_AFTER_ERRORS" parity errors, character transmission
+// is stopped. There is no way to signalize this to caller.
+// For RX: after "STOP_IO_AFTER_ERRORS" in T0 mode, stop signaling errors.
+// Receive with errors, return 0 as return code (1st byte in buffer = CARD_IO_PARITY_ERROR )
+// in T1 mode "STOP_IO_AFTER_ERRORS" is not used (continue in reception, but
+// return 0 and 1st character in buffer = CARD_IO_PARITY_ERROR
+// In RX mode: if input buffer is full, receiving is not stopped, received data
+// is discarded. This is not signalized to caller (APDU parsing finds this error
+// and card generates an appropriate response
+
+
+#define STOP_IO_AFTER_ERRORS 10
 
 	.global	card_io_tx
 	.type	card_io_tx, @function
-//uint8_t card_io_tx0(uint8_t * data, uint8_t len)
+// void card_io_tx(uint8_t * data, uint16_t len)
 
-// this enables debugging, errors on receive can be emulated
-// in first 8 character received by this code error is generated
-// by setting bit in "err" argument
-
-//#define EMULATE_ERRORS
 	.global	card_io_rx
 	.type	card_io_rx, @function
-
-#ifdef EMULATE_ERRORS
-//uint8_t card_io_rx (uint8_t * data, uint8_t len, uint8_t err)
-#else
-//uint8_t card_io_rx (uint8_t * data, uint8_t len)
-#endif
+// uint8_t card_io_rx (uint8_t * data, uint16_t len)
 
 //#define C_TS 0x3f
 #define C_TS 0x3b
 
-#define C_ATR_TA1 0x18
-#define C_ETU      31
+// at limit on 4.8MHz reader ... (RC oscillator tuned at 13.5MHz)
+// there is about 45 clock cycles for one ETU, ISO7816-3 recoments max
+// 0.2 ETU latency = 9 clock cycles. Reading ETIFR (in loop) latency is
+// at worst case 9 clock cyles...
+
+#define C_ATR_TA1 0x96
+#define C_ETU      16
+
+// tested, working, but real C_ETU is 18.6 - not recommended
+//#define C_ATR_TA1 0x19
+//#define C_ETU 18
+
+// tested, working, but real C_ETU is 23.25 - not recommended
+// may fail on some card readers
+//#define C_ATR_TA1 0x15
+//#define C_ETU	23
+
+//#define C_ATR_TA1 0x18
+//#define C_ETU      31
+
 //#define C_ATR_TA1 0x13
 //#define C_ETU      93
 
@@ -66,6 +101,7 @@
 #define CARD_IO_PORT _SFR_IO_ADDR(PORTB)
 #define CARD_IO_DIR  _SFR_IO_ADDR(DDRB)
 #define CARD_IO_BIT  1
+#define CARD_IO_IN_MASK (1<<CARD_IO_BIT)
 #define CARD_IO_IN   _SFR_IO_ADDR(PINB)
 
 
@@ -78,40 +114,112 @@
 #define TCCR_A_OFF (TCCR3A-ETIFR)
 #define TCCR_B_OFF (TCCR3B-ETIFR)
 
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+// table TA1 to ETU
+TA_to_CNT:
+//	.byte	0x99,	hi8(512/20-1), lo8(512/20-1)	// 25.6
+//	.byte	0x98,	hi8(512/12-1), lo8(512/12-1)	// 42.66666667
+//	.byte	0x97,	hi8(512/64-1), lo8(512/64-1)	// 8
+	.byte	0x96,	hi8(512/32-1), lo8(512/32-1)	// 16
+	.byte	0x95,	hi8(512/16-1), lo8(512/16-1)	// 32
+	.byte	0x94,	hi8(512/8-1),  lo8(512/8-1)	// 64
+	.byte	0x93,	hi8(512/4-1),  lo8(512/4-1)	// 128
+	.byte	0x92,	hi8(512/2-1),  lo8(512/2-1)	// 256
+	.byte	0x91,	hi8(512/1-1),  lo8(512/1-1)	// 512
 
-.macro	send_A
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	.-8
-	sbi	CARD_IO_DIR,CARD_IO_BIT
-	sts	ETIFR,r23
-.endm
-.macro	send_Z
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	.-8
-	cbi	CARD_IO_DIR,CARD_IO_BIT
-	sts	ETIFR,r23
-.endm
+//	.byte	0x19	hi8(372/20-1), lo8(372/20-1)	// 18.6
+	.byte	0x18,	hi8(372/12-1), lo8(372/12-1)	// 31
+//	.byte	0x17,	hi8(372/64-1), lo8(372/64-1)	// 5.8125
+//	.byte	0x16,	hi8(372/32-1), lo8(372/32-1)	// 11.625
+//	.byte	0x15,	hi8(372/16-1), lo8(372/16-1)	// 23.25
+	.byte	0x14,	hi8(372/8-1),  lo8(372/8-1)	// 93
+	.byte	0x13,	hi8(372/4-1),  lo8(372/4-1)	// 124
+	.byte	0x12,	hi8(372/2-1),  lo8(372/2-1)	// 176
+	.byte	0x11,	hi8(372-1),    lo8(372-1)	// 372
+
+//	.byte	0x09	hi8(372/20-1), lo8(372/20-1)	// 18.6
+	.byte	0x08,	hi8(372/12-1), lo8(372/12-1)	// 31
+//	.byte	0x07,	hi8(372/64-1), lo8(372/64-1)	// 5.8125
+//	.byte	0x06,	hi8(372/32-1), lo8(372/32-1)	// 11.625
+//	.byte	0x05,	hi8(372/16-1), lo8(372/16-1)	// 23.25
+	.byte	0x04,	hi8(372/8-1),  lo8(372/8-1)	// 93
+	.byte	0x03,	hi8(372/4-1),  lo8(372/4-1)	// 124
+	.byte	0x02,	hi8(372/2-1),  lo8(372/2-1)	// 176
+	.byte	0x01,	hi8(372-1),    lo8(372-1)	// 372
 
 
-// change osccal to maximum, return with cli .. 
+// if we fail to find F/D from PPS1, this is default
+	.byte	0,	hi8(372-1),    lo8(372-1)	// 372
+card_io_atr_string:
+
+#if defined(PROTOCOL_T0) && defined(PROTOCOL_T1)
+#if C_ATR_TA1 == 0x96
+	.byte 0x3b,0xD5,0x96,0x02,0x80,0x31,0xFE,0x65,'O','s','E','I','D',0x1f
+#elif C_ATR_TA1 == 0x18
+	.byte 0x3b,0xD5,0x18,0x02,0x80,0x31,0xFE,0x65,'O','s','E','I','D',0x91
+#else
+#error Please define ATR for this TA1
+#endif
+
+#elif defined(PROTOCOL_T0)
+//     - TS from #define ..
+//0xf5 = SEND Ta1..TD1 .. 5 hist. bytes
+//     - TA1 from #define .
+//0    = TB1
+//2    = TC1 gurad time extended by two bits
+//0x00 = TD1
+//hist. bytes OsEID...
+	.byte C_TS,0xf5,C_ATR_TA1,0,2,0x00,'O','s','E','I','D'
+#else
+// T1 only
+#if C_ATR_TA1 == 0x96
+	.byte C_TS,0xD5,0x96,0x02,0x81,0x31,0xFE,0x65,'O','s','E','I','D',0x1e
+#elif C_ATR_TA1 == 0x18
+	.byte C_TS,0xD5,0x18,0x02,0x81,0x31,0xFE,0x65,'O','s','E','I','D',0x90
+#else
+#error Please define ATR for this TA1
+#endif
+
+#endif
+
+#else	// TRANSMISSION_PROTOCOL_MODE_SPECIFIC
+#if defined(PROTOCOL_T0)
+card_io_atr_string:
+//     - TS from #define ..
+//0xf5 = SEND Ta1..TD1 .. 5 hist. bytes
+//     - TA1 from #define .
+//0    = TB1
+//2    = TC1 gurad time extended by two bits
+//0x10 = TD1 - send TA2
+//0x80 = TA2 - only T0 protocol
+//hist. bytes OsEID...
+	.byte C_TS,0xf5,C_ATR_TA1,0,2,0x10,0x80,'O','s','E','I','D'
+#else
+// protocol T1 (specific mode)
+	.byte 0x3B,0xF5,0x18,0x00,0x02,0x91,0x81,0x31,0xFE,0x65,'O','s','E','I','D',0x21
+#endif
+#endif
+card_io_atr_string_end:
+#define ATR_LEN (card_io_atr_string_end - card_io_atr_string)
+.balign 2
+
+
+// tune osccal to maximum
 card_io_osccal_max:
-// calibrate oscilator at maximum
+// calibrate oscillator at maximum
 	lds	r23,OSCCAL 
+	in	r22,0x3f
+	cli
 0:
-// do not run SEI here, this is called from ISR too .. 
-//	sei
 	inc	r23
 	brne	1f
-	cli
+	out	0x3f,r22
 	ret
 1:
 	ori	r23,3
 // read atmega errata - after OSCCAL change device 
 // may execute some of the subsequent instructions
 // incorrectly.
-	cli
 	sts	OSCCAL,r23
 	nop
 	nop
@@ -123,15 +231,805 @@ card_io_osccal_max:
 	nop
 	rjmp	0b
 
-card_io_send_atr:
-// init
+
+// preset r21 for mode 0xf = 4 CTC or 0x7 = NORMAL
+// clear TCNT, in r30,r31 timer registers offset (from etifr)
+// clear r20
+card_io_timer_mode:
+	clr	r20
+	ldi	r30,lo8(ETIFR)
+	ldi	r31,hi8(ETIFR)
+//disable interrupt from timer
+	std	Z+ETIMSK_OFF,r20
+// top OCR3A od 0xffff
+	std	Z+TCCR_A_OFF,r20
+	std	Z+TCCR_B_OFF,r21
+// count from 0
+	std	Z+TCNT_H_OFF,r20
+	std	Z+TCNT_L_OFF,r20
+// clear OCF3A and TOV3 request
+	ldi	r21,0x14
+	std    Z+ETIFR_OFF,r21
+	ret
+////////////////////////////////////////////////////////////////
+// used registers:
+// r30,31 pointer to ETIFR
+// r20 input/output r21,22 clamped, r23 clamped in send_Z/send_A
+// r19 clamped if fast output mode is used (out not cbi/sbi)
+// return: r20 = 0 and ZERO if character retransmit requested (T0 protocol)
+
+card_io_tx_byte:
+// initial parity
+#if C_TS == 0x3f
+	ldi	r22,0x7f
+#else
+	ldi	r22,0x01
+// inverse .. A/Z
+	com	r20
+#endif
+// bite counter (start bit + 8 bits)
+	ldi	r21,9
+// send start bit (negative logic)
+	sec
+// character loop
+card_io_tx0_ch_loop:
+// calculate parity
+	eor	r22,r20
+card_io_tx0_ch_loop2:
+// two types of output, cbi/sbi or out (4/5 clock cysles, or 3 slock cycles)
+#if 0
+1:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	1b
+	brcs    1f
+	cbi	CARD_IO_DIR,CARD_IO_BIT
+	rjmp	2f
+1:
+	sbi     CARD_IO_DIR,CARD_IO_BIT
+2:
+#else
+	sbc	r19,r19
+	andi	r19,CARD_IO_IN_MASK
+1:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	1b
+
+	out	CARD_IO_DIR,r19
+#endif
+	std	Z+ETIFR_OFF,r23
+#if C_TS == 0x3f
+	lsl	r20
+#else
+	lsr	r20
+#endif
+// decrement bite counter
+	dec	r21
+	brne	card_io_tx0_ch_loop
+// after 8 bits r20 is 0
+#if C_TS == 0x3f
+// 1st round, r20 = 0x00, r20 - 0xc1 = 0x3f, C is set
+// 2nd round, r20 = 0xfc, r20 - 0xc1 - 0x3c, C is cleared
+	subi	r20,0xc1
+	brcc	1f
+	lsl	r22
+#else
+// 1st round, r20 = 0x00, r20 - 0x04 = 0xfc, C is set
+// 2nd round, r20 = 0x3f, r20 - 0x04 = 0x3B, C is cleared
+	subi	r20,4
+	brcc	1f
+	lsr	r22
+#endif
+// r20 is used as stop bit data
+// after 1st round r20 is 0x3f or 0xfc (2 stop bits negated)
+// counter: parity bit + 2x stop bit
+	ldi	r21,3
+	rjmp	card_io_tx0_ch_loop2
+
+1:
+#ifdef PROTOCOL_T0
+#ifdef PROTOCOL_T1
+// protocol T1, do not test error signal
+	lds	r20,card_io_proto
+	tst	r20
+// ZERO is not set ..
+	brne	1f
+#endif
+// vote from 3 samples
+	in	r20,CARD_IO_IN
+	andi	r20,CARD_IO_IN_MASK
+	in	r21,CARD_IO_IN
+	andi	r21,CARD_IO_IN_MASK
+	in	r22,CARD_IO_IN
+	andi	r22,CARD_IO_IN_MASK
+	add	r20,r22
+	add	r20,r21
+// 0 = retransmit character (ZERO is set)
+	andi	r20,(CARD_IO_IN_MASK * 2)
+#endif
+1:
+	ret
+
+card_io_tx:
+// X is now buffer pointer
+	movw	r26,r24
+// length
+	movw	r24,r22
+	rcall	card_io_osccal_max
+// Setup TIMER mode 4 (top in OCR3A)
+	ldi	r21,0x0f
+	rcall	card_io_timer_mode
+// Delay TX - one ETU, for ATR this is 372 clock cycles,
+// another delay is in card_io_tx_byte, this is > 400 clock
+// cycles which we need to have as a pause before sending
+// the ATR. This delay is not interesting for normal TX.
+	ldi	r23,0x10
+	std	Z+ETIFR_OFF,r23
+1:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	1b
+#ifdef PROTOCOL_T0
+// parity error counter, max STOP_IO_AFTER_ERRORS parity errors, then mute TX
+	ldi	r18,-(STOP_IO_AFTER_ERRORS)
+// transmit is delayed by 2 ETU (to save FLASH, retransmit code here)
+card_io_tx0_repeat:
+// retransmit counter, do not continue after 256 errors
+	inc	r18
+	breq	2f
+// at this moment second stop bit is on line
+// wait for end of error signal
+1:
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	1b
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	1b
+#endif
+// clear overflow (the card_io_tx_byte is waiting for new overflow)
+// r23 is already set to 0x10
+//	ldi	r23,0x10
+	std	Z+ETIFR_OFF,r23
+//buffer loop
+///////////////////////////////////////////
+card_io_tx0_buffer_loop:
+// load byte
+	ld	r20,X
+	rcall	card_io_tx_byte
+#ifdef PROTOCOL_T0
+// 0    - character repeat (Z is set)
+	breq	card_io_tx0_repeat
+#endif
+// next character .. 
+	adiw	r26,1
+	sbiw	r24,1
+	brne	card_io_tx0_buffer_loop
+
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+	lds	r20,card_io_etu
+	lds	r21,card_io_etu+1
+	std	Z+OCR_H_OFF,r21
+	std	Z+OCR_L_OFF,r20
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+	lds	r20,card_io_proto_new
+	sts	card_io_proto,r20
+#endif
+#endif
+2:
+	ret
+
+
+//////////////////////////////////////////////////////////////////////////
+// uint16_t card_io_rx (uint8_t * data, uint16_t len);
+
+card_io_rx:
+	push	r16
+	push	r17
+	push	r28
+	push	r29
+	movw	r28, r22
+	movw	r26, r24
+#if defined(PROTOCOL_T0) && defined(PROTOCOL_T1)
+// load protocol 0/1 into T
+	lds	r22,card_io_proto
+	bst	r22,1
+#endif
+// parity error counter, max STOP_IO_AFTER_ERRORS parity errors, then mute
+// error signaling
+	ldi	r22,-(STOP_IO_AFTER_ERRORS)
+	ldi	r30,lo8(ETIFR)
+	ldi	r31,hi8(ETIFR)
+// preload half ETU (precompensate timer value...)
+#if defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
+	ldi	r18,lo8(((C_ETU+4)/2))
+	ldi	r19,hi8(((C_ETU+4)/2))
+#else // TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+	ldd	r25,Z+OCR_H_OFF
+	ldd	r24,Z+OCR_L_OFF
+	adiw	r24,5
+	lsr	r25
+	ror	r24
+	movw	r18,r24
+#endif
+// counter of really received character
+	clr	r24
+	clr	r25
+// wait line idle
+card_io_idle1:
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle1
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle1
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle1
+// wait start bit
+card_io_start1:
+// test IO line
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_start1
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_start1
+// resample at middle of bit..
+
+// possible start bit .. sync timer	//
+	std	Z+TCNT_H_OFF,r19
+	std	Z+TCNT_L_OFF,r18
+
+// clear overflow
+	ldi	r23,0x10
+	std	Z+ETIFR_OFF,r23
+card_io_start1_loop:
+// test timer tick
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_start1_loop
+// middle of star bit
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle1
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle1
+// ok start bit found
+
+
+/////////////////////////////////////////////////////////
+// byte loop
+card_io_byte_loop:
+// sample 8 bits + parity
+	ldi	r21,9
+// parity counter in r1 (zero register)
+// clear this register (loop)
+	clr	r1
+// bite loop
+card_io_rx_next_bit:
+// clear overflow
+	std	Z+ETIFR_OFF,r23
+// test timer tick
+1:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	1b
+
+// vote from 3 samples
+	in	r16,CARD_IO_IN
+	andi	r16,CARD_IO_IN_MASK
+	in	r17,CARD_IO_IN
+	andi	r17,CARD_IO_IN_MASK
+	in	r20,CARD_IO_IN
+	andi	r20,CARD_IO_IN_MASK
+	add	r20,r16
+	add	r20,r17
+
+// calculate parity
+	eor	r1,r20
+	dec	r21
+	breq	card_io_rx_byte_received
+// load input into C
+	cpi	r20,(CARD_IO_IN_MASK * 2)
+#if C_TS == 0x3f
+	rol	r0
+#else
+	ror	r0
+#endif
+	rjmp	card_io_rx_next_bit
+
+card_io_rx_byte_received:
+#if C_TS == 0x3f
+        nop
+#else
+        com	r0
+#endif
+// wait 1st stop bit
+	std	Z+ETIFR_OFF,r23
+card_io_wait_1st_stop:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_wait_1st_stop
+
+// test stop bit
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	clr	r22	// set error flag
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	clr	r22	// set error flag
+
+#if C_TS == 0x3f
+// signalize parity error or save character
+	sbrc	r1,(CARD_IO_BIT + 1)
+	rjmp	card_io_byte_ok
+#else
+// signalize parity error or save character
+	sbrs	r1,(CARD_IO_BIT + 1)
+	rjmp	card_io_byte_ok
+#endif
+#ifdef PROTOCOL_T1
+#ifdef PROTOCOL_T0
+	brtc	1f
+#endif
+// active T1 protocol, parity error, set error flag
+	clr	r22
+1:
+#endif
+#ifdef PROTOCOL_T0
+#ifdef PROTOCOL_T1
+// skip error signaling for T1 protocol
+	brts	1f
+#endif
+// active protocol T0, parity error, request retransmit
+	tst	r22
+	breq	1f	// too many retransmits, skip...
+// request retransmission of character
+	cbi	CARD_IO_DIR,CARD_IO_BIT
+// clear timer compare flag
+	std	Z+ETIFR_OFF, r23
+card_io_p_error1:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_p_error1
+	std	Z+ETIFR_OFF,r23
+card_io_p_error2:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_p_error2
+	std	Z+ETIFR_OFF, r23
+	sbi	CARD_IO_DIR,CARD_IO_BIT
+	rjmp	card_io_idle1	// wait for retransmit
+1:
+#endif
+card_io_byte_ok:
+// check if buffer space is available
+	sbiw	r28,0
+	breq	card_io_idle2
+// save char
+	st	X+,r0
+	sbiw	r28,1
+	adiw	r24,1
+
+// wait line idle
+card_io_idle2:
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle2
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle2
+	sbis	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle2
+
+// wait 20 more stop bits
+	ldi	r21,20
+card_io_start2:
+// test IO line
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle3
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle3
+// resample at middle of bit..
+
+// possible start bit .. sync timer	//
+	std	Z+TCNT_H_OFF,r19
+	std	Z+TCNT_L_OFF,r18
+// clear overflow
+	ldi	r23,0x10
+	std	Z+ETIFR_OFF,r23
+card_io_start2_loop:
+// test timer tick
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_start2_loop
+// middle of star bit
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle2		// false start
+	sbic	CARD_IO_IN,CARD_IO_BIT
+	rjmp	card_io_idle2		// false start
+	rjmp	card_io_byte_loop
+
+card_io_idle3:
+	ldd	r23,Z+ETIFR_OFF
+	andi	r23,0x10
+	breq	card_io_start2
+	std	Z+ETIFR_OFF,r23
+// decrement stop bit counter
+	dec	r21
+	brne	card_io_start2
+// ok full frame received
+// X is pointer to frame, r25:24 is counter of characters
+// pointer back to start
+	sub	r26,r24
+	sbc	r27,r25
+// if r22 = 0, frame is received with error
+	tst	r22
+	brne	1f
+// store error code into buffer, return zero...
+	ldi	r24,CARD_IO_PARITY_ERROR
+	st	X,r24
+card_io_error_end:
+	clr	r24
+	clr	r25
+	rjmp	card_io_rx_end
+1:
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+	movw	r28,r26		// save buffer pointer
+#endif
+#if defined (TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE) || defined(PROTOCOL_T1)
+// load 1st byte
+	ld	r22,X+
+#if defined(PROTOCOL_T1)
+// save CLA (this is NAD in T1 protocol, we need this for S block - WTX request)
+	sts	card_io_NAD,r22
+#endif
+#endif
+// test if this is 1st received frame after ATR (0xff in null_send)
+	lds	r23,null_send
+	inc	r23
+	brne	card_io_rx_end
+	sts	null_send,r23	// clear null_send
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+// 0xff in 1st byte?
+	cpi	r22,0xff	// test if this is PPSS (and use r22 to check PCK)
+	breq	card_io_pps_parse
+#endif
+card_io_rx_end:
+	clr	r1
+	pop	r29
+	pop	r28
+	pop	r17
+	pop	r16
+	ret
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+card_io_pps_error:
+// signalize error, (size = 0, return value in returned data)
+	ldi	r24,CARD_IO_PPS_ERROR
+	st	Y,r24
+	rjmp	card_io_error_end
+
+card_io_pps_parse:
+	tst	r25	// length > 255, erroneous PPS, no response
+	brne	card_io_pps_error
+	subi	r24,2	// not enough bytes for PPS ?
+#ifdef STRICT_PPS_CHECK
+	brcs	card_io_pps_error
+#endif
+	ld	r20,X+	// load PPS0
+	eor	r22,r20	// calculate PCK in r22
+	swap	r20
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+        cpi     r20,0x20        // protocol 0,1 (r20 = 0...0x1f)
+	brcc	card_io_pps_error	// erroneous PPS, unknown protocol, no response
+#elif defined (PROTOCOL_T0)
+        cpi     r20,0x10        // protocol 0 (r20 = 0...0x0f)
+	brcc	card_io_pps_error	// erroneous PPS, unknown protocol, no response
+#elif defined (PROTOCOL_T1)
+	cpi	r20,0x10	// 0...0x0f - error
+	brcs	card_io_pps_error	// erroneous PPS, unknown protocol, no response
+	cpi	r20,0x20	// > 0x1f - error
+	brcc	card_io_pps_error	// erroneous PPS, unknown protocol, no response
+#endif
+// default F/D (If PPS1 is missing from PPS)
+//	clr	r23	// default for PPS1, already cleared
+
+	lsr	r20
+	brcc	card_io_pps_no_PPS1
+	dec	r24
+#ifdef STRICT_PPS_CHECK
+	breq	card_io_pps_error
+#endif
+	ld	r23,X+	// load PPS1
+	eor	r22,r23	// update PCK for received PPS
+
+card_io_pps_no_PPS1:
+	lsr	r20
+	brcc	card_io_pps_no_PPS2
+	dec	r24
+#ifdef STRICT_PPS_CHECK
+	breq	card_io_pps_error
+#endif
+	ld	r21,X+	// load PPS2
+	eor	r22,r21	// update PCK for received PPS
+
+card_io_pps_no_PPS2:
+	lsr	r20
+	brcc	card_io_pps_no_PPS3
+	dec	r24
+#ifdef STRICT_PPS_CHECK
+	breq	card_io_pps_error
+#endif
+	ld	r21,X+	// load PPS2
+	eor	r22,r21	// update PCK for received PPS
+
+card_io_pps_no_PPS3:
+	lsr	r20
+	brcs	card_io_pps_error	// highest bite in PPS0 should be 0 (ISO7816-3/2006 9.2)
+	dec	r24
+	brne	card_io_pps_error
+
+	ld	r21,X
+	eor	r22,r21	// update PCK for received PPS
+	brne	card_io_pps_error
+
+// PPS frame OK
+//=========================================================
+// construct response
+	ldi	r21,3		// initial PPS length
+// test if we can use PPS1, if yes, add PPS1
+// Table F/D to timer value
+	ldi	r30,lo8(TA_to_CNT)
+	ldi	r31,hi8(TA_to_CNT)
+1:
+	lpm	r0,Z+
+// load timer values
+	lpm	r18,Z+
+	lpm	r19,Z+
+	tst	r0
+	breq	2f	// no match found
+	cp	r23,r0	// compare PPS1 to value from table
+	brne	1b
+
+// OK PPS1 found in table, return PPS1
+	ori	r20,0x10	// update PPS0
+	inc	r21		// increment length
+2:
+//
+	ldi	r22,CARD_IO_PPS
+	st	Y+,r22
+#if CARD_IO_PPS != 0xff
+	ldi	r22,0xff	// PPSS (also used for PCK)
+#endif
+	st	Y+,r21	// PPS frame length
+	st	Y+,r22	// PPSS
+	st	Y+,r20	// PPS0
+
+	eor	r22,r20	// update PCK by PPS0
+	eor	r22,r0	// update PCK (by PPS1 or 0)
+// skip PPS1 ?
+	sbrc	r20,4
+	st	Y+,r0	// PPS1
+	st	Y+,r22	// PCK
+
+// r24,25 is 0 (PPS in buffer)
+// save timer value and protocol
+	ldi	r28,lo8(card_io_data)
+	ldi	r29,hi8(card_io_data)
+// new timer value for negotiated F/D
+	std	Y+(card_io_etu-card_io_data),r19
+	std	Y+(card_io_etu-card_io_data+1),r18
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+// negotiated protocol
+	std	Y+(card_io_proto_new-card_io_data),r20
+#endif
+	rjmp	card_io_rx_end
+#endif
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+	.global TIMER3_OVF_vect
+	.type TIMER3_OVF_vect, @function
+TIMER3_OVF_vect:
+	push	r0
+	in	r0,0x3f
+	push	r0
+	push	r1
+	push	r18
+	push	r19
+// count overflows
+	lds	r1,null_send
+	inc	r1
+
+#if defined (TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE)
+
+#if defined PROTOCOL_T1
+// T1 protocol:
+// timer is programmed to divide reader clock by 65535, here r18=200 (number
+// of overflows). This is 200*65535 clock cycles, for 5MHz reader, this is
+// about 2.6 sec. BWT in ATR is set to 6, then 960* 2^6 *372/5MHz, this is
+// about 4.5 seconds.
+	ldi	r18,200
+#endif
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+	lds	r19,card_io_proto
+	sbrs	r19,0
+#endif
+#if defined PROTOCOL_T0
+// T0 protocol:
+// TODO use better value (corresponding to TS from PPS)
+	ldi	r18,27
+#endif
+
+#else // TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE/TRANSMISSION_PROTOCOL_MODE_SPECIFIC
+#if defined PROTOCOL_T0
+// max time .. 960 * WI * FI/f (WI is coded in TC2, if not present WI = 10)
+// 372 or 512 from TA1 = Fi, 65536 divisor factor for timer3
+// max value for 372 960*10*372/65535 = 54
+// max value for 512 960*10*512/65535 = 75
+// We will use half values.
+#if (C_ATR_TA1 & 0xF0) == 0x90
+	ldi	r18,37
+#elif (C_ATR_TA1 & 0xF0) == 0
+	ldi	r18,27
+#elif (C_ATR_TA1 & 0xF0) == 0x10
+	ldi	r18,27
+#else
+#error Please check TA1 value, Fi is not 512 or 372
+#endif
+#else // PROTOCOL_T0
+// PROTOCOL_T1
+	ldi	r18,200
+#endif
+#endif // TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE/TRANSMISSION_PROTOCOL_MODE_SPECIFIC
+	cp	r18,r1
+	breq	vector_null_send
+vector_null_send_end:
+	sts	null_send,r1
+	pop	r19
+	pop	r18
+	pop	r1
+	pop	r0
+	out	0x3f,r0
+	pop	r0
+	reti
+
+vector_null_send:
+// send null byte
+// need more registers.. 
+	push	r20
+	push	r21
+	push	r22
+	push	r23
+	push	r24
+	push	r25
+	push	r26
+	push	r27
+	push	r28
+	push	r29
+	push	r30
+	push	r31
+
+	clr	r1
+
+	ldi	r23,0
+#if defined (PROTOCOL_T0)
+	ldi	r22,1
+	ldi	r24,0x60
+#endif
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+	sbrs	r19,0
+	rjmp	1f
+#endif
+
+#if defined (PROTOCOL_T1)
+	ldi	r22,5
+	lds	r24,card_io_NAD
+	swap	r24
+	ldi	r25,0xc3
+	eor	r25,r24
+	push	r25		// checksum
+	ldi	r25,1
+	push	r25		// data
+	push	r25		// data len
+	ldi	r25,0xc3
+	push	r25		// 0xc3
+#endif
+1:
+	push	r24		// T0: 0x60  T1: NAD
+
+	in	r28,0x3d
+	in	r29,0x3e
+	adiw	r28,1
+	movw	r24,r28
+
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+	push	r19		// T0/T1 proto
+#endif
+	rcall	card_io_tx
+
+#if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
+	pop	r19
+	sbrs	r19,0
+	rjmp	1f
+#endif
+#if defined (PROTOCOL_T1)
+	movw    r24,r28
+	ldi	r23,0
+	ldi	r22,5
+	sei
+	rcall	card_io_rx
+
+	pop	r20	// checksum
+	pop	r20	// 0x01
+	pop	r20	// 0x01
+	pop	r20	// 0xc3
+#endif
+1:
+	pop	r20	// T0: 0x60  T1: NAD
+
+
+	rcall 	card_io_start_null
+	pop	r31
+	pop	r30
+	pop	r29
+	pop	r28
+	pop	r27
+	pop	r26
+	pop	r25
+	pop	r24
+	pop	r23
+	pop	r22
+	pop	r21
+	pop	r20
+	rjmp	vector_null_send_end
+
+	.global card_io_start_null
+	.type card_io_start_null, @function
+card_io_start_null:
+// reprogram timer to normal mode (count from 0 to 0xffff)
+// Timer 3 mode CTC TOP 0xffff (mode 0)
+// timer source T3, 
+// load timer register offset (ETIFR) into Z
+	ldi	r21,0x07
+	rcall	card_io_timer_mode
+// r20 is zero (from card_io_timer_mode)
+	sts	null_send,r20
+// enable interrupt from overflow
+	ldi	r20,4
+	std	Z+ETIMSK_OFF,r20		
+	ret
+
+	.global card_io_stop_null
+	.type card_io_stop_null, @function
+card_io_stop_null:
+// timer reinitialization is in card_io_tx
+	ret
+
+// card reset
+	.global USART0_RX_vect
+	.type USART0_RX_vect, @function
+USART0_RX_vect:
+	jmp 	0
+
+
+	.global card_io_init
+	.type card_io_init, @function
+card_io_init:
+	ldi	r30,lo8(card_io_atr_string + ATR_LEN)
+	ldi	r31,hi8(card_io_atr_string + ATR_LEN)
+	ldi	r23,ATR_LEN
+	mov	r22,r23
+card_io_init_atr_loop:
+// get stack address (as ATR string pointer for card_io_send_atr call)
+// (slower but here speed is no problem, save one adiw instruction)
+	in	r24,0x3d
+	in	r25,0x3e
+	sbiw	r30,1
+	lpm	r20,Z
+	push	r20
+	dec	r23
+	brne	card_io_init_atr_loop
+// length in r23,r22, position r25:r24
 	cli
 // disable pull ups
 	ldi	r20,0
 	out	CARD_IO_PORT,r20
 // all pins input
 	out	CARD_IO_DIR,r20
-	rcall	card_io_osccal_max
+#if defined(PROTOCOL_T0) && defined(PROTOCOL_T1)
+	sts	card_io_proto,r20
+	sts	card_io_proto_new,r20
+#endif
 // wait RESET
 1:
 	sbis	_SFR_IO_ADDR(PINE),0
@@ -146,7 +1044,7 @@ card_io_send_atr:
 //	sts	0x90,r21	//UBRR0H - default after reset
 // disable all USART fcion
 	out	0x0a,r21	//UCSR0B
-// enable RX, and irq from RX complette
+// enable RX, and irq from RX complete
 	ldi	r21,0x90
 	out	0x0a,r21	//UCSR0B
 
@@ -160,658 +1058,22 @@ card_io_send_atr:
 	ldi	r21,hi8((C_ETU_ATR-1))
 	std	Z+OCR_H_OFF,r21
 	std	Z+OCR_L_OFF,r20
-
-// clear OCR flag
-	ldi	r20,0x10
-	sts	ETIFR,r20
-// wait minimum one ETU
-0:
-	lds	r20,ETIFR
-	andi	r20,0x10
-	breq	0b
-	sts	ETIFR,r20
-// in next code, one more ETU wait is programmed, ATR must be send
-// after 400 ticks after RESET, this guarante minimal 2x 372 ticks
+#ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+	sts	card_io_etu,r20
+	sts	card_io_etu+1,r21
+#endif
 	rcall	card_io_tx
+
+#if defined (TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
+// Z is pointer to ETIFR (thiw is set in card_io_tx)
 	ldi	r20,lo8((C_ETU-1))
 	ldi	r21,hi8((C_ETU-1))
-	sts	OCR3AH,r21
-	sts	OCR3AL,r20
-	ret
-
-// preset r21 for mode 0xf = 4 CTC or 0x7 = NORMAL
-// clear TCNT, in r30,r31 timer registers offset (from etifr)
-// clear r20
-card_io_timer_mode:
-	clr	r20
-	ldi	r30,lo8(ETIFR)
-	ldi	r31,hi8(ETIFR)
-	std	Z+TCCR_A_OFF,r20
-	std	Z+TCCR_B_OFF,r21
-// count from 0
-	std	Z+TCNT_H_OFF,r20
-	std	Z+TCNT_L_OFF,r20
-	ret
-
-
-card_io_tx_byte:
-// parity	
-	ldi	r30,0
-// bite counter
-	ldi	r21,8
-// send start bit
-	send_A
-// character loop
-card_io_tx0_ch_loop:
-#if C_TS == 0x3f
-	rol	r20
-	brcc	card_io_tx0_ZERO
-// send ONE
-	send_A
-// parity
-	inc	r30
-	rjmp	card_io_tx0_next_bite
-card_io_tx0_ZERO:
-	send_Z
-card_io_tx0_next_bite:
-#else
-	ror	r20
-	brcc	card_io_tx0_ZERO
-// send ONE
-	send_Z
-// parity
-	inc	r30
-	rjmp	card_io_tx0_next_bite
-card_io_tx0_ZERO:
-	send_A
-card_io_tx0_next_bite:
+	std	Z+OCR_H_OFF,r21
+	std	Z+OCR_L_OFF,r20
 #endif
-// decrement bite counter
-	dec	r21		
-	brne	card_io_tx0_ch_loop
-// send parity bit
-	ror	r30
-#if C_TS == 0x3f
-	brcc	card_io_tx0_parity_0
-#else
-	brcs	card_io_tx0_parity_0
-#endif
-	send_A
-	rjmp	card_io_tx0_parity_bit
-card_io_tx0_parity_0:
-	send_Z
-card_io_tx0_parity_bit:
-// prepare two counters, r31:30 count all samples
-// r19,18 count "A" value on line
-// (safety check, if r31:30 overflow 32767, fail)
-	clr	r30
-	clr	r31
-	movw	r24,r30
-// wait for parity bit end, then send 1st stop bit
-	send_Z
-	ldi	r20,2	// two stop bit
-// at this moment stop bit is sending, check retransmit reqest
-card_io_tx0_stop:
 
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	adiw	r24,1
-	adiw	r30,1
-	brmi	card_io_tx_byte_fail
-
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_tx0_stop
-	sts	ETIFR,r23
-	dec	r20
-	brne	card_io_tx0_stop
-// two stop bits received
-// if r19:18 is over 25% of r31,30, then repeat of byte is requested
-	lsr	r31
-	rol	r30
-	lsr	r31
-	rol	r30
-	sub	r30,r24
-	sbc	r31,r25
-	brcs	card_io_tx0_repeat
-	clr	r24
-	ret
-card_io_tx_byte_fail:
 	ldi	r24,0xff
-	ret
-card_io_tx_byte_repeat:
-	ldi	r24,1
-	ret
-
-#define TX_LEN16
-card_io_tx:
-#ifdef TX_LEN16
-	push	r28
-	push	r29
-// length
-	movw	r28,r22
-#endif
-	rcall	card_io_osccal_max
-	sei
-
-// wait timer overflow 
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	.-8
-	sts	ETIFR,r23
-// X is now buffer pointer
-	movw	r26,r24
-//buffer loop
-///////////////////////////////////////////
-card_io_tx0_buffer_loop:
-// load byte
-	ld	r20,X
-	rcall	card_io_tx_byte
-// 0    - all ok
-// 1    - do retransmit
-// 0xff - overrun in parity error signal waiting
-	cpi 	r24,1
-	breq	card_io_tx0_repeat
-	ldi	r25,0xff
-	cpi	r24,0xff
-	breq	card_io_tx0_fail
-// next character .. 
-	adiw	r26,1
-#ifdef TX_LEN16
-	sbiw	r28,1
-#else
-	dec	r22
-#endif
-	breq	card_io_tx0_ok
-	rjmp	card_io_tx0_buffer_loop
-
-card_io_tx0_repeat:
-// wait minimal 2 ETU, then retransmit
-	ldi	r20,2
-card_io_tx0_repeat_0:
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_tx0_repeat_0
-	sts	ETIFR,r23
-	dec	r20
-	brne	card_io_tx0_repeat_0
-	rjmp	card_io_tx0_buffer_loop
-
-card_io_tx0_ok:
-card_io_tx0_fail:
-#ifdef TX_LEN16
-	pop	r29
-	pop	r28
-#endif
-	ret
-
-// uint16_t card_io_rx (uint8_t * data, uint16_t len);
-// this function allow only 255 bytes to be read .. 
-// define maximum parity error per one character
-#define MAX_PARITY_ERR 1
-card_io_rx:
-	tst	r23
-	breq	1f
-// > 255 bytes allowed to be read.. clamp this to 255
-	ldi	r22,255
-1:
-	movw	r26, r24
-	rcall	card_io_osccal_max
-	sei
-
-// preload half ETU, for maximal speed, here value 15 is in r18,r19,
-// 21 - working on 3.8/3.7 (wrong on 4.8)
-// 20 - working on 4.8,3.7/3.8
-// 11 - working on 4.8,3.7,3.8
-// 10 - not working on 4.8,3.7,3.8
-
-	ldi	r18,lo8((C_ETU/2))
-	ldi	r19,hi8((C_ETU/2))
-#ifdef EMULATE_ERRORS
-// emulate errors
-	mov	r0, r20
-#endif
-// counter of realy received character
-	ldi	r24, 0
-// parity error counter (per character)
-	ldi	r31,MAX_PARITY_ERR
-// wait line idle
-	ldi	r20,4
-	sec
-card_io_idle1:
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	subi	r20,1
-	adc	r20,r1
-	cpi	r20,7
-	brne	card_io_idle1
-// wait start bit
-card_io_start1:
-// test IO line
-	sbic	CARD_IO_IN,CARD_IO_BIT
-	rjmp	card_io_start1
-// posible start bit .. sync timer	//
-	sts	TCNT3H,r19
-	sts	TCNT3L,r18
-	dec	r20
-card_io_start1_loop:
-// filter IO, if jump to 7, go back to wait 
-// start bit, if fall below 3, this is real start bit
-// update io filter
-	cpi	r20,7
-	breq	card_io_start1
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	subi	r20,1
-	adc	r20,r1
-	cpi	r20,3
-	brne	card_io_start1_loop
-//	rjmp	.+0
-/////////////////////////////////////////////////////////
-// byte loop
-card_io_byte_loop:
-// clear timer compare
-	ldi	r23, 0x10
-	sts	ETIFR, r23
-// sample 10 bits (start, 1..8 parity)
-	ldi	r21,10
-// parity counter
-	ldi	r30,1
-// bite loop
-card_io_bite_loop:
-// update io filter
-	cpi	r20,7
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	subi	r20,1
-	adc	r20,r1
-// test timer tick
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_bite_loop
-// time tick, clear request
-	sts	ETIFR,r23
-// calculate parity
-// load bite from io_filter
-	cpi	r20,4
-	adc	r30,r1
-// rotate bite to register
-// load bite from io_filter
-	cpi	r20,4
-#if C_TS == 0x3f
-	rol	r25
-#else
-	ror	r25
-#endif
-// decrement bit counter
-	dec	r21
-	brne	card_io_bite_loop
-// 10 bits rotate parity bit to C
-#if C_TS == 0x3f
-	ror	r25
-	inc	r30
-#else
-	rol	r25
-	com	r25
-#endif
-// handle parity error
-
-// signalize parity error or save character
-#ifndef EMULATE_ERRORS
-	andi	r30,1
-	brne	card_io_no_parity_error
-#else
-// emulate errors
-	lsr	r0
-	brcc	card_io_no_parity_error
-#endif
-//---------------------------------------------------
-// wrong parity, check number of parity errors
-// per character
-	tst	r31			//
-	breq	card_io_parity_too_many			// already too many errors
-
-// wait 1st stop bit, imedietly signalize error
-// max 9 cpu ticks, min 6 cpu ticks delay ..
-card_io_wait_1st_stop:
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_wait_1st_stop
-// request retransmition of character
-	cbi	CARD_IO_DIR,CARD_IO_BIT
-// clear timer compare flag
-	sts	ETIFR, r23
-// decrement counter of error per character
-	dec	r31
-// go to wait second stop bit
-	rjmp	card_io_wait_2nd_stop
-card_io_parity_too_many:
-
-// repeated character received with parity error too
-// clear buffer space counter and counter of 
-// received characters (RX continues, but all 
-// characters are ignored)
-#ifndef EMULATE_ERRORS
-	clr	r22
-	clr	r24
-#endif
-// clear timer compare flag
-	sts	ETIFR, r23
-	rjmp	card_io_save_char
-// 	rjmp	card_io_wait_2nd_stop
-//---------------------------------------------------
-// no parity error
-// wait 1st stop bit, save character 
-card_io_no_parity_error:
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_no_parity_error
-// clear timer compare flag
-	sts	ETIFR, r23
-// renew parity error counter (per character) 
-	ldi	r31,MAX_PARITY_ERR
-card_io_save_char:
-// check if buffer space is available (maximum received chars 255)
-	tst	r22
-	breq	card_io_wait_2nd_stop
-	st	X+,r25
-// save char
-	dec	r22
-	inc	r24
-
-// wait 2nd stop bit 
-card_io_wait_2nd_stop:
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_wait_2nd_stop
-	sts	ETIFR, r23
-// do not drive line (line is input)
-	sbi	CARD_IO_IN,CARD_IO_BIT
-// wait 3rd stop bit (only if N is set over 1)
-card_io_wait_3rd_stop:
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_wait_3rd_stop
-	sts	ETIFR, r23
-
-// wait line idle
-	ldi	r20,4
-	sec
-card_io_idle2:
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	subi	r20,1
-	adc	r20,r1
-	cpi	r20,7
-	brne	card_io_idle2
-
-// wait 12 more stop bits 
-	ldi	r25,12
-// wait start bit, minimal latency 7 cpu ticks
-// maximal 20 cpu ticks
-card_io_start2:
-// test IO line
-	sbic	CARD_IO_IN,CARD_IO_BIT
-	rjmp	card_io_idle3
-// posible start bit .. sync timer	// 
-	sts	TCNT3H,r19
-	sts	TCNT3L,r18
-	dec	r20
-
-card_io_start3:
-// filter IO, if jump to 7, go back to wait 
-// start bit, if fall below 3, this is real start bit
-// update io filter
-	cpi	r20,7
-	breq	card_io_start2
-	sbis	CARD_IO_IN,CARD_IO_BIT
-	subi	r20,1
-	adc	r20,r1
-	cpi	r20,3
-	brne	card_io_start3
-	rjmp	card_io_byte_loop
-//////////////////////////////////////////
-// line is idle .. 
-card_io_idle3:
-// timer expired?
-	lds	r23,ETIFR
-	andi	r23,0x10
-	breq	card_io_start2
-// time tick, clear request
-	sts	ETIFR,r23
-// decrement stop bit counter
-	dec	r25
-	brne	card_io_start2
-
-// test if this ist 1st received frame after ATR (0xff in null_send)
-	lds	r23,null_send
-	inc	r23
-	brne	card_io_idle4
-	sts	null_send,r23	// clear null_send
-#if 0
-// specific mode, ignore PPS
-// test if this is PTS frame
-// X is pointer to frame, r24 is counter of characters
-	sub	r26,r24
-	subi	r27,0
-	movw	r30,r26		// save buffer pointer
-	ld	r23,X+		// load CLA
-	cpi	r23,0xff
-	breq	card_io_pts	// PTS class
-#endif
-card_io_idle4:
-// uint16_ result .. (in future bit 15 protocol T0/T1)
-	clr	r25
-	ret
-#if 0
-card_io_pts:
-// handle this as PTS, ignore any PTS that does not match correct
-// parameters for OsEID
-
-// correct PTS: 0xff 0x10 C_ATR_TA1 checksum
-//	      0xff 0x30 C_ATR_TA1 0x02 checksum
-//	      0xff 0x50 C_ATR_TA1 0xXX checksum
-//	      0xff 0x70 C_ATR_TA1 0x02 0xXX checksum
-
-// minimal PTS is 0xff 0x1X 0xXX checksum (PS1 must be present, because
-// missing PS1 is interpreted as Fi=1, D=1 - not correct for OsEID
-
-	cp	r24,4			// check size (minimal PTS size)
-	ldi	r25,4			// initial minimum PTS size
-	brcs	card_io_ignore_pts	// not enoungh data for PTS
-					// size 0 => 256 bytes is not valid
-					// for PTS to ..
-
-	clr	r18			// clear buffers for PS2, PS3
-	clr	r19
-
-	ld	r20,X			// load INS/PS0
-	andi	r20,0x1f		// test protocol, and presence of PS1
-	cpi	r20,0x10		//
-	brne	card_io_ignore_pts	// protocol != 0, or PS1 not present -> this mean Fi=1, Di=1, reject this PTS
-
-	ld	r20,X+			// reload INS/PS0, count PTS size
-	ld	r21,X+			// load PS1
-	cpi	r21,C_ATR_TA1
-	brne	card_io_ignore_pts	// do not change TA1
-
-	sbrs	r20,5
-	rjmp	card_io_pts_no_PS2
-	inc	r25
-	ld	r18,X+			// load PS2
-	cpi	r18,2
-	brne	card_io_ignore_pts	// do not change TC1
-
-card_io_pts_no_PS2:
-	sbrs	r20,6
-	rjmp	card_io_pts_no_PS3
-	inc	r25
-	ld	r19,X+
-card_io_pts_no_PS3:
-	cp	r24,r25
-	brne	card_io_ignore_pts	// PTS size does not match frame size
-
-// checksum test
-	ld	r25,X+			// checksum
-	eor	r20,r21
-	eor	r20,r18
-	eor	r20,r19
-	eor	r20,r25
-	cpi	r20,0xff		// must match CLA byte
-	brne	card_io_ignore_pts
-// confirm PTS
-	mov	r22,r24			// size
-	movw	r24,r30			// PTS pointer (in buffer)
-	rcall	card_io_tx		// confirm PTS
-card_io_ignore_pts:
-	clr	r24			// no byte is received
-	clr	r25			// in future bit 15 - protocol T0/T1
-	ret
-#endif
-
-
-	.global TIMER3_OVF_vect
-	.type TIMER3_OVF_vect, @function
-TIMER3_OVF_vect:
-	push	r0
-	in	r0,0x3f
-	push	r20
-// count overflows
-	lds	r20,null_send
-	inc	r20
-	sts	null_send,r20
-// max time .. 960 * WI * FI/f (WI is coded in TC2, if not present WI = 10)
-// 372 or 512 from TA1 = Fi, 65536 divisor factor for timer3
-// max value for 372 960*10*372/65535 = 54
-// max value for 512 960*10*512/65535 = 75
-// We will use half values.
-#if (C_ATR_TA1 & 0xF0) == 0x90
-	cpi	r20,37
-#elif (C_ATR_TA1 & 0xF0) == 0
-	cpi	r20,27
-#elif (C_ATR_TA1 & 0xF0) == 0x10
-	cpi	r20,27
-#else
-#error Please check TA1 value, Fi is not 512 or 372
-#endif
-	brne	null_send_end
-
-// send null byte
-// need more registers.. 
-	push	r21
-	push	r23
-	push	r24
-	push	r25
-	push	r30
-	push	r31
-	rcall	card_io_osccal_max
-
-// timer mode CTC from 0 to ETU in OCR3A
-	ldi	r21,0x0f
-	rcall	card_io_timer_mode
-// clear OCR request
-	ldi	r20,0x10
-	std	Z+ETIFR_OFF,r20
-// maximal two repeats of null byte 
-	ldi	r20,0x60
-	rcall	card_io_tx_byte
-// clear OCR request
-	ldi	r20,0x10
-	std	Z+ETIFR_OFF,r20
-	ldi	r20,0x60
-	tst	r24
-	breq	vector_no_repeat
-	rcall	card_io_tx_byte
-vector_no_repeat:	
-// timer into normal mode
-	ldi	r21,0x07
-	rcall	card_io_timer_mode
-	sts	null_send,r20
-	pop	r31
-	pop	r30
-	pop	r25
-	pop	r24
-	pop	r23
-	pop	r21
-null_send_end:
-	pop	r20
-	out	0x3f,r0
-	pop	r0
-	reti
-
-	.global card_io_start_null
-	.type card_io_start_null, @function
-card_io_start_null:
-	cli
-// reprogram timer to normal mode (count from 0 to 0xffff)
-// Timer 3 mode CTC TOP 0xffff (mode 0)
-// timer source T3, 
-// load timer register offset (ETIFR) into Z
-	ldi	r21,0x07
-	rcall	card_io_timer_mode
-	sts	null_send,r20
-
-// clear old request if any, enable interrupt from overflow
-	ldi	r20,4
-	std	Z+ETIFR_OFF,r20
-	std	Z+ETIMSK_OFF,r20		
-	sei
-	ret
-
-	.global card_io_stop_null
-	.type card_io_stop_null, @function
-card_io_stop_null:
-	cli
-// reprogram timer to normal mode (count from 0 to 0xffff)
-// Timer 3 mode CTC TOP by OCRA (mode 4)
-// timer source T3, 
-// load timer register offset (ETIFR) into Z
-	ldi	r21,0x0F
-	rcall	card_io_timer_mode
-//disable all interrupt from timer
-	std	Z+ETIMSK_OFF,r20
-// clear old request if any
-	ldi	r20,4
-	std	Z+ETIFR_OFF,r20
-	sei
-	ret
-
-// card reset
-	.global USART0_RX_vect
-	.type USART0_RX_vect, @function
-USART0_RX_vect:
-	jmp 	0
-
-
-	.global card_io_init
-	.type card_io_init, @function
-
-card_io_atr_string:
-//     - TS from #define ..
-//0xf5 = SEND Ta1..TD1 .. 5 hist. bytes
-//     - TA1 from #define .
-//0    = TB1 
-//2    = TC1 gurad time extended by two bits
-//0x10 = TD1 - send TA2
-//0x80 = TA2 - only T0 protocol
-//hist. bytes OsEID...
-// reversed order of bytes in ATR!
-#define ATR_LEN 12
-	.byte 'D','I','E','s','O',0x80,0x10,2,0,C_ATR_TA1,0xf5,C_TS
-.balign 2
-card_io_init:
-	ldi	r30,lo8(card_io_atr_string)
-	ldi	r31,hi8(card_io_atr_string)
-	ldi	r23,ATR_LEN
-	mov	r22,r23
-card_io_init_atr_loop:
-// get stack address (as ATR string pointer for card_io_send_atr call)
-// (slower but here speed is no problem, save one adiw instruction)
-	in	r24,0x3d
-	in	r25,0x3e
-	lpm	r20,Z+
-	push	r20
-	dec	r23
-	brne	card_io_init_atr_loop
-// length in r23,r22, position r25:r24
-	rcall	card_io_send_atr
-	ldi	r24,0xff
-	sts	null_send,r24	// mark ATR sended
+	sts	null_send,r24	// mark ATR sent
 
 // renew stack
 	in	r24,0x3d
@@ -826,7 +1088,22 @@ card_io_init_atr_loop:
 
 // multifunction variable
 // a) after ATR this is set to 0xff, 1st received frame clear this
-//    1st frame is checed for PTS - if yes, this is handled internaly
+//    1st frame is checed for PTS - if yes, this is handled internally
 // b) if null sending mode is requested, this is incremented from 0.. max 68
+card_io_data:
 null_send:
 	.skip	1
+#if defined (TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE)
+card_io_etu:
+	.skip	2	// timer value (from PPS negotiation)
+#if defined(PROTOCOL_T0) && defined(PROTOCOL_T1)
+card_io_proto:
+	.skip	1       // actual protocol
+card_io_proto_new:
+	.skip   1	// negotiated protocol (by PPS)
+#endif
+#endif
+#if  defined(PROTOCOL_T1)
+card_io_NAD:
+	.skip	1
+#endif
