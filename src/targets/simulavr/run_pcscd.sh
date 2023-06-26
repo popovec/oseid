@@ -58,7 +58,7 @@ if [ $? -lt 1 ]; then
 	  if [ $GDB -eq 0 ]; then
 		socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -d OsEID128 -e build/simulavr/card.eeprom.bin build/simulavr/card.bin',pty,raw,echo=0" &
 	  else
-		socat -d -d pty,link=${OsEID_DIR}tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
+		socat -d -d pty,link=${OsEID_DIR}/tmp/OsEIDsim.socket,raw,echo=0 "exec:'simulavr-oseid -g -d OsEID128',pty,raw,echo=0" &
 	  fi
 	fi
 	DEV="${OsEID_DIR}/tmp/OsEIDsim.socket"

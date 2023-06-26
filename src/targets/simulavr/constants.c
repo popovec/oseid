@@ -36,7 +36,8 @@
 #if 1
 const uint8_t  __attribute__ ((section (".eeprom")))  eeprom_constants[] = {
  C_CONSTANTS
- 0xff
+ 0xff,
+ [2048 ... 4095] = 0xff
 };
 
 uint8_t
