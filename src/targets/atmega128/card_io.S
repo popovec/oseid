@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2018,2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -679,13 +679,13 @@ TIMER3_OVF_vect:
 // 372 or 512 from TA1 = Fi, 65536 divisor factor for timer3
 // max value for 372 960*10*372/65535 = 54
 // max value for 512 960*10*512/65535 = 75
-
+// We will use half values.
 #if (C_ATR_TA1 & 0xF0) == 0x90
-	cpi	r20,68
+	cpi	r20,37
 #elif (C_ATR_TA1 & 0xF0) == 0
-	cpi	r20,48
+	cpi	r20,27
 #elif (C_ATR_TA1 & 0xF0) == 0x10
-	cpi	r20,48
+	cpi	r20,27
 #else
 #error Please check TA1 value, Fi is not 512 or 372
 #endif

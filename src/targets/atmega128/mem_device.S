@@ -66,27 +66,30 @@ osccal_min_end:	ret
 		.type	sec_device_format, @function
 
 sec_device_format:
-	rcall	osccal_min
-
 	ldi	r27,8
 	ldi	r26,0
-
 	ldi	r24,0xff
 1:
 // set EEPROM address
 	out	0x1f,r27
 	out	0x1e,r26
+// skip if EEPROM byte is already set to 0xff
+// trigger read operation
+	sbi	0x1c,0
+	in	r25,0x1d
+	cpi	r25,0xff
+	breq	3f
 // write eeprom ..
+	rcall	osccal_min
 	out	0x1d,r24	// EEPROM data register
-	cli
 	sbi	0x1c,2		// master write
 	sbi	0x1c,1		// write
-	sei
 // wait for write end
 2:
 	sbic	0x1c,1
 	rjmp	2b
-
+	sei
+3:
 // inc address
 	adiw	r26,1
 // test end address
