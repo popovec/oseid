@@ -1529,7 +1529,7 @@ if [ $mode == "RSA-CSR" ]; then
 fi
 if [ $mode == "CSR" ] || [ $mode == "CRT" ]; then
 V=0
-openssl version -v | fgrep -q 'OpenSSL 1.1' && V=11
+openssl version -v |egrep "^OpenSSL 1.1|^OpenSSL 3" && V=1
 if [ $V -eq 0 ]; then
 	echo "Unable to determine openssl version, or your openssl is too old"
 	exit 1
