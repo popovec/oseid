@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
     
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -38,11 +38,27 @@
 
 uint8_t pps;
 
+#if defined(T1_TRANSPORT)
+#error this code is not designed to use T1 transport
+#endif
+
+#if !defined(TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE)
+#error no ATR for specific mode
+#endif
+
 void
 card_io_init (void)
 {
+#if defined(PROTOCOL_T0) && defined(PROTOCOL_T1)
   fprintf (stdout, "< 3b:f5:18:00:02:80:01:4f:73:45:49:44:1a\n");
   DPRINT ("RESET, sending ATR, protocol reset to T0\n");
+#elif defined(PROTOCOL_T0)
+  fprintf (stdout, "< 3b:f5:18:00:02:00:4f:73:45:49:44\n");
+  DPRINT ("RESET, sending ATR, protocol reset to T0\n");
+#else
+  fprintf (stdout, "< 3b:d5:96:02:81:31:fe:65:4f:73:45:49:44:1e\n");
+  DPRINT ("RESET, sending ATR, protocol reset to T1\n");
+#endif
   pps = 0;
 }
 
@@ -117,11 +133,13 @@ card_io_rx (uint8_t * data, uint16_t len)
 	      ilen = 0;
 //	      fprintf (stdout, "< 0\n");
 // generate PPS frame
-              data[0] = 0xff;
-              data[1] = 0;
+              data[0] = CARD_IO_PPS;
+              data[1] = 3;
               data[2] = 0xff;
+              data[3] = 0;
+              data[4] = 0xff;
               pps = 1;
-              return 3;
+              return 0;	// PPS frame
 	    }
 	  if (0 == strncmp ("> 1", line, 3))
 	    {
@@ -132,11 +150,13 @@ card_io_rx (uint8_t * data, uint16_t len)
 	      ilen = 0;
 //	      fprintf (stdout, "< 1\n");
 // generate PPS frame
-              data[0] = 0xff;
-              data[1] =1;
-              data[2] = 0xfe;
+              data[0] = CARD_IO_PPS;
+              data[1] = 3;
+              data[2] = 0xff;
+              data[3] = 1;
+              data[4] = 0xfe;
               pps = 1;
-              return 3;
+              return 0; // PPS frame
 	    }
 	}
 

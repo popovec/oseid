@@ -132,7 +132,7 @@ $(BUILD)avr.o:	$(TARGET)avr.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)avr.o $(TARGET)avr.S
 
 $(BUILD)card_io.o:	$(TARGET)card_io.S card_os/card_io.h
-		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET)
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)card_io.o $(TARGET)card_io.S -I$(TARGET) -Icard_os
 
 $(BUILD)mem_device.o:	 $(TARGET)mem_device.S
 		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o  $(TARGET)mem_device.S -I card_os

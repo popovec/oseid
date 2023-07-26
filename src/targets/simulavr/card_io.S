@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,6 +21,25 @@
     simulavr connector for OsEID
 
 */
+#include "card_io.h"
+
+#if defined(T1_TRANSPORT)
+#error this code is not designed to use T1 transport
+#endif
+
+#if !defined(TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE)
+#error simulavr allow only TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+#endif
+
+#if !defined(PROTOCOL_T0)
+#error no protocol T0
+#endif
+
+#if !defined(PROTOCOL_T1)
+#error no protocol T1
+#endif
+
+
 .global card_io_tx
 .type card_io_tx, @function
 
@@ -80,13 +99,19 @@ card_io_rx:
 	sts	card_io_proto,r23
 // set flag, PPS generated
 	sts	card_io_pps,r23
+// PPS is signalized by len = 0 and CARD_IO_PPS (0xff) at 1st position in buffer
+// 2nd position is length of PPS message
+	ldi	r24,0
+	ldi	r21,CARD_IO_PPS
+	std	Z+0,r21
+	ldi	r21,3
+	std	Z+1,r21	// length
 	ldi	r21,0xff
-	st	Z+,r21	// PPSS
+	std	Z+2,r21	// PPSS
 	andi	r23,1
-	st	Z+,r23	// PPS0
+	std	Z+3,r23	// PPS0
 	eor	r23,r21
-	st	Z+,r23	// PCK
-	ldi	r24,3	// PPS len
+	std	Z+4,r23	// PCK
 	ret
 
 card_io_rx_loop:

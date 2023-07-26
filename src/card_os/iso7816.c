@@ -887,30 +887,27 @@ static uint16_t __attribute__((noinline)) card_poll_(void)
 #endif
 
 	len = card_io_rx(RXBUF, sizeof(RXBUF));
-	// for parity error, PPS frame error: len = 0
-	if (!len)
-		return 0;
 
 #ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
-	// check pps class, io layer is responsinble to check pps
-	// (inclusive PPS1 - allowed only T0 and T1 protocol)
-
-	if (RXBUF[0] == 0xff) {
-
+	if (!len) {
+// test PPS
+		if (RXBUF[0] == CARD_IO_PPS) {
 #if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
-		iso_response.protocol = RXBUF[1] & 1;
+			iso_response.protocol = RXBUF[3] & 1;
+#endif
 #ifdef T1_TRANSPORT
-		if (iso_response.protocol == 1)
-			T1_INIT();
-#endif				// T1_TRANSPORT
-		// accept PPS
-		card_io_tx(RXBUF, len);
-#endif				// defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
-		DPRINT("PPS protocol %d\n", iso_response.protocol);
-		return 0;
+			if (iso_response.protocol == 1)
+				T1_INIT();
+#endif
+// accept PPS
+			card_io_tx(RXBUF + 2, RXBUF[1]);
+			DPRINT("PPS protocol %d\n", iso_response.protocol);
+			return 0;
+		}
+// parity error is handled in T1_parser if TPDU transport is used.
+// in any other cases (errors) len = 0, frame is ignored.
 	}
-
-#endif				//TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+#endif
 
 #ifdef T1_TRANSPORT
 	if (iso_response.protocol == 0)
@@ -942,5 +939,8 @@ void response_clear(void)
 #else
 // T0 protocol support disabled
 	iso_response.protocol = 1;
+#ifdef T1_TRANSPORT
+	T1_INIT();
+#endif
 #endif
 }

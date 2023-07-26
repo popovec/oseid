@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2020-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2020-2023 Peter Popovec, popovec.peter@gmail.com
     (This code is based on card_io.S from atmega128 target in this project)
     Copyright (C) 2015-2018 Peter Popovec, popovec.peter@gmail.com
 
@@ -45,7 +45,7 @@
 */
 
 //#define ENABLE_WARM_ATR
-
+#include "card_io.h"
 #if !defined(TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE) && !defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
 #define TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
 //#define TRANSMISSION_PROTOCOL_MODE_SPECIFIC
@@ -367,7 +367,7 @@ card_io_parity_too_many:
 	sub	r26,r24
 	sbc	r27,r25
 // error code
-	ldi	r24,1
+	ldi	r24,CARD_IO_PARITY_ERROR
 	st	X,r24
 // clear size
 	clr	r28
@@ -468,41 +468,37 @@ card_io_idle3:
 	lds	r23,null_send
 	inc	r23
 	brne	1f
+// this is 1st frame after ATR
 	sts	null_send,r23	// clear null_send
-1:
 #ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
 	cpi	r22,0xff	// test if this is PPSS
-	breq	card_io_pps
+	breq	card_io_pps_parse
 
 // no PPS
 card_io_pps_end:
 #endif
+1:
 	pop	r29
 	pop	r28
 	ret
 
 #ifdef TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
-// 1st byte 0xff - PPS from interface device...(ISO7816-3:2006, 6.3.1)
-card_io_pps:
-// Check, if this is 1st frame after ATR? (ISO7816-3:2006,Figure 4)
-	tst	r23
-	breq	card_io_pps_parse
-// class 0xff is disabled (NAD 0xff is disabled too), ignore this frame
 card_io_pps_error:
 // signalize error, (size = 0, return value in returned data)
-	ldi	r24,2		// PPS error code
+	ldi	r24,CARD_IO_PPS_ERROR
 	st	Z,r24
+card_io_pps_ok:
 // clear returned size (in case of correct PPS size = 0, return value in data = 0xff)
 	clr	r24
-card_io_pps_ok:
 	clr	r25
 	rjmp	card_io_pps_end
+
 card_io_pps_parse:
 // Table F/D  to timer in 1st page of flash.. no need to use LPM
 	ldi	r28,lo8(TA_to_CNT+0x8000)
 	ldi	r29,hi8(TA_to_CNT+0x8000)
 
-	set		// flag, remove PPS1
+	clt		// flag, remove PPS1
 
 // default F/D (If PPS1 is missing from PPS)
 	ldi	r18,lo8((C_ETU_ATR-1))
@@ -542,7 +538,7 @@ card_io_pps_PPS1:
 	brne	1b
 // OK found
 	eor	r25,r21	// update PCK for response PPS
-	clt		// flag: do not remove PPS1
+	set		// flag: do not remove PPS1
 2:
 // r0 == 0 - no TA1 change, other value: r22,r23 = new timer value
 card_io_pps_no_PPS1:
@@ -568,32 +564,35 @@ card_io_pps_no_PPS3:
 	eor	r22,r21			// update PCK for received PPS
 	brne	card_io_pps_error
 //
-// PPS frame OK, check if PPS1 must be removed
-	brtc	1f
-
-// requested F/D not found, remove PPS1 from response (ISO7816-3:2006 9.2)
-	ldd	r21,Z+3
-	std	Z+2,r21
-	ldd	r21,Z+4
-	std	Z+3,r21
-// remove bit for PPS1 from PPS0
-	ldd	r21,Z+1
-	eor	r25,r21	// remove old PCK (from PPS0)
-	andi	r21,0xef
-	std	Z+1,r21
-	eor	r25,r21	// update PCK (response PPS0)
-	sbiw	r26,1	// move pointer back
-	dec	r24	// reduce size for response PPS
-1:
-	st	X,r25	// PCK for response PPS
-
-	ldi	r30,lo8(card_io_etu)
-	ldi	r31,hi8(card_io_etu)
+// PPS frame OK
+	ldi	r28,lo8(card_io_etu)
+	ldi	r29,hi8(card_io_etu)
 // new timer value for negotiated F/D
-	std	Z+2,r18
-	std	Z+3,r19
+	std	Y+2,r18
+	std	Y+3,r19
 // negotiated protocol
-	std	Z+5,r20
+	std	Y+5,r20
+// Z+0 is 0xff (caller is informed about PPS response in buffer)
+// Z+1 is length of PPS response
+// construct response: (at Z+2)
+	ldd	r21,Z+2			// load PPS1
+	ldi	r24,3			// response length
+	ldi	r22,0xff
+	std	Z+2,r22
+	bld	r20,4			// PPS1 present
+	std	Z+3,r20			// PPS0
+	eor	r22,r20			// update PCK
+	brts	1f
+//
+	std	Z+4,r22
+	rjmp	2f
+1:
+	inc	r24
+	std	Z+4,r21
+	eor	r22,r21			//update PCK
+	std	Z+5,r22
+2:
+	std	Z+1,r24
 	rjmp	card_io_pps_ok
 #endif
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

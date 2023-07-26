@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -45,7 +45,11 @@
 #define C_RDR_to_PC_DataRateAndClockFrequency 0x84
 
 uint8_t SlotError __attribute__((section(".noinit")));
-uint8_t pps_sent __attribute__((section(".noinit")));
+
+#define PPS_ATR_SENT 0
+#define PPS_READY 1
+#define PPS_OK 2
+uint8_t pps_status __attribute__((section(".noinit")));
 
 //slot status:
 union Slot_Status_Register {
@@ -149,27 +153,27 @@ uint16_t card_io_rx(uint8_t * data, uint16_t len)
 
 	// copy data to card ..
 	memcpy(data, card_rx_buffer, l_len);
-
+	// special handling for PPS:
+	if (pps_status == PPS_READY) {
+		data[1] = l_len & 0xff;
+		memcpy(data + 2,card_rx_buffer, l_len);
+		l_len = 0;
+	}
+	pps_status = PPS_OK;
 	return l_len;
 }
 
 // NOT called from ISR
 void card_io_tx(uint8_t * data, uint16_t len)
 {
-	uint8_t pps = 0;
 	// do not handle data from card if CCID layer does not request data
 	if (TPDU_state == T_IDLE)
 		return;
 
-	if (pps_sent == 1) {
-		pps = 1;
-		pps_sent = 2;
-	}
 	// if len == 0 65536 bytes in buffer, do not check "len"
 
 	// T0 protocol may request rest of APDU
-// for now only T0 protocol is sended to card ..
-	if (ReaderParam.protocol == 0 && pps == 0) {
+	if (ReaderParam.protocol == 0) {
 		if (data[0] == card_ins) {
 			if (len == 1) {
 				// send rest of APDU  to card
@@ -223,87 +227,84 @@ void card_io_stop_null()
 // 1 - error
 static int8_t run_card(uint8_t * ccid_command, uint8_t * response)
 {
-//  uint8_t ret;
-//  uint16_t t1_size = 0;
-
-// PPS ? (1st frame after ATR)
-	if (ccid_command[10] == 0xff && pps_sent == 0) {
-		uint8_t pps_ok = 1;
-		uint8_t len = ccid_command[1];
-		uint8_t pck = 0;
-
-		// check PPS
-		// over 255 bytes ?
-		if (ccid_command[2])
-			pps_ok = 0;
-
-		// PPS1 - bitfield to legth
-		switch (ccid_command[11] & 0xfe) {
-		case 0x00:
-			if (len != 3)
-				pps_ok = 0;
-			break;
-		case 0x10:
-		case 0x20:
-		case 0x40:
-			if (len != 4)
-				pps_ok = 0;
-			break;
-		case 0x30:
-		case 0x60:
-		case 0x50:
-			if (len != 5)
-				pps_ok = 0;
-			break;
-		case 0x70:
-			if (len != 7)
-				pps_ok = 0;
-			break;
-		}
-		// PCK
-		while (len--)
-			pck ^= ccid_command[10 + len];
-		if (pck)
-			pps_ok = 0;
-		if (TPDU_state != T_IDLE) {
-			Status.bmCommandStatus = 1;
-			response[7] = Status.SlotStatus;
-			response[8] = 0xe0;	// slot busy;
-			return 10;	// CCID header length
-		}
-
-		if (pps_ok != 1) {
-			Status.bmCommandStatus = 1;
-			response[7] = Status.SlotStatus;
-			response[8] = 0xfe;	// ICC MUTE
-			return 10;
-		}
-
-		memcpy(CCID_card_buffer, ccid_command, 16);
-		card_rx_buffer = CCID_card_buffer + 10;
-		card_rx_len = ccid_command[1];
-
-		Status.bmCommandStatus = 0;	// command ok
-		response[7] = Status.SlotStatus;
-		response[8] = SlotError;
-
-		TPDU_state = T_RUNNING;
-		memcpy(card_response, response, 10);
-		// offset for response
-		card_response_len = 10;
-		pps_sent = 1;
-		return 0;
-	}
-
-	if (TPDU_state == T_IDLE) {
-		// just copy ccid data into CCID_card_buffer
-		memcpy(CCID_card_buffer, ccid_command, 271);
-	} else {
+	if (TPDU_state != T_IDLE) {
 		Status.bmCommandStatus = 1;
 		response[7] = Status.SlotStatus;
 		response[8] = 0xe0;	// slot busy;
 		return 10;	// CCID header length
 	}
+
+// 1st frame after ATR ?
+	if (pps_status == PPS_ATR_SENT) {
+// if 1st frame is not PPS frame, continue with default parameters
+		pps_status = PPS_OK;
+// if this is PPS frame, do parsing and generate PPS for application in card
+		if (ccid_command[10] == 0xff) {
+			uint8_t pps_ok = 1;
+			uint8_t len = ccid_command[1];
+			uint8_t pck = 0;
+
+			// check PPS
+			// over 255 bytes ?
+			if (ccid_command[2])
+				pps_ok = 0;
+
+			// PPS1 - bitfield to legth
+			switch (ccid_command[11] & 0xfe) {
+			case 0x00:
+				if (len != 3)
+					pps_ok = 0;
+				break;
+			case 0x10:
+			case 0x20:
+			case 0x40:
+				if (len != 4)
+					pps_ok = 0;
+				break;
+			case 0x30:
+			case 0x60:
+			case 0x50:
+				if (len != 5)
+					pps_ok = 0;
+				break;
+			case 0x70:
+				if (len != 6)
+					pps_ok = 0;
+				break;
+			default:
+				pps_ok = 0;
+			}
+			// PCK
+			while (len--)
+				pck ^= ccid_command[10 + len];
+			if (pck)
+				pps_ok = 0;
+
+			if (pps_ok != 1) {
+				Status.bmCommandStatus = 1;
+				response[7] = Status.SlotStatus;
+				response[8] = 0xfe;	// ICC MUTE
+				return 10;
+			}
+
+			memcpy(CCID_card_buffer, ccid_command, 16);
+			card_rx_buffer = CCID_card_buffer + 10;
+			card_rx_len = ccid_command[1];
+
+			Status.bmCommandStatus = 0;	// command ok
+			response[7] = Status.SlotStatus;
+			response[8] = SlotError;
+
+			TPDU_state = T_RUNNING;
+			memcpy(card_response, response, 10);
+			// offset for response
+			card_response_len = 10;
+			pps_status = PPS_READY;
+			return 0;
+		}
+	}
+//copy ccid data into CCID_card_buffer
+	memcpy(CCID_card_buffer, ccid_command, 271);
 	// prepare response
 	memcpy(card_response, response, 10);
 	if (CCID_card_buffer[2] == 0) {
@@ -428,7 +429,7 @@ static int8_t func_PC_to_RDR_IccPowerOn(uint8_t * command, uint8_t * response)
 // initialize reader buffers, protocol
 	T1_APDU_len_recv = 0;
 	ReaderParam.protocol = 0;
-	pps_sent = 0;
+	pps_status = PPS_ATR_SENT;
 	TPDU_state = T_IDLE;
 	CPU_do_restart_main();
 

@@ -50,6 +50,7 @@ CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
 
 # inlude only T0 protocol code
 CFLAGS += -DPROTOCOL_T0
+CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_SPECIFIC
 
 all:	$(BUILD)card.hex $(BUILD)card.eeprom.hex
 
