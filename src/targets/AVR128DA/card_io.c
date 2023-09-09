@@ -204,7 +204,7 @@ void card_io_start_null(void)
 }
 
 // deprecated, but used internally, will be renamed and changed to "static"
-void card_io_stop_null(void)
+static void card_io_timer_etu(void)
 {
 	card_io_program_timer(card_io_data.etu);
 }
@@ -287,7 +287,7 @@ void card_io_tx(uint8_t * data, uint16_t len)
 	uint8_t proto = card_io_data.proto;
 #endif
 // reinitialize timer (actual ETU)
-	card_io_stop_null();
+	card_io_timer_etu();
 	do {
 #if defined (PROTOCOL_T0) && defined (PROTOCOL_T1)
 		if (card_io_data.proto == 0) {
@@ -319,7 +319,7 @@ void card_io_tx(uint8_t * data, uint16_t len)
 #endif
 	card_io_data.etu = card_io_data.etu_negotiated;
 // reinitialize timer (for next Rx)
-	card_io_stop_null();
+	card_io_timer_etu();
 #endif
 }
 
@@ -726,7 +726,7 @@ void __vector_3(void)
 	card_io_data.null_send = counter;
 	if (counter == top) {
 // reprogram timer back to count to ETU
-		card_io_stop_null();
+		card_io_timer_etu();
 
 #if defined PROTOCOL_T0 && defined PROTOCOL_T1
 		if (proto == 0)

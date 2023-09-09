@@ -214,11 +214,6 @@ void card_io_start_null()
 	return;
 }
 
-void card_io_stop_null()
-{
-	return;
-}
-
 ///////////////////////////////////////////////////////////////////////////////////
 //            CCID part
 //

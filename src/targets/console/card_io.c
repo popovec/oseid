@@ -223,9 +223,3 @@ card_io_start_null (void)
   printf ("card_io_start_null\n");
 
 }
-
-void
-card_io_stop_null (void)
-{
-  printf ("card_io_stop_null\n");
-}

@@ -147,5 +147,4 @@ uint16_t card_io_rx (uint8_t * data, uint16_t len);
 void card_io_tx (uint8_t * data, uint16_t len);
 uint8_t card_io_reset (void);
 void card_io_start_null (void);
-void card_io_stop_null (void);
 #endif

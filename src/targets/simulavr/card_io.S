@@ -146,11 +146,6 @@ card_io_init:
 
 	ret
 
-.global card_io_stop_null
-.type card_io_stop_null, @function
-card_io_stop_null:
-	ret
-
 	.section .noinit,"aw",@nobits
 card_io_proto:
 	.skip   1

@@ -207,7 +207,7 @@ card_io_atr_string_end:
 // tune osccal to maximum
 card_io_osccal_max:
 // calibrate oscillator at maximum
-	lds	r23,OSCCAL 
+	lds	r23,OSCCAL
 	in	r22,0x3f
 	cli
 0:
@@ -217,7 +217,7 @@ card_io_osccal_max:
 	ret
 1:
 	ori	r23,3
-// read atmega errata - after OSCCAL change device 
+// read atmega errata - after OSCCAL change device
 // may execute some of the subsequent instructions
 // incorrectly.
 	sts	OSCCAL,r23
@@ -400,7 +400,7 @@ card_io_tx0_buffer_loop:
 // 0    - character repeat (Z is set)
 	breq	card_io_tx0_repeat
 #endif
-// next character .. 
+// next character ..
 	adiw	r26,1
 	sbiw	r24,1
 	brne	card_io_tx0_buffer_loop
@@ -885,7 +885,7 @@ vector_null_send_end:
 
 vector_null_send:
 // send null byte
-// need more registers.. 
+// need more registers..
 	push	r20
 	push	r21
 	push	r22
@@ -978,7 +978,7 @@ vector_null_send:
 card_io_start_null:
 // reprogram timer to normal mode (count from 0 to 0xffff)
 // Timer 3 mode CTC TOP 0xffff (mode 0)
-// timer source T3, 
+// timer source T3,
 // load timer register offset (ETIFR) into Z
 	ldi	r21,0x07
 	rcall	card_io_timer_mode
@@ -986,13 +986,7 @@ card_io_start_null:
 	sts	null_send,r20
 // enable interrupt from overflow
 	ldi	r20,4
-	std	Z+ETIMSK_OFF,r20		
-	ret
-
-	.global card_io_stop_null
-	.type card_io_stop_null, @function
-card_io_stop_null:
-// timer reinitialization is in card_io_tx
+	std	Z+ETIMSK_OFF,r20
 	ret
 
 // card reset

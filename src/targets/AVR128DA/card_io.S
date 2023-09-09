@@ -49,7 +49,7 @@
 #if !defined(TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE) && !defined(TRANSMISSION_PROTOCOL_MODE_SPECIFIC)
 #define TRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
 //#define TRANSMISSION_PROTOCOL_MODE_SPECIFIC
-#endif 
+#endif
 //#define C_TS 0x3f
 #define C_TS 0x3b
 
@@ -604,7 +604,7 @@ card_io_pps_no_PPS3:
 
 card_io_tx:
 // reprogram timer to correct ETU and clear OVF
-	rcall	card_io_stop_null
+	rcall	card_io_timer_etu
 // save protocol into T
 	lds	r20,card_io_proto
 	bst	r20,0
@@ -638,7 +638,7 @@ card_io_tx0_buffer_loop:
 	std	z+1,r0
 	ldd	r0,Z+5
 	std	Z+4,r0
-	rjmp	card_io_stop_null
+	rjmp	card_io_timer_etu
 #endif
 #ifdef TRANSMISSION_PROTOCOL_MODE_SPECIFIC
 	ret
@@ -782,7 +782,7 @@ card_io_init:
 	std	Z+4,r1	// protocol ATR
 	std	z+5,r1	// protocol PPS
 // program PER and CNT, disable interrupt from overflow
-	rcall	card_io_stop_null
+	rcall	card_io_timer_etu
 //	sts	0x0A26,r18
 //	sts	0x0A27,r19
 /////  TCA0_SINGLE_CTRLA = 1;        // enable timer TCA, no clock prescaler ..
@@ -797,7 +797,7 @@ card_io_init:
 	ldi	r19, hi8(64000)
 	sts	0x0A20, r18
 	sts	0x0A21, r19
-// abowe: card_io_stop_null - CNT was cleared and overflow flag cleared
+// abowe: card_io_timer_etu - CNT was cleared and overflow flag cleared
 
 // PORT setup, open colector (drive port to low, enable pull up, use port
 // DIR to transmit 0/1
@@ -849,7 +849,7 @@ card_io_init:
 	sts	card_io_etu,r18
 	sts	card_io_etu+1,r19
 // reprogram timer and do return
-	rjmp	card_io_stop_null
+	rjmp	card_io_timer_etu
 #endif
 // Compact Vector Table is enabled, priority 0 (low priority) vector
 //        .global TCA0_OVF_vect
@@ -1026,10 +1026,7 @@ card_io_start_null:
 	std	Z+0x0a,r20
 	ret
 
-	.global card_io_stop_null
-	.type card_io_stop_null, @function
-
-card_io_stop_null:
+card_io_timer_etu:
 	lds	r20,card_io_etu
 	lds	r21,card_io_etu+1
 

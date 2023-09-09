@@ -88,9 +88,6 @@ static void return_status(uint8_t status)
 		iso_response.len16 = 0;
 	Na = iso_response.len16;
 
-// stop sending NULL bytes
-	card_io_stop_null();
-
 	message[0] = 0x60 | (status >> 4);
 	message[1] = 0;
 
