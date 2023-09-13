@@ -4,7 +4,7 @@
 #
 #    This is part of OsEID (Open source Electronic ID)
 #
-#    Copyright (C) 2015-2022 Peter Popovec, popovec.peter@gmail.com
+#    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 #
 #    This program is free software: you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -83,7 +83,7 @@ test_keysize_mechanism () {
 
 
 read_card(){
-opensc-tool "${2}" "${3}" -s "${1}" 2>/dev/null|gawk '{
+opensc-tool -c default "${2}" "${3}" -s "${1}" 2>/dev/null|gawk '{
   if($1=="Received"){
 	flag=1
 	SW1=substr($2,8,2)
@@ -264,12 +264,11 @@ if [ "x${OsEID_READER}" != "x" ]; then
 fi
 
 # Card is needed for rest of operations
-CARD_ATR=$(echo "reset"|scriptor -r "${SCReader}" 2>/dev/null)
+CARD_ATR=$(opensc-tool -a -c default "${SCReaderFlag}" "${SCReader}")
 if [ $? -ne 0 ]; then
 	failecho "No card available"
 	exit 1
 fi
-CARD_ATR=$(echo "${CARD_ATR}"|tr '[[:upper:]]' '[[:lower:]]' |gawk '{if($2=="ok:"){for(i=3;i<=NF;i++){printf $i;if(i!=NF)printf":";else print""}}}')
 
 # check card type
 CARD_TYPE=""
@@ -283,7 +282,7 @@ if [ $? -eq 0 ]; then
 fi
 echo $CARD_ATR|grep -q "4f:73:45:49:44:"
 if [ $? -eq 0 ]; then
-	trueecho "Found OsEID card/token, protocol T=1"
+	trueecho "Found OsEID card/token, protocol T0/T1"
 	PROTO="T=1"
 	CARD_TYPE="OsEID"
 fi
@@ -337,7 +336,6 @@ if [ $CARD_VER -ge 40000 ]; then
 	}'`
 	set +e
 fi
-
 # workarounds
 if [ "x${CARD_TYPE}" == "xMyEID" ]; then
 	case ${CARD_VER} in
@@ -347,9 +345,8 @@ if [ "x${CARD_TYPE}" == "xMyEID" ]; then
 			;;
 	esac
 fi
-
 # check if card is initialize (file 2f00 exist)
-echo "00 a4 08 00 02 2f 00"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q 'Normal processing.\|bytes of response still available' && CARD_INIT=1
+read_card "00 a4 08 00 02 2f 00" "${SCReaderFlag}" "${SCReader}"|grep -q "90 00$" && CARD_INIT=1
 X_ver=$(opensc-tool -i)
 if [ $? -ne 0 ]; then
 	failecho "unable to determine opensc version"
@@ -382,14 +379,14 @@ fi
 
 
 if [ ${CARD_TYPE} == "OsEID" ]; then
- echo "00 a4 08 00 04 3f 00 50 15"|scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null|grep -q 'Normal processing.\|bytes of response still available'
-
+ read_card "00 a4 08 00 04 3f 00 50 15" "${SCReaderFlag}" "${SCReader}"|grep -q "90 00$"
  if [ $? -ne 0 ];then
         warnecho "OsEID without DF 5015, creating DF 5015"
         #this is code that generates same security attributes as in originam MyEID card
-        #echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 33 FF FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor
+        #APDU="00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 33 FF FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00"
         # this is used in OsEID
-        echo "00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 11 1F FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00" |scriptor -r "${SCReader}" -p ${PROTO} 2>/dev/null
+        APDU="00 E0 00 00 29 62 27 81 02 13 88 82 01 38 83 02 50 15 86 03 11 1F FF 85 02 00 02 8A 01 00 84 0C A0 00 00 00 63 50 4B 43 53 2D 31 35 00 00"
+        read_card "${APDU}" "${SCReaderFlag}" "${SCReader}"|grep -q "90 00$"
         if [ $? -ne 0 ]; then
 		failecho "unable to create DF 5015"
         fi
@@ -451,19 +448,11 @@ export LC_ALL="C"
 TMP=$(mktemp)
 TMP="rnd.data"
 for i in $(seq 1 1300); do
-if [ $PROTO == "T=1" ]; then
-	rndCMD='echo "00 84 00 00 08"'
-else
-	rndCMD='(echo "00 84 00 00 08"; echo "00 c0 00 00 08")'
-fi
-eval $rndCMD|scriptor "${SCReaderFlag}" "${SCReader}" -p ${PROTO} 2>/dev/null
+	read_card "00 84 00 00 08" "${SCReaderFlag}" "${SCReader}"
 done|gawk -b '{
-if($0 ~ "Normal" )
- {
    printf(".") > "/dev/stderr"
-   for (i=2;i<10;i++)
+   for (i=1;i<9;i++)
        printf("%c",strtonum("0x"$i))
- }
 }END{
  printf("\n") > "/dev/stderr"
 }'  >$TMP
@@ -629,11 +618,8 @@ while read curve oid size ;do
 			echo "fixing secp256k1 key file"
 			P=`PKCS15-TOOL -D|\
 			gawk '{if($1 == "Private" && $2=="EC" && $4=="[secp256k1]"){OK=1};if(OK==1 && $1 == "Path"){print substr($3,5,2)" "substr($3,7,2)" "substr($3,9,2)" "substr($3,11,2);exit}}'`
-			(
-			echo "00 a4 08 00 04 $P"
-			echo "00 20 00 01 08 31 31 31 31 31 31 31 31"
-			echo "80 da 00 00 01 23"
-			)|scriptor "${SCReaderFlag}" "${SCReader}" -p ${PROTO}
+			opensc-tool -c default "${SCReaderFlag}" "${SCReader}" \
+				-s "00 a4 08 00 04 $P" -s "00 20 00 01 08 31 31 31 31 31 31 31 31" -s "80 da 00 00 01 23" 2>/dev/null 1>/dev/null
 		else
 			E=0
 		fi
@@ -977,6 +963,8 @@ else
 	exit 0
  fi
 fi
+C0=$(PKCS15-TOOL -D |grep "gen_rsa_${KSIZE}"|wc -l)
+C0=$[$C0 + 2 ]
 echo "Generating ${KSIZE} RSA key"
 PKCS15-INIT --generate-key "rsa/${KSIZE}" --label "gen_rsa_${KSIZE}" --key-usage sign,decrypt --auth-id 1 --pin 11111111 --so-pin 00000000
 if [ $? -ne 0 ]; then
@@ -984,7 +972,7 @@ if [ $? -ne 0 ]; then
 	exit 1
 fi
 C=`PKCS15-TOOL -D |grep "gen_rsa_${KSIZE}"|wc -l`
-if [ $C != 2 ]; then
+if [ $C != $C0 ]; then
 	failecho "RSA-GENERATE-KEYS: unable to find generated key"
 	exit 1
 fi
