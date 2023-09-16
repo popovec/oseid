@@ -1163,42 +1163,80 @@ uint8_t __attribute__((weak)) prime_gcd(rsa_num * p)
 	return ret;
 }
 
-// normal random search can be changed to incremental
-// undefine PRIME_INC to do incremental search
-//#define PRIME_INC
-
+//#define RSA_GEN_DEBUG
 #ifdef RSA_GEN_DEBUG
 #ifndef __STDIO_H
 #include <stdio.h>
 #endif
+static void rsa_gen_debug_dump(FILE * f, uint8_t * data, int i)
+{
+	for (; i >= 0; i--)
+		fprintf(f, "%02x", data[i]);
+	fprintf(f, "\n");
+}
+
 #endif
+
 // because small ram, here two free space pointer comes "t" and "tmp"
 static void __attribute__((noinline))
-    get_prime(rsa_num * p, rsa_long_num t[2], rsa_long_num * tmp)
+    get_prime(rsa_num * p, rsa_num * q, rsa_long_num t[2], rsa_long_num * tmp)
 {
+	uint8_t tt;
+	uint8_t *test;
 #ifdef RSA_GEN_DEBUG
-	int count_gcd = 0, count_rm = 0;
+	int count_gcd = 0, count_rm = 0, count_small = 0, count_close = 0;
+
+	FILE *f;
+	f = fopen("rsa_gen_debug.stat", "a");
 #endif
 
 	memset(p, 0, RSA_BYTES);
-#ifdef PRIME_INC
-	rnd_get((uint8_t *) p, bn_real_byte_len);
-
-	p->value[0] |= 1;	// make number odd
-	p->value[bn_real_byte_len - 1] |= 0x80;	// make number big
-#endif
 	DPRINT("get_prime\n");
 	for (;;) {
-#ifdef PRIME_INC
-		memset(tmp, 0, RSA_BYTES);
-		tmp->value[0] = 1;
-		rsa_add(p, (rsa_num *) tmp);
-#else
 		rnd_get((uint8_t *) p, bn_real_byte_len);
 
 		p->value[0] |= 1;	// make number odd
 		p->value[bn_real_byte_len - 1] |= 0x80;	// make number big
+
+// test if this random number is usable with alreagy generated prime
+		if (q != NULL) {
+// test higest bit of modulus, of not 1, this random number is not usable
+			rsa_mul(tmp, p, q);
+			if (!(tmp->value[bn_real_byte_len * 2 - 1] & 0x80)) {
+#ifdef RSA_GEN_DEBUG
+#if 0
+				uint8_t *pr = &tmp->value[0];
+				if (f != NULL) {
+					fprintf(f, "small: ");
+					rsa_gen_debug_dump(f, pr, bn_real_byte_len * 2 - 1);
+					fprintf(f, "small > ");
+					rsa_gen_debug_dump(f, &(p->value[0]), bn_real_byte_len - 1);
+				}
 #endif
+				count_small++;
+#endif
+				continue;
+			}
+// test if P is not close to Q
+			test = (uint8_t *) tmp;
+			bn_abs_sub(test, p, q);
+// skip low 15 bytes, if there is not zero is nome of upper bytes,
+// P and Q are far enough from each other
+			test += 15;
+			for (tt = bn_real_byte_len - 15; tt; tt--)
+				if (*(test++) != 0)
+					goto ok;
+#ifdef RSA_GEN_DEBUG
+			count_close++;
+			if (f != NULL) {
+				fprintf(f, "close: ");
+				rsa_gen_debug_dump(f, (uint8_t *) tmp, bn_real_byte_len - 1);
+			}
+#endif
+			continue;
+		}
+ ok:
+
 		if (!prime_gcd(p)) {
 #ifdef RSA_GEN_DEBUG
 			count_gcd++;
@@ -1206,25 +1244,23 @@ static void __attribute__((noinline))
 			continue;
 		}
 
-		//      j++;
 		if (!miller_rabin(p, t, tmp))
 			break;
 #ifdef RSA_GEN_DEBUG
-		count_rm += debug_rm_count;
+		count_rm++;
 #endif
 	}
 #ifdef RSA_GEN_DEBUG
 	{
-		FILE *f;
-		int i;
 		uint8_t *pr = &p->value[0];
 
-		f = fopen("rsa_gen_debug.stat", "a");
 		if (f != NULL) {
-			fprintf(f, "gcd %d miller-rabin %d\n0x", count_gcd, count_rm);
-			for (i = bn_real_byte_len - 1; i >= 0; i--)
-				fprintf(f, "%02x", pr[i]);
-			fprintf(f, "\n");
+			if (!q)
+				fprintf(f, "gcd %d miller-rabin %d \n0x", count_gcd, count_rm);
+			else
+				fprintf(f, "gcd %d miller-rabin %d small %d close %d\n0x",
+					count_gcd, count_rm, count_small, count_close);
+			rsa_gen_debug_dump(f, pr, bn_real_byte_len - 1);
 			fclose(f);
 		}
 	}
@@ -1236,57 +1272,11 @@ uint8_t rsa_keygen(uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint
 	rsa_num *p = (rsa_num *) message;
 	rsa_num *q = (rsa_num *) (message + 128);
 	rsa_long_num *modulus = (rsa_long_num *) r;
-	uint8_t *test, t;
-#ifdef RSA_GEN_DEBUG
-	int count_too_close = 0, count_too_small = 0;
-#endif
 
 	bn_set_bitlen(size / 2);
 	for (;;) {
-		get_prime(p, key->t, modulus);
-		get_prime(q, key->t, modulus);
-
-// test P,Q, if P < Q swap P and Q
-		if (bn_abs_sub(modulus, p, q))
-			bn_swap(p, q);
-
-// test if P is not close to Q (for example for 1024 bit modulus:
-// |P - Q| < 2 pow(1024/2 - 100)) - fail
-
-		test = &modulus->value[bn_real_byte_len - 1];
-		t = 14;		// over 100 bits
-// Not elegant but readable
-		do {
-			if (*test != 0)
-				goto ok;
-		}
-		while (--t);
-// found over 100 zero bits, |P-Q| si too small, generate new P,Q
-#ifdef RSA_GEN_DEBUG
-		count_too_close++;
-#endif
-		continue;
- ok:
-
-// test if key is of desired size (not 1023 but 1024 etc..)
-		rsa_mul(modulus, p, q);
-		if (!(modulus->value[bn_real_byte_len * 2 - 1] & 0x80)) {
-#ifdef RSA_GEN_DEBUG
-			count_too_small++;
-#endif
-			continue;
-		}
-#ifdef RSA_GEN_DEBUG
-		{
-			FILE *f;
-			f = fopen("rsa_gen_debug.stat", "a");
-			if (f != NULL) {
-				fprintf(f, "close %d small %d\n", count_too_close, count_too_small);
-				fclose(f);
-			}
-		}
-#endif
-
+		get_prime(p, NULL, key->t, modulus);
+		get_prime(q, p, key->t, modulus);
 // public exponent
 //#warning, fixed public exponent
 		memset(&(key->d), 0, RSA_BYTES);
