@@ -575,22 +575,25 @@ void fs_set_lifecycle(void)
 
 // compare two pins with padding (0 or 0xff)
 // return 0 if ok
-static uint8_t compare_pins_with_padding(uint8_t * p1, uint8_t * p2)
+static uint8_t compare_pins_with_padding(const uint8_t * p1, const uint8_t * p2)
 {
-	uint8_t c;
+	uint8_t c, ch1, ch2;
 
 	DPRINT("%s\n", __FUNCTION__);
 
 	// compare pins - skip padding
-	for (c = 0; c < 8; c++) {
-		DPRINT("Comparing %02X %02X\n", p1[c], p2[c]);
+	c = 8;
+	while (c--) {
+		ch1 = *(p1++);
+		ch2 = *(p2++);
+		DPRINT("Comparing %02X %02X\n", ch1, ch2);
 
-		if (p1[c] == p2[c])
+		if (ch1 == ch2)
 			continue;
 		// padding can be on both sides, and padding byte is 0xff or 0x00..
-		if (p1[c] == 0 && p2[c] == 0xff)
+		if (ch1 == 0 && ch2 == 0xff)
 			continue;
-		if (p1[c] == 0xff && p2[c] == 0)
+		if (ch1 == 0xff && ch2 == 0)
 			continue;
 		DPRINT("PIN/PUK FAIL\n");
 		return 1;
