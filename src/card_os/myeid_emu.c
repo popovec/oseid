@@ -1069,37 +1069,18 @@ static uint8_t decipher(struct iso7816_response *r)
 	card_io_start_null();
 	size = rsa_raw(size, message, r->data, 0);
 
-	if (size == 0) {
-		DPRINT("decrypt fail\n");
-		return S0x6985;	// command not satisfied
-	}
-// 0x0a UNWRAP, 0x02 decipher, in both cases remove PKCS#1 padding
+	// 0x0a UNWRAP, 0x02 decipher, in both cases remove PKCS#1 type 2 padding
 	if ((sec_env_reference_algo & 2) == 2) {
-		// return error for not correct padding
-		// allowed padding is: 00 || 02 || random data[8+] || 00 || real data
 		DPRINT("requested padding remove operation, (message len %d)\n", size);
-		if (r->data[0] == 0 && r->data[1] == 2 && size > 11) {
-			uint8_t *padd = r->data + 2;
-			uint16_t s = size - 3;
-
-			for (; s > 0; s--, padd++)
-				if (*padd == 0) {
-					if (padd < r->data + 10) {
-						DPRINT
-						    ("Wrong padding, below 8 bytes of random data\n");
-						return S0x6985;	// command not satisfied
-					}
-					memcpy(r->data, padd + 1, s);
-					size = s;
-					DPRINT("padding removed, (message len %d)\n", size);
-					break;
-				}
-			if (!s) {
-				DPRINT("Wrong padding, no 0x00 found after random padding data\n");
-				return S0x6985;	// command not satisfied
-			}
-		} else {
-			DPRINT("Unknown padding, %02x %02x,\n", r->data[0], r->data[1]);
+		// 0xffff is error, but to save code in flash, test only higest bit
+		size = remove_pkcs1_type_2_padding(r->data, size);
+		if(size & 0x8000) {
+			DPRINT("decrypt fail/padding wrong\n");
+			return S0x6985;	// command not satisfied
+		}
+	} else {
+		if (size == 0) {
+			DPRINT("decrypt fail\n");
 			return S0x6985;	// command not satisfied
 		}
 	}

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015,2017-2018 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -112,6 +112,12 @@ struct rsa_crt_key
 uint8_t rsa_calculate (uint8_t * data, uint8_t * result, uint16_t size);
 uint8_t rsa_keygen (uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint16_t size);
 uint8_t rsa_modulus(void *m);
+
+// return 0xffff for wrong padding (bit 15 is tested as error flag)
+// return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
+// unpadded message is moved to buffer start
+// Warning, it must have a 256 byte buffer available as input data!
+uint16_t remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t len);
 
 #ifdef USE_P_Q_INV
 void rsa_inv_mod_N (rsa_half_num * n_, rsa_num * modulus);

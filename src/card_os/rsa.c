@@ -1313,3 +1313,64 @@ uint8_t rsa_keygen(uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint
 	NPRINT("qInv=", &key->qInv, rsa_get_len());
 	return size / 16;
 }
+
+// return 0xffff for wrong padding (bit 15 is tested as error flag)
+// return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
+// unpadded message is moved to buffer start
+// Warning, it must have a 256 byte buffer available as input data!
+// branch free code
+uint16_t __attribute__((weak)) remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t llen)
+{
+	uint8_t len;
+	uint8_t error;
+	uint8_t *start = data;
+	uint16_t c;
+	uint8_t tmp;
+	uint8_t min = 0xff;
+	uint8_t copy = 0;
+	uint16_t count = 0xffff;
+#if RSA_BYTES  > 128
+#error this code is optimized to max 2048 bit rsa
+#endif
+// check input length (max input = 256 bytes)
+	llen--;
+	error = llen >> 8;	// "carry" bits
+	len = llen & 0xff;
+
+// check data[0] == 0 ? noerror:error
+	tmp = *(data++);
+	error |= tmp;
+// check data[1] == 2 ? noerror:error
+	tmp = *(data++);
+	tmp ^= 2;
+	error |= tmp;		// no 2 in data[1]
+
+// rest of buffer
+	while (--len) {
+// search for  data[x] == 0
+		c = *(data);
+		c--;
+		tmp = c >> 8;	// use bits 15..8 as "carry"
+
+// tmp = 0xff for data[x] == 0 else tmp = 0
+		tmp &= min;	// error if data[x] == 0 and min > 0
+		error |= tmp;	// update error
+// copy input to output, but do not increment target if in padding arrea
+		tmp = *(data++);
+		*(start) = tmp;
+		start += copy;
+
+// this is copy trigger, if match, copy unpadded data to buffer start
+// if tmp (data[x] == 0 and no error) is 0, copy can start
+// (if tmp == 0 then carry = 1 => inicialize "copy" variable)
+		tmp |= error;
+		c = tmp;
+		c--;
+		tmp = c >> 15;
+		copy |= tmp;
+// count the bytes of the result
+		count += copy;
+		min >>= 1;
+	}
+	return count;
+}

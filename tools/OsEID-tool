@@ -479,8 +479,11 @@ if [ "x$mode" == "xFULL-TEST" ] || [ "x$mode" == "xFAST-TEST" ]; then
 	if [ $mode == "FULL-TEST" ]; then
 		$0 RSA-SIGN-PKCS11-TEST
 	fi
-	$0 RSA-DECRYPT-TEST
-
+	if [ $mode == "FULL-TEST" ]; then
+		$0 RSA-DECRYPT-TEST-EXTENDED
+	else
+		$0 RSA-DECRYPT-TEST
+	fi
 	$0 ERASE-CARD
 	echo |$0 INIT
 	$0 EC-CREATE-KEYS
@@ -1234,7 +1237,7 @@ if [ $err -gt 0 ]; then
 fi
 fi
 #***************************************************************************************************************************
-if [ $mode == "RSA-DECRYPT-TEST" ]; then
+if [ $mode == "RSA-DECRYPT-TEST-EXTENDED" ] || [ $mode == "RSA-DECRYPT-TEST" ]; then
 boldecho "testing RSA decrypt operation"
 boldecho "-----------------------------"
 mkdir -p tmp
@@ -1256,6 +1259,73 @@ if [ $? -ne 0 ]; then
 	failecho "pkcs15-tool failed"
 	exit 1
 fi
+if [ $mode == "RSA-DECRYPT-TEST-EXTENDED" ]; then
+	# only for 1024 bit key
+	openssl rsa -pubin -in tmp/exported_rsa_key.pub -text -noout|grep -q "Public-Key: (1024 bit)"
+	if [ $? == 0 ]; then
+		count=8
+		echo "pkcs#1 type 2 padding removal test"
+		# PKCS1 type 2 padding removal test
+		# zero length string
+		T0="000210ff101010101fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd010101000"
+		# normal padding (10 bytes after 0x02)
+		T1="000210ff101010101010101000414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f707172737475767778793031323334453637"
+		# normal padding (8 bytes after 0x02)
+		T2="000210ff10101010101000414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f7071727374757677787930313233344536373839"
+		# normal padding but zeros in message
+		T3="000210ff10101010101000414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f7071727374757677787930313233344536373839"
+		# short padding, wrong init bytes..
+		F0="000210ff101010101000414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f707172737475767778793031323334453637383930"
+		F1="000210ff101010001010101000414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f707172737475767778793031323334453637"
+		F2="000110ff10103010101000414243414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f7071727374757677787930313233344536"
+		F3="010210ff10103010101000414243414243000102030405060708090a0b0c3031323334353637383930313233343536373839303132333435363738393031324142434445464748494a4b4c4d4e4f5051525354555657585930313233343536376162636465666768696a6b6c6d6e6f7071727374757677787930313233344536"
+
+		TST="$T0 $T1 $T2 $T3"
+		for i in $TST ; do
+			echo -n $i|xxd -p -r > tmp/rsa_decrypt_padding_testfile.txt
+			# use openssl to encrypt/decrypt to rtemove padding and compare..
+			openssl pkeyutl -encrypt -pkeyopt rsa_padding_mode:none -pubin -inkey keys/rsa1024-pub.pem  -in tmp/rsa_decrypt_padding_testfile.txt -out tmp/rsa_encrypted_testfile_check.txt
+			openssl pkeyutl -decrypt -inkey keys/rsa1024-key.pem -in tmp/rsa_encrypted_testfile_check.txt -out tmp/rsa_decrypted_testfile_check.txt
+			openssl pkeyutl -encrypt -pkeyopt rsa_padding_mode:none -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_padding_testfile.txt -out tmp/rsa_encrypted_testfile.txt
+			PKCS11-TOOL --decrypt \
+				--id $keyID \
+				--input-file tmp/rsa_encrypted_testfile.txt \
+				--output-file tmp/rsa_pkcs11_tool_decrypted_testfile.txt \
+				-m RSA-PKCS --pin 11111111 2>/dev/null
+			if [ $? -ne 0 ]; then
+				failecho "pkcs11-tool failed"
+				exit 1
+			else
+				echo -n "$count.."
+			fi
+			cmp tmp/rsa_decrypted_testfile_check.txt tmp/rsa_pkcs11_tool_decrypted_testfile.txt
+			if [ $? -ne 0 ]; then
+				failecho "pkcs11-tool failed"
+				exit 1
+			fi
+			count=$[$count - 1 ]
+		done
+		TST="$F0 $F1 $F2 $F3"
+		for i in $TST ; do
+			echo -n $i|xxd -p -r > tmp/rsa_decrypt_padding_testfile.txt
+			openssl pkeyutl -encrypt -pkeyopt rsa_padding_mode:none -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_padding_testfile.txt -out tmp/rsa_encrypted_testfile.txt
+			PKCS11-TOOL --decrypt \
+				--id $keyID \
+				--input-file tmp/rsa_encrypted_testfile.txt \
+				--output-file tmp/rsa_pkcs11_tool_decrypted_testfile.txt \
+				-m RSA-PKCS --pin 11111111 2>/dev/null
+			if [ $? -eq 0 ]; then
+				failecho "pkcs11-tool failed"
+				exit 1
+			else
+				echo -n "$count.."
+			fi
+			count=$[$count - 1 ]
+		done
+	fi
+	echo "The padding removal test is complete."
+fi
+
 openssl rsa -pubin -in tmp/exported_rsa_key.pub -text -noout|grep bit
 echo "using openssl to encrypt test message"
 openssl pkeyutl -encrypt -pubin -inkey tmp/exported_rsa_key.pub -in tmp/rsa_decrypt_testfile.txt -out tmp/rsa_encrypted_testfile.txt

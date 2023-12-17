@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -1219,3 +1219,88 @@ monPro0:
 	pop	r3
 	pop	r2
 	ret
+
+
+	.global	remove_pkcs1_type_2_padding
+	.type	remove_pkcs1_type_2_padding,@function
+	.section .text.remove_pkcs1_type_2_padding,"ax",@progbits
+
+// return 0xffff for wrong padding (bit 15 is tested as error flag)
+// return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
+// unpadded message is moved to buffer start
+// Warning, it must have a 256 byte buffer available as input data!
+// branch free code
+#define min r20
+#define err r21
+#define len r22
+#define tmp r23
+#define count r24
+#define counth r25
+#define copy r18
+// uint16_t remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t llen)
+remove_pkcs1_type_2_padding:
+	movw	r30,r24		// data pointer
+	movw	r26,r24		// start
+
+	clr	copy		// flag do not copy buffer...
+	ldi	min,0xff	// counter for 8 non zero bytes
+// count = -1, error, count = 0 no error => blank message
+// initial 00 before message increment this to 0
+	ldi	count,0xff
+	ldi	counth,0xff
+
+// length (decrement to skip initial byte in data, test zero)
+	subi	r22,1
+	sbci	r23,0
+	sbc	err,err		// error if length == 0
+
+// data[0] == 0
+	ld	r0,Z+		// data[0] == 0 ? noerror:error
+	or	err,r0
+// data[1] == 2
+	ld	r0,Z+
+	ldi	tmp,2		// create 0x00 from 0x02
+	eor	r0,tmp
+	or	err,r0		// update error
+
+1:
+	dec	len
+	breq	2f
+
+// load data[x] (and copy to buffer start)
+	ld	tmp,Z+
+	st	X,tmp
+	add	r26,copy
+	adc	r27,r1
+
+// test data[x] == 0 ?
+	cpi	tmp,1		// data[x] == 0 ? carry:not carry
+	sbc	r0,r0		// data[x] == 0 ? 0xff:0
+
+// error if data[x] == 0 and min > 0
+	and	r0,min
+	or	err,r0
+
+// if tmp (data[x] == 0 and no error) is 0, "copy" can start
+	or	tmp,err
+// if "copy" is set, we will not change it
+	or	tmp,copy
+// set "copy" to 1 (if tmp == 0)
+	subi	tmp,1
+	adc	copy,r1
+// increment counter (length of final unpadded message)
+// length 0 is valid length!
+	add	count,copy
+	adc	counth,r1
+// "decrement" counter for 8 non zero bytes after 00||02||.....||00|| msg
+	lsr	min
+	rjmp	1b
+// return length (uint8_t) in r24
+2:
+	ret
+#unset tmp
+#unset count
+#unset copy
+#unset len
+#unset err
+#unset min
