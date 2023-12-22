@@ -503,25 +503,26 @@ fi
 if [ $mode == "INIT" ]; then
 boldecho "card init"
 boldecho "---------"
-
-#pin and puk is not used in this command, but specifying this prevent driver from unnecessarily asking for it several times
-if [ $CARD_TYPE == "MyEID" ]; then
-	echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
-	PKCS15-INIT -C --so-pin 00000000 --so-puk 00000000 --pin 11111111
-else
-  if [ $CARD_INIT -eq 1 ]; then
+if [ $CARD_INIT -eq 1 ]; then
 	warnecho "Your card is already initialized!"
 	exit 0
-  fi
-  echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
-  if [ ! -f /usr/share/opensc/oseid_$OPENSC_VER.profile ]; then
-	warnecho "Using myeid profile for OsEID card, please install /usr/share/opensc/oseid_$OPENSC_VER.profile "
-	warnecho "Press ENTER continue, or CTRL-C to abort"
-	read a
+fi
+
+echo "running pkcs15-init, SOPIN=00000000 SOPUK=00000000"
+#pin and puk is not used in this command, but specifying this prevent driver from unnecessarily asking for it several times
+if [ $CARD_TYPE == "MyEID" ]; then
 	PKCS15-INIT -C --so-pin 00000000 --so-puk 00000000 --pin 11111111
-  else
-	PKCS15-INIT -C -c oseid_$OPENSC_VER --so-pin 00000000 --so-puk 00000000 --pin 11111111
-  fi
+else
+	if [ -f /usr/share/opensc/oseid_$OPENSC_VER.profile ]; then
+		PKCS15-INIT -C -c oseid_$OPENSC_VER --so-pin 00000000 --so-puk 00000000 --pin 11111111
+	elif [ -f /usr/share/opensc/oseid.profile ]; then
+		PKCS15-INIT -C -c oseid --so-pin 00000000 --so-puk 00000000 --pin 11111111
+	else
+		warnecho "Using myeid profile for OsEID card, please install /usr/share/opensc/oseid.profile"
+		warnecho "Press ENTER continue, or CTRL-C to abort"
+		read a
+		PKCS15-INIT -C --so-pin 00000000 --so-puk 00000000 --pin 11111111
+	fi
 fi
 if [ $? -ne 0 ]; then
 	failecho "init fail"
