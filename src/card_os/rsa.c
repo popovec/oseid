@@ -1314,28 +1314,38 @@ uint8_t rsa_keygen(uint8_t * message, uint8_t * r, struct rsa_crt_key *key, uint
 	return size / 16;
 }
 
-// return 0xffff for wrong padding (bit 15 is tested as error flag)
-// return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
+// return 0xffff for wrong padding (bit 15 is tested as error flag) return
+// value 0 ..  245 (up to 2048 bit RSA - 11 bytes for correct padding)
 // unpadded message is moved to buffer start
-// Warning, it must have a 256 byte buffer available as input data!
-// branch free code
+//
+// caller is responsible to set input length in range 2..0x100 (bit 15 is
+// used to signalize error from decipher, this code masks this error and
+// performs fictitious depadding)
+//
+// branch free code, run time is proporcional to "data" length.
+//
 uint16_t __attribute__((weak)) remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t llen)
 {
 	uint8_t len;
-	uint8_t error;
 	uint8_t *start = data;
-	uint16_t c;
-	uint8_t tmp;
 	uint8_t min = 0xff;
-	uint8_t copy = 0;
 	uint16_t count = 0xffff;
+// volatile variables (as bariers)
+	volatile uint8_t error;
+	volatile uint16_t c;
+	volatile uint8_t tmp;
+	volatile uint8_t copy = 0;
+
 #if RSA_BYTES  > 128
 #error this code is optimized to max 2048 bit rsa
 #endif
-// check input length (max input = 256 bytes)
-	llen--;
-	error = llen >> 8;	// "carry" bits
+// copy error bit (15)
+	error = (llen >> 8) & 0x80;
+
+// maximal size is 0x100, we just need to use 8 bits
+// 0xff for 2048 bit rsa.. 0x3f for 512 bit rsa
 	len = llen & 0xff;
+	len--;
 
 // check data[0] == 0 ? noerror:error
 	tmp = *(data++);

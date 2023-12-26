@@ -237,45 +237,36 @@ uint8_t get_rsa_key_part(void *here, uint8_t id)
 	return part_size;
 }
 
-// do sign/decrypt with selected key, return 0 if error,
-// or len of returned message (based on key size).
+// do sign/decrypt with selected key
+// return length of returned message (based on key size).
+// on error return length, but set bit 15
+//
 // input length of message, message, result after sign/decrypt
 // WARNING, message and result buffers must hold 256 bytes!
 // flag 0 - raw data, must match key size
 // flag 1 - add OID of SHA1 before message, then add padding..
-// flag 2 - add padding only (type 01), SHA1 digest is in message
+// flag 2 - add PKCS#1 v1.5 type 1 padding
+
 static uint16_t rsa_raw(uint16_t len, uint8_t * message, uint8_t * result, uint8_t flag)
 {
 	uint16_t part_size;
-	uint8_t ret;
 
 	DPRINT("message first byte 0x%02x size %d\n", *message, len);
+	reverse_string(message, len);
+	HPRINT("reversed message =\n", message, RSA_BYTES * 2);
 
-	reverse_string(message, len);	// number from message
-	if (len < RSA_BYTES)
-		memset(message + len, 0, RSA_BYTES * 2 - len);
+	// read key part
+	if (0 == (part_size = fs_key_read_part(NULL, KEY_RSA_p)))
+		goto err;
+	part_size *= 2;
 
-	HPRINT("reversed mesage =\n", message, RSA_BYTES * 2);
-
-	// test if key match data size
-	part_size = fs_key_read_part(NULL, KEY_RSA_p);
-	part_size *= 2;		// calculate message size
-
-	DPRINT("key modulus: %d, message len: %d flag: %d\n", part_size, len, flag);
-	if (flag == 0) {
-		if (len != part_size)
-			return 0;
-	}
+	DPRINT("Before padding: key modulus: %d, message len: %d flag: %d\n", part_size, len, flag);
 	if (flag == 1) {
 		DPRINT("adding SHA1 OID to message\n");
-// this test is not needed, minimal key modulus is 512 bit
-/*
-      if (len + 15 > part_size)
-	return 0;
-*/
 		// SHA1 need 20 bytes len message exact
 		if (len != 20)
-			return 0;
+			goto err;
+		// there is always place in buffer...
 		// add sha1 oid before message
 		get_constant(message + len, N_PSHA1_prefix);
 
@@ -283,17 +274,16 @@ static uint16_t rsa_raw(uint16_t len, uint8_t * message, uint8_t * result, uint8
 		flag = 2;
 		len += 15;
 
-		HPRINT("reversed mesage with SHA1 OID=\n", message, RSA_BYTES * 2);
+		HPRINT("reversed message with SHA1 OID=\n", message, RSA_BYTES * 2);
 	}
 	if (flag == 2) {
-		DPRINT("adding padding type 1 size of modulus %d, message size %d\n",
+		DPRINT("adding PKCS#1 v1.5 type 1 padding, modulus length %d, message length %d\n",
 		       part_size, len);
 // add padding- type 1 (00 01 [FF .. FF] 00 .. minimal 8 bytes 0xff
 // MyEID manual 2.1.4:  Size of the DigestInfo must not exceed 40% of the RSA key modulus length.
 		if (len + 11 > part_size)
-			return 0;
-		message[len] = 0;
-		len++;
+			goto err;
+		message[len++] = 0;
 		while (len < part_size)
 			message[len++] = 0xff;
 		message[part_size - 1] = 0x00;
@@ -302,24 +292,30 @@ static uint16_t rsa_raw(uint16_t len, uint8_t * message, uint8_t * result, uint8
 	}
 	// check unknown padding
 	if (flag != 0)
-		return 0;
+		goto err;
 
-	HPRINT("mesage\n", message, RSA_BYTES * 2);
+	DPRINT("After padding: key modulus: %d, message len: %d flag: %d\n", part_size, len, flag);
+	HPRINT("message\n", message, RSA_BYTES * 2);
+
+	// key size and message size is checked in rsa_calculate()
+	// here check only odd length of message
+	if (len & 1)
+		goto err;
 
 	DPRINT("calculating RSA\n");
-	ret = rsa_calculate(message, result, len / 2);
-
-	if (ret) {
-// prevent sensitive data
-		DPRINT("RSA fail clearing buffers\n");
-		memset(message, 0, 256);
-		memset(result, 0, 256);
-		return 0;
+	// request more working time from card reader
+	card_io_start_null();
+	if (0 == rsa_calculate(message, result, len / 2)) {
+		DPRINT("RSA ok, reversing\n");
+		reverse_string(result, part_size);
+		DPRINT("return size %d\n", part_size);
+		return part_size;
 	}
-	DPRINT("RSA ok, reversing\n");
-	reverse_string(result, part_size);
-	DPRINT("return size %d\n", part_size);
-	return part_size;
+ err:
+	DPRINT("RSA fail clearing buffers\n");
+	memset(message, 0, 256);
+	memset(result, 0, 256);
+	return part_size | 0x8000;
 }
 
 // for NIST curves and for secp256k1 A is not needed
@@ -774,9 +770,6 @@ static uint8_t security_operation_rsa_ec_sign(struct iso7816_response *r)
 		DPRINT("APDU chaining is active, waiting more data\n");
 		return S_RET_OK;
 	}
-	// this is  long operation, start sending NULL
-	card_io_start_null();
-
 // SIGN operation posible values for reference algo: 0,2,4,0x12
 	if (sec_env_reference_algo == 4) {
 		DPRINT("RAW-ECDSA-PKCS algo %02x\n", sec_env_reference_algo);
@@ -795,12 +788,11 @@ static uint8_t security_operation_rsa_ec_sign(struct iso7816_response *r)
 		return S0x6985;	//    Conditions not satisfied
 
 	size = rsa_raw(size, r->input + 5, r->data, flag);
-//  DPRINT ("RSA calculation %s, returning APDU\n", size ? "OK":"FAIL");
-	if (size != 0) {
-		DPRINT("RSA sign OK\n");
-		RESP_READY(size);
-	}
-	return S0x6985;		//    Conditions not satisfied
+	DPRINT("RSA result %s (%d)\n", size & 0x8000 ? "FAIL" : "OK", size & 0x7ff);
+	if (size & 0x8000)
+		return S0x6985;	//    Conditions not satisfied
+	DPRINT("RSA sign OK\n");
+	RESP_READY(size);
 }
 
 /*!
@@ -1065,26 +1057,18 @@ static uint8_t decipher(struct iso7816_response *r)
 	DPRINT("All data available (%d bytes), running security OP\n", size);
 	// ok all data concatenated, do real OP
 
-// RSA decrypt, and optional padding remove
-	card_io_start_null();
-	size = rsa_raw(size, message, r->data, 0);
-
-	// 0x0a UNWRAP, 0x02 decipher, in both cases remove PKCS#1 type 2 padding
+	size = rsa_raw(size, message, r->data, 0);	// bit 15 = error
+	// 0x0a UNWRAP, 0x02 decipher, in both cases remove PKCS#1 v1.5 type 2 padding
 	if ((sec_env_reference_algo & 2) == 2) {
 		DPRINT("requested padding remove operation, (message len %d)\n", size);
-		// 0xffff is error, but to save code in flash, test only higest bit
+		// 0xffff is error from remove_pkcs1_type_2_padding()
 		size = remove_pkcs1_type_2_padding(r->data, size);
-		if(size & 0x8000) {
-			DPRINT("decrypt fail/padding wrong\n");
-			return S0x6985;	// command not satisfied
-		}
-	} else {
-		if (size == 0) {
-			DPRINT("decrypt fail\n");
-			return S0x6985;	// command not satisfied
-		}
 	}
-	HPRINT("return mesage =\n", r->data, size);
+	if (size & 0x8000) {
+		DPRINT("decrypt fail\n");
+		return S0x6985;	// command not satisfied
+	}
+	HPRINT("return message =\n", r->data, size);
 	RESP_READY(size);
 }
 

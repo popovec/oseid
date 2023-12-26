@@ -1225,10 +1225,15 @@ monPro0:
 	.type	remove_pkcs1_type_2_padding,@function
 	.section .text.remove_pkcs1_type_2_padding,"ax",@progbits
 
-// return 0xffff for wrong padding (bit 15 is tested as error flag)
-// return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
+// return 0xffff for wrong padding (bit 15 is tested as error flag) return
+// value 0 ..  245 (up to 2048 bit RSA - 11 bytes for correct padding)
 // unpadded message is moved to buffer start
-// Warning, it must have a 256 byte buffer available as input data!
+//
+// caller is responsible to set input length in range 2..0x100 (bit 15 is
+// used to signalize error from decipher, this code masks this error and
+// performs fictitious depadding)
+//
+//
 // branch free code
 #define min r20
 #define err r21
@@ -1237,6 +1242,9 @@ monPro0:
 #define count r24
 #define counth r25
 #define copy r18
+#if RSA_BYTES  > 128
+#error this code is optimized to max 2048 bit rsa
+#endif
 // uint16_t remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t llen)
 remove_pkcs1_type_2_padding:
 	movw	r30,r24		// data pointer
@@ -1249,10 +1257,12 @@ remove_pkcs1_type_2_padding:
 	ldi	count,0xff
 	ldi	counth,0xff
 
-// length (decrement to skip initial byte in data, test zero)
-	subi	r22,1
-	sbci	r23,0
-	sbc	err,err		// error if length == 0
+	mov	err,r23		// copy error bit
+	andi	err,0x80
+
+// maximal size is 0x100, we just need to use 8 bits
+// 0xff for 2048 bit rsa.. 0x3f for 512 bit rsa
+	dec	len
 
 // data[0] == 0
 	ld	r0,Z+		// data[0] == 0 ? noerror:error

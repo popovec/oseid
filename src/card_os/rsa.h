@@ -116,7 +116,11 @@ uint8_t rsa_modulus(void *m);
 // return 0xffff for wrong padding (bit 15 is tested as error flag)
 // return value 0 .. 245 (up to 2048 bit RSA - 11 bytes for correct padding)
 // unpadded message is moved to buffer start
-// Warning, it must have a 256 byte buffer available as input data!
+//
+// caller is responsible to set input length in range 2..0x100 (bit 15 is
+// used to signalize error from decipher, this code masks this error and
+// performs fictitious depadding)
+//
 uint16_t remove_pkcs1_type_2_padding(uint8_t data[256], uint16_t len);
 
 #ifdef USE_P_Q_INV
