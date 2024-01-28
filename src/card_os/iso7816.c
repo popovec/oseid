@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2023 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2024 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -475,7 +475,7 @@ struct f_table {
 #ifdef __AVR__
 static const struct f_table __flash cla00[] = {
 #else
-static struct f_table cla00[] = {
+static const struct f_table cla00[] = {
 #endif
 	// ISO7816-4:2013(E)/11.2.7, partial implementation, allowed only Ne = 0, Nc = 0
 	// (in future Nc = 0 or Nc = 2, end of erased data in data in data field)
@@ -523,7 +523,7 @@ static struct f_table cla00[] = {
 #ifdef __AVR__
 static const struct f_table __flash cla80[] = {
 #else
-static struct f_table cla80[] = {
+static const struct f_table cla80[] = {
 #endif
 	{APDU_Nc | ATTR_T0_Le_present | APDU_LONG, 0x2a, security_operation},	// iso7816-8....???
 	{APDU_Nc | APDU_Le_empty, 0xda, w_fs_key_change_type},	// proprietary ..

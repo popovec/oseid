@@ -6,7 +6,7 @@
     This is designed to be a part of OsEID (Open source Electronic ID)
     https:/oseid.sourceforge.io
 
-    Copyright (C) 2017-2020 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2017-2024 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -72,7 +72,7 @@
 #warning Please undefine MSG_PERMUTATION, code is smaller
 #endif
 #else
-#define TAB_TYPE  uint8_t
+#define TAB_TYPE const uint8_t
 #endif
 
 
