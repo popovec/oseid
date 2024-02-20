@@ -1,0 +1,15 @@
+STlink schematics:
+https://stm32world.com/wiki/DIY_STM32_Programmer_%28ST-Link/V2-1%29
+
+PA9 LED .. 
+
+
+security:
+
+"There is way to read locked MCU - flash data reads via the debug interface
+are blocked but the CPU's exception handling process is still able to read
+from flash memory via the ICode bus" ...
+
+https://blog.zapb.de/stm32f1-exceptional-failure/
+
+https://gitlab.zapb.de/zapb/stm32f1-firmware-extractor
