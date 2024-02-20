@@ -358,7 +358,7 @@ OPENSC_VERSION=$(echo $X_ver|gawk '/OpenSC/ {split($2,V,".");print 1000000*V[1]+
 ECDH=0
 RAWSIGN2048=0
 
-if [ $OPENSC_VERSION -lt 20000 ]; then
+if [ $OPENSC_VERSION -lt 21000 ]; then
 	failecho "Your OPENSC version is:"
 	opensc-tool -i
 	failecho "consider upgrading to a newer version."
@@ -371,10 +371,10 @@ fi
 if [ $OPENSC_VERSION -ge 18000 ]; then
 	RAWSIGN2048=1
 fi
-if [ $OPENSC_VERSION -gt 24000 ]; then
+if [ $OPENSC_VERSION -gt 25000 ]; then
 	warnecho "not tested opensc version detected"
 	opensc-tool -i
-	warnecho "this code is tested in opensc versions 0.21 .. 0.24"
+	warnecho "this code is tested in opensc versions 0.21 .. 0.25"
 fi
 
 
