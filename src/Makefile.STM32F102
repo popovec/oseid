@@ -1,0 +1,197 @@
+# on debian systems install:
+# apt-get install openocd gcc-arm-none-eabi binutils-arm-none-eabi
+#
+# Please, check if your STLINKv2 is based on STM32F102/STM32F103 MCU or
+# MH2103 MCU. Depends on it use:
+# make -f Makefile.STM32F102 programST
+# make -f Makefile.STM32F102 programMH
+#
+# For FLASH erase:
+# make -f Makefile.STM32F102 unlockST
+# make -f Makefile.STM32F102 unlockMH
+# (You may have to ground the reset pin (by shorting pin 7 and 8)
+#
+ARMGNU = arm-none-eabi
+MCU_SPEC  = cortex-m3
+
+CC =arm-none-eabi-gcc
+AS =arm-none-eabi-as
+LD =arm-none-eabi-ld
+OC =arm-none-eabi-objcopy
+OD =arm-none-eabi-objdump
+OS =arm-none-eabi-size
+
+ASFLAGS += -c
+ASFLAGS += -Os
+ASFLAGS += -mcpu=$(MCU_SPEC)
+ASFLAGS += -mthumb
+ASFLAGS += -Wall
+ASFLAGS += -fmessage-length=0
+
+CFLAGS += -mcpu=$(MCU_SPEC)
+CFLAGS += -mthumb
+CFLAGS += -Wall
+CFLAGS += -g
+CFLAGS += -Os
+CFLAGS += -ffreestanding -fno-unwind-tables -fno-exceptions  -nostdlib -nostartfiles
+
+CFLAGS += -fmessage-length=0
+CFLAGS += -ffunction-sections
+LDFLAGS += -mcpu=$(MCU_SPEC)
+LDFLAGS += -mthumb
+LDFLAGS += -Wall
+CFLAGS += --specs=nosys.specs
+LDFLAGS += -nostdlib
+#LDFLAGS += -lgcc
+LDFLAGS += -mapcs-frame
+LDFLAGS= -Wl,-gc-sections
+TARGET = targets/STM32F102/
+BUILD = build/STM32F102/
+
+
+#CFLAGS += -DSERIAL_DEBUG
+
+# precalculate inverse P and Q into key file
+CFLAGS += -DUSE_P_Q_INV
+
+# exponent blinding is not enabled, STM32F10x seemt to be insecure device
+# (locked flash is readable.. https://gitlab.zapb.de/zapb/stm32f1-firmware-extractor)
+#CFLAGS += -DRSA_EXP_BLINDING
+
+# enable protection for single error in CRT
+CFLAGS += -DPREVENT_CRT_SINGLE_ERROR
+
+# MyEID does not support 56 bit des version, OsEID allow this if needed
+#CFLAGS += -DENABLE_DES56
+
+CFLAGS += -DOsEID
+CFLAGS += -DPROTOCOL_T0 -DPROTOCOL_T1
+CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
+CFLAGS += -DT1_TRANSPORT
+CFLAGS += -DT1_IFS=254
+
+CFLAGS += -DFLASH_BASE="((uint8_t*)0x0800f800)"
+CFLAGS += -DFLASH_MAP_BASE="((uint8_t*)0x0800e800)"
+
+HAVE =          -DRSA_BYTES=128
+HAVE +=         -DE_BITS=5
+HAVE +=         -DSEC_MEM_SIZE=1024
+
+# Use the unique serial number of the device to derive the reader serial number and the card serial number
+HAVE +=		-DHW_SERIAL_ID
+HAVE +=		-DHW_SERIAL_NUMBER
+
+# ECC size (in bytes 24,32,48,72)
+CFLAGS += -DMP_BYTES=72
+
+
+all:	$(BUILD)/card.bin
+
+.PHONY: all
+
+$(BUILD)usb_common.o:	$(TARGET)usb_common.c $(TARGET)usb.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)usb_common.o $(TARGET)usb_common.c -I$(TARGET) -I card_os
+
+$(BUILD)ccid.o:	$(TARGET)ccid.c card_os/card_io.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)ccid.o $(TARGET)ccid.c -I$(TARGET) -I card_os
+
+$(BUILD)flash_cow_dev.o:	$(TARGET)flash_cow_dev.c $(TARGET)flash_cow_dev.h $(TARGET)STM32F10x_flash.device.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)flash_cow_dev.o $(TARGET)flash_cow_dev.c -I$(TARGET)
+
+$(BUILD)STM32F10x_flash.device.o:	$(TARGET)STM32F10x_flash.device.c $(TARGET)STM32F10x_flash.device.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)STM32F10x_flash.device.o $(TARGET)STM32F10x_flash.device.c -I$(TARGET)
+
+$(BUILD)mem_device.o:	$(TARGET)mem_device.c card_os/mem_device.h $(TARGET)flash_cow_dev.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)mem_device.o $(TARGET)mem_device.c -I$(TARGET) -I card_os
+
+$(BUILD)rnd.o:	$(TARGET)rnd.c card_os/rnd.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)rnd.o $(TARGET)rnd.c -I$(TARGET) -I card_os
+
+$(BUILD)serial_debug.o:	$(TARGET)serial_debug.c $(TARGET)serial_debug.h
+		$(CC) $(CFLAGS) -c -o $(BUILD)serial_debug.o $(TARGET)serial_debug.c
+
+$(BUILD)bn_lib_arm_cm3.o:	lib/ARM/bn_lib_arm_cm3.c card_os/bn_lib.h
+		$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)bn_lib_arm_cm3.o lib/ARM/bn_lib_arm_cm3.c -I card_os
+
+
+TARGET_SPEC +=  $(BUILD)usb_common.o
+TARGET_SPEC +=  $(BUILD)ccid.o
+TARGET_SPEC +=  $(BUILD)flash_cow_dev.o
+TARGET_SPEC +=  $(BUILD)STM32F10x_flash.device.o
+TARGET_SPEC +=  $(BUILD)mem_device.o
+TARGET_SPEC +=  $(BUILD)rnd.o
+TARGET_SPEC +=  $(BUILD)serial_debug.o
+TARGET_SPEC +=  $(BUILD)bn_lib_arm_cm3.o
+
+#-------------------------------------------------------------------
+# card_os files
+#-------------------------------------------------------------------
+COMMON_TARGETS= $(BUILD)iso7816.o $(BUILD)myeid_emu.o $(BUILD)fs.o $(BUILD)ec.o $(BUILD)rsa.o $(BUILD)card.o $(BUILD)constants.o $(BUILD)aes.o $(BUILD)des.o $(BUILD)bn_lib.o
+
+$(BUILD)iso7816.o:	card_os/iso7816.c
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)iso7816.o -c card_os/iso7816.c -Icard_os
+
+$(BUILD)myeid_emu.o:	card_os/myeid_emu.c
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)myeid_emu.o -c card_os/myeid_emu.c -Icard_os
+
+$(BUILD)fs.o:	card_os/fs.c
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)fs.o -c card_os/fs.c -Icard_os
+
+$(BUILD)ec.o:	card_os/ec.c
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)ec.o -c card_os/ec.c -Icard_os
+
+$(BUILD)rsa.o:	card_os/rsa.c card_os/rsa.h
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)rsa.o -c card_os/rsa.c -Icard_os
+
+$(BUILD)aes.o:	card_os/aes.c card_os/aes.h
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)aes.o -c card_os/aes.c -Icard_os
+
+$(BUILD)des.o:	card_os/des.c card_os/des.h
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)des.o -c card_os/des.c -Icard_os
+
+$(BUILD)card.o:	card_os/card.c
+	$(CC) $(CFLAGS) -o $(BUILD)card.o -c card_os/card.c -Icard_os
+
+$(BUILD)bn_lib.o:	card_os/bn_lib.h lib/generic/bn_lib.c
+	$(CC) $(CFLAGS) $(HAVE) -o $(BUILD)bn_lib.o -c lib/generic/bn_lib.c -Icard_os
+
+$(BUILD)constants.o:	$(TARGET)constants.c
+	$(CC) $(CFLAGS) $(HAVE) -c -o $(BUILD)constants.o $(TARGET)constants.c -Icard_os
+
+
+builddir:
+	@rm -rf $(BUILD)
+	@mkdir -p $(BUILD)
+
+
+$(BUILD)/card.elf:	builddir $(TARGET)/STM32F10x_init.S $(TARGET)/STM32F10x_dev_init.c $(COMMON_TARGETS) $(TARGET_SPEC)
+	$(CC) $(CFLAGS) $(HAVE) -I. $(TARGET)/STM32F10x_dev_init.c -c -o $(BUILD)/STM32F10x_dev_init.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -x assembler-with-cpp -T$(TARGET)/STM32F10X.ld $(TARGET)/STM32F10x_init.S -c -o $(BUILD)/STM32F10x_init.o
+	$(CC) $(LDFLAGS) -T$(TARGET)/STM32F10X.ld $(BUILD)/STM32F10x_dev_init.o $(BUILD)/STM32F10x_init.o  $(TARGET_SPEC) $(COMMON_TARGETS) -o $(BUILD)/card.elf
+	$(OS) $(BUILD)/card.elf
+
+
+$(BUILD)/card.bin:	$(BUILD)/card.elf
+	$(OC) -S -O binary $(BUILD)/card.elf $(BUILD)/card.bin
+
+
+programST:	$(BUILD)/card.bin
+	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
+
+readST:
+	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F102CB_flash_read.bin 0 131072"  -c "reset" -c "shutdown"
+
+unlockST:
+	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
+
+programMH:	$(BUILD)/card.bin
+	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
+
+readMH:
+	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F102CB_flash_read.bin 0 131072"  -c "reset" -c "shutdown"
+
+unlockMH:
+	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
+
+clean:
+	rm -f $(BUILD)/*

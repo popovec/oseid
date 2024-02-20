@@ -13,6 +13,7 @@ jobs:
       - name: Install additional packages
         run: |
           sudo apt-get install libpcsclite-dev pcscd socat pcsc-tools gcc-avr avr-libc binutils-avr srecord
+          sudo apt-get install gcc-arm-none-eabi binutils-arm-none-eabi
           sudo apt-get install opensc
       - name: OsEID - cross compilation for AVR devices
         run: |
@@ -21,6 +22,7 @@ jobs:
           make -f Makefile.xmega128a4u
           make -f Makefile.atmega128
           make -f Makefile.simulavr
+          make -f Makefile.STM32F102
           cd ..
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

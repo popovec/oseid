@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2019-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2019-2024 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -73,7 +73,7 @@
 #endif
 
 
-#if !(defined __AVR__) && defined (DEBUG_V)
+#if !(defined __arm__) && !(defined __AVR__) && defined (DEBUG_V)
 #include <stdlib.h>
 #include <stdio.h>
 #define DPRINT(msg...) {char *env_atr = getenv ("OsEID_DEBUG"); if(env_atr){if(atoi(env_atr)& DEBUG_V){fprintf(stderr,msg);}}}
