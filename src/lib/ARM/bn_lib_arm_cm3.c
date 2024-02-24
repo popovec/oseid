@@ -32,7 +32,7 @@
  * bn_shift_L_v
  ******************************************************************************/
 
-uint8_t __attribute__((naked)) bn_shift_L_v(void *r, uint8_t len)
+uint8_t __attribute__((aligned(8))) __attribute__((naked)) bn_shift_L_v(void *r, uint8_t len)
 {
 	asm volatile (		//
 // convert 0 to 256
@@ -45,6 +45,8 @@ uint8_t __attribute__((naked)) bn_shift_L_v(void *r, uint8_t len)
 			     "adds	r3, #0\n"	//clear carry
 //
 // loop:
+			     "nop\n"	// align jump to multiple of 8..
+			     "nop\n"	// align jump to multiple of 8..
 			     "1:\n"	//
 			     "ldr	r2, [r0]\n"	//
 			     "adcs	r2, r2, r2\n"	//
@@ -70,7 +72,7 @@ uint8_t __attribute__((naked)) bn_shift_L_v(void *r, uint8_t len)
 #if 0
 // 4 bytes at once)
 // it is not necessary to rewrite it in ASM, it is quite efficient.
-uint8_t bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
+uint8_t __attribute__((aligned(8))) bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
 {
 	uint32_t *R = (uint32_t *) r;
 	uint32_t c2, c1 = 0, tmp1;
@@ -93,7 +95,7 @@ uint8_t bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
 }
 #else
 // 8 bytes at once
-uint8_t bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
+uint8_t __attribute__((aligned(8))) bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
 {
 	uint32_t *R = (uint32_t *) r;
 	uint32_t c2, c1 = 0, tmp1;
@@ -135,7 +137,7 @@ uint8_t bn_shift_R_v_c(void *r, uint8_t len, uint8_t carry)
 // OK - use 64 bits .. EC fast reduction depends on it
 // 8bit OK 16 bit Ok  32 bit FAIL!
 // OK FAST-TEST
-uint8_t bn_add_v(void *r, void *a, uint8_t len, uint8_t carry)
+uint8_t __attribute__((aligned(8))) bn_add_v(void *r, void *a, uint8_t len, uint8_t carry)
 {
 	uint32_t *R = (uint32_t *) r;
 	uint32_t *A = (uint32_t *) a;
@@ -170,7 +172,8 @@ uint8_t bn_add_v(void *r, void *a, uint8_t len, uint8_t carry)
 #else
 //  OK FAST-TEST  This code need 8/16 or 64 bit per round no 32!
 // due overlap if operands in EC calculation
-uint8_t __attribute__((naked)) bn_add_v(void *r, void *a, uint8_t len, uint8_t carry)
+uint8_t __attribute__((aligned(8)))
+    __attribute__((naked)) bn_add_v(void *r, void *a, uint8_t len, uint8_t carry)
 {
 	asm volatile (		//
 			     "push	{r5, r6, lr}\n"	//
@@ -185,6 +188,9 @@ uint8_t __attribute__((naked)) bn_add_v(void *r, void *a, uint8_t len, uint8_t c
 			     "rors	r3, #1\n"	// set carry bit if needed
 			     "mov	r3, #0xff\n"	//
 // loop:
+			     "nop\n"	// align jump to multiple of 8..
+			     "nop\n"	// align jump to multiple of 8..
+			     "nop\n"	// align jump to multiple of 8..
 			     "1:\n"	//
 			     "ldr	r5, [r0]\n"	//
 			     "ldr	r6, [r1], #4\n"	//
@@ -211,7 +217,7 @@ uint8_t __attribute__((naked)) bn_add_v(void *r, void *a, uint8_t len, uint8_t c
  ******************************************************************************/
 #if 0
 // tested, OK - FAST-TEST
-uint8_t bn_sub_v(void *r, void *a, void *b, uint8_t len)
+uint8_t __attribute__((aligned(8))) bn_sub_v(void *r, void *a, void *b, uint8_t len)
 {
 	uint16_t *A, *B, *R;
 	uint16_t carry;
@@ -236,7 +242,8 @@ uint8_t bn_sub_v(void *r, void *a, void *b, uint8_t len)
 }
 #else
 //  OK FAST-TEST
-uint8_t __attribute__((naked)) bn_sub_v(void *r, void *a, void *b, uint8_t len)
+uint8_t __attribute__((aligned(8)))
+    __attribute__((naked)) bn_sub_v(void *r, void *a, void *b, uint8_t len)
 {
 	asm volatile (		//
 			     "push	{r4, r5, r6, lr}\n"	//
@@ -309,7 +316,7 @@ void bn_mul_v(void *R, void *A, void *B, uint8_t len)
 	}
 }
 #else
-
+#if 1
 #define MUL_CORE2                                   \
 	"ldr    r4, [r0], #4                \n\t"	\
 	"ldr	r5, [r0], #4		    \n\t"	\
@@ -321,6 +328,19 @@ void bn_mul_v(void *R, void *A, void *B, uint8_t len)
 	"str    r2, [r1], #4                \n\t"	\
 	"str    r6, [r1], #4                \n\t"	\
 	"adc    r2, r7, #0                  \n\t"
+#else
+// Why this is slower ? (STM32F102/ 1.728 previous code 1.704)
+#define MUL_CORE2                                   \
+	"ldr    r4, [r0], #4                \n\t"	\
+	"ldr	r5, [r0], #4		    \n\t"	\
+	"umull  r4, r6, r3, r4              \n\t"	\
+	"umull  r5, r7, r3, r5              \n\t"	\
+	"adds	r2, r2, r4		\n\t"	\
+	"adcs	r6, r6, r5		\n\t"	\
+	"str    r2, [r1], #4		\n\t"	\
+	"str    r6, [r1], #4		\n\t"	\
+	"adc	r2, r7,#0		\n\t"
+#endif
 
 #define MUL_CORE                                    \
 	"ldr    r4, [r0], #4                \n\t"	\
@@ -328,6 +348,42 @@ void bn_mul_v(void *R, void *A, void *B, uint8_t len)
 	"adds   r5, r5, r2                  \n\t"	\
 	"adc    r2, r6, #0                  \n\t"	\
 	"str    r5, [r1], #4                \n\t"
+
+#define MULADDC2_CORE				\
+	"ldr    r4, [r0], #4            \n\t"	\
+	"ldr	r5, [r0], #4		\n\t"	\
+	"mov	r6, #0			\n\t"	\
+	"umlal	r2, r6, r3, r4		\n\t"	\
+	"mov	r7, #0			\n\t"	\
+	"umlal	r6, r7, r3, r5		\n\t"	\
+	"ldr	r4, [r1]		\n\t"	\
+	"ldr	r5, [r1, #4]		\n\t"	\
+	"adds	r4, r4, r2		\n\t"	\
+	"str	r4, [r1], #4		\n\t"	\
+	"adcs	r5, r5, r6		\n\t"	\
+	"adc	r2, r7, #0		\n\t"	\
+	"str	r5, [r1], #4		\n\t"
+
+#define MULADDC3_CORE				\
+	"ldr    r4, [r0], #4            \n\t"	\
+	"ldr	r5, [r0], #4		\n\t"	\
+	"mov	r6, #0			\n\t"	\
+	"umlal	r2, r6, r3, r4		\n\t"	\
+	"mov	r7, #0			\n\t"	\
+	"umlal	r6, r7, r3, r5		\n\t"	\
+	"ldr	r4, [r0], #4 		\n\t"	\
+	"mov	r5, #0			\n\t"	\
+	"umlal	r7, r5, r3, r4		\n\t"	\
+	"ldr	r4, [r1]		\n\t"	\
+	"adds	r4, r4, r2		\n\t"	\
+	"str	r4, [r1], #4		\n\t"	\
+	"ldr	r2, [r1]		\n\t"	\
+	"ldr	r4, [r1, #4]		\n\t"	\
+	"adcs	r2, r2, r6		\n\t"	\
+	"str	r2, [r1], #4		\n\t"	\
+	"adcs	r4, r4, r7		\n\t"	\
+	"str	r4, [r1], #4		\n\t"	\
+	"adc	r2, r5, #0		\n\t"
 
 // This code is borrowed from mbedtls (mbedtls-2.27.0) and slightly modified
 // to improve speed thanks to MCU pipeline
@@ -359,11 +415,82 @@ void bn_mul_v(void *R, void *A, void *B, uint8_t len)
 	"r6", "r7", "cc"				\
 	);
 /* *INDENT-ON* */
-
-static void sbn_mulx_line0(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattributes"
+static void
+    __attribute__((always_inline)) sbn_mulx_line0(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
 {
 	uint32_t c = 0;
 /* *INDENT-OFF* */
+	for (; i >= 16; i -= 16) {
+		MUL_INIT
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_STOP
+	}
+	for (; i >= 6; i -= 6) {
+		MUL_INIT
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_STOP
+	}
+	for (; i > 0; i--) {
+		MUL_INIT
+		MUL_CORE
+		MUL_STOP
+	}
+ /* *INDENT-ON* */
+}
+
+static uint32_t
+    __attribute__((always_inline)) sbn_mulx_line(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
+{
+	uint32_t c = 0;
+/* *INDENT-OFF* */
+	for (; i >= 16; i -= 16) {
+		MUL_INIT
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC2_CORE
+		MULADDC2_CORE
+		MUL_STOP
+	}
+	for (; i >= 6; i -= 6) {
+		MUL_INIT
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MUL_STOP
+	}
+	for (; i >= 4; i -= 4) {
+		MUL_INIT
+		MULADDC2_CORE
+		MULADDC2_CORE
+		MUL_STOP
+	}
+	for (; i > 0; i--) {
+		MUL_INIT
+		MULADDC_CORE
+		MUL_STOP
+	}
+ /* *INDENT-ON* */
+	return c;
+}
+
+static void
+    __attribute__((always_inline)) bn_mul_line0(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
+{
+	uint32_t c = 0;
+
+ /* *INDENT-OFF* */
 	for (; i >= 16; i -= 16) {
 		MUL_INIT
 		MUL_CORE2
@@ -396,37 +523,33 @@ static void sbn_mulx_line0(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
 		MUL_STOP
 	}
  /* *INDENT-ON* */
+	while (c != 0) {
+		*d += c;
+		c = (*d < c);
+		d++;
+	}
 }
 
-static uint32_t sbn_mulx_line(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
+static void
+    __attribute__((always_inline)) bn_mul_line(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
 {
 	uint32_t c = 0;
-/* *INDENT-OFF* */
+
+ /* *INDENT-OFF* */
 	for (; i >= 16; i -= 16) {
 		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC2_CORE
+		MULADDC2_CORE
 		MUL_STOP
 	}
-	for (; i >= 8; i -= 8) {
+	for (; i >= 6; i -= 6) {
 		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MUL_STOP
-	}
-	for (; i >= 4; i -= 4) {
-
-		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
 		MUL_STOP
 	}
 	for (; i > 0; i--) {
@@ -435,9 +558,14 @@ static uint32_t sbn_mulx_line(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
 		MUL_STOP
 	}
  /* *INDENT-ON* */
-	return c;
+	while (c != 0) {
+		*d += c;
+		c = (*d < c);
+		d++;
+	}
 }
 
+#pragma GCC diagnostic pop
 // only low part of multiplication is needed (64 bytes..)
 // len is 64 maximum (for RSA 2048) ..
 void bn_mul_mod_v(uint8_t * R, uint8_t * A, uint8_t * B, uint8_t len)
@@ -451,94 +579,6 @@ void bn_mul_mod_v(uint8_t * R, uint8_t * A, uint8_t * B, uint8_t len)
 	sbn_mulx_line0(len, a32, r32, b32[0]);
 	for (i = 1; i < len; i++)
 		sbn_mulx_line(len - i, a32, r32 + i, b32[i]);
-}
-
-static void bn_mul_line0(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
-{
-	uint32_t c = 0;
-
- /* *INDENT-OFF* */
-	for (; i >= 16; i -= 16) {
-		MUL_INIT
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_STOP
-	}
-	for (; i >= 8; i -= 8) {
-		MUL_INIT
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_CORE2
-		MUL_STOP
-	}
-	for (; i >= 4; i -= 4) {
-		MUL_INIT
-		MUL_CORE2
-		MUL_CORE2
-		MUL_STOP
-	}
-	for (; i > 0; i--) {
-		MUL_INIT
-		MUL_CORE
-		MUL_STOP
-	}
- /* *INDENT-ON* */
-	while (c != 0) {
-		*d += c;
-		c = (*d < c);
-		d++;
-	}
-}
-
-static void bn_mul_line(uint8_t i, uint32_t * s, uint32_t * d, uint32_t b)
-{
-	uint32_t c = 0;
-
- /* *INDENT-OFF* */
-	for (; i >= 16; i -= 16) {
-		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MUL_STOP
-	}
-	for (; i >= 8; i -= 8) {
-		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MUL_STOP
-	}
-	for (; i >= 4; i -= 4) {
-		MUL_INIT
-		MULADDC_CORE MULADDC_CORE
-		MULADDC_CORE MULADDC_CORE
-		MUL_STOP
-	}
-	for (; i > 0; i--) {
-		MUL_INIT
-		MULADDC_CORE
-		MUL_STOP
-	}
- /* *INDENT-ON* */
-	while (c != 0) {
-		*d += c;
-		c = (*d < c);
-		d++;
-	}
 }
 
 #if 1
@@ -561,8 +601,8 @@ void bn_mul_v(void *R, void *A, void *B, uint8_t len)
 }
 #else
 // working....
-// this 1.500 MH2103 / 1.749 STM102 (not bether that previous code .. 1.734!)
-// old 1.514
+// this 1.500 MH2103 / 1.749 STM32F102
+// not bether that previous code .. 1.479/1.704)
 
 void __attribute__((naked)) bn_mul_v(void *R, void *A, void *B, uint8_t len)
 {
@@ -659,34 +699,190 @@ uint32_t bn_mul_add_v(void *R, void *A, void *B, uint8_t len)
 }
 #endif
 
-void rsa_square_v(void *R, void *A, uint8_t len)
+///////////////////////////////////////////////////////////////////////////////////////////
+// squaring
+//////////////
+
+#define SQR_INIT				\
+	asm volatile (				\
+	"ldr    r0, %3                      \n\t"	\
+	"ldr    r1, %4                      \n\t"	\
+	"ldr    r2, %5                      \n\t"
+
+// result * 2 + Rx*Rx
+#define SQR_ADDC_CORE				\
+	"ldr    r4, [r0], #4		\n\t"	\
+	"mov	r7, #0			\n\t"	\
+	"umlal  r2, r7, r4, r4		\n\t"	\
+	"ldr    r4, [r1]		\n\t"	\
+	"ldr    r5, [r1, #4]		\n\t"	\
+	"mov	r3, r5, lsr #31		\n\t"	\
+	"adds	r4, r4			\n\t"	\
+	"adc	r5, r5			\n\t"	\
+	"adds	r4, r2			\n\t"	\
+	"adcs	r5, r7			\n\t"	\
+	"str	r4, [r1], #4		\n\t"	\
+	"str	r5, [r1], #4		\n\t"	\
+	"adc	r2, r3, #0		\n\t"
+
+#define SQR_STOP	                                    \
+	"str    r2, %0                      \n\t"	\
+	"str    r1, %1                      \n\t"	\
+	"str    r0, %2                      \n\t"	\
+	: "=m" (c), "=m" (d), "=m" (s)			\
+	: "m" (s), "m" (d), "m" (c)			\
+	: "r0", "r1", "r2", "r3", "r4", "r5",		\
+	"r6", "r7", "cc"				\
+	);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wattributes"
+
+static void
+    __attribute__((always_inline)) bn_mul_line0_sqr(uint8_t i, uint32_t * s, uint32_t * d,
+						    uint32_t b)
+{
+	uint32_t c = 0;
+
+ /* *INDENT-OFF* */
+	for (; i >= 16; i -= 16) {
+		MUL_INIT
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_STOP
+	}
+	for (; i >= 6; i -= 6) {
+		MUL_INIT
+		MUL_CORE2
+		MUL_CORE2
+		MUL_CORE2
+		MUL_STOP
+	}
+	for (; i > 0; i--) {
+		MUL_INIT
+		MUL_CORE
+		MUL_STOP
+	}
+ /* *INDENT-ON* */
+	while (c != 0) {
+		*d += c;
+		c = (*d < c);
+		d++;
+	}
+}
+
+static void __attribute__((always_inline)) bn_sqr_line(uint8_t i, uint32_t * s, uint32_t * d)
+{
+	uint32_t c = 0;
+
+ /* *INDENT-OFF* */
+	for (; i >= 16; i -= 16) {
+		SQR_INIT
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_STOP
+	}
+	for (; i >= 6; i -= 6) {
+		SQR_INIT
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_ADDC_CORE
+		SQR_STOP
+	}
+	for (; i > 0; i--) {
+		SQR_INIT
+		SQR_ADDC_CORE
+		SQR_STOP
+	}
+ /* *INDENT-ON* */
+}
+
+static void
+    __attribute__((always_inline)) bn_mul_line_sqr(uint8_t i, uint32_t * s, uint32_t * d,
+						   uint32_t b)
+{
+	uint32_t c = 0;
+
+ /* *INDENT-OFF* */
+	for (; i >= 16; i -= 16) {
+		MUL_INIT
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MULADDC2_CORE
+		MULADDC2_CORE
+		MUL_STOP
+	}
+	for (; i >= 6; i -= 6) {
+		MUL_INIT
+		MULADDC3_CORE
+		MULADDC3_CORE
+		MUL_STOP
+	}
+	for (; i > 0; i--) {
+		MUL_INIT
+		MULADDC_CORE
+		MUL_STOP
+	}
+ /* *INDENT-ON* */
+	while (c != 0) {
+		*d += c;
+		c = (*d < c);
+		d++;
+	}
+}
+
+#pragma GCC diagnostic pop
+
+void __attribute__((aligned(8))) rsa_square_v(void *R, void *A, uint8_t len)
 {
 	uint32_t *r = (uint32_t *) R;
-// large enough for rsa2048 (or use alloca)
-	uint32_t r2[64];
-	uint64_t *r64 = (uint64_t *) R;
-
 	uint32_t *a = (uint32_t *) A;
 	uint32_t *b = (uint32_t *) A;
 	int i, j;
-	int ai, bi;
+	int bi;
 	int llen = len ? len : 256;
 
 	i = llen / 4;
 	j = i;
 
-	for (ai = 0; ai < j; ai++)
-		*(r64++) = (uint64_t) a[ai] * (uint64_t) a[ai];
+	r[0] = 0;
+	memset(&r[i], 0, llen);
 
-	r2[0] = 0;
-	memset(&r2[i], 0, llen);
-
-	bn_mul_line0(--i, ++a, r2 + 1, b[0]);
+	bn_mul_line0_sqr(--i, ++a, r + 1, b[0]);
 	for (bi = 1; bi < j - 1; bi++)
-		bn_mul_line(--i, ++a, r2 + 1 + bi * 2, b[bi]);
+		bn_mul_line_sqr(--i, ++a, r + 1 + bi * 2, b[bi]);
 
-	bn_shift_L_v(r2, llen * 2);
-	bn_add_v(r, r2, llen * 2, 0);
+	bn_sqr_line(llen / 4, (uint32_t *) A, r);
+}
+
+void rsa_square_192(uint8_t * r, uint8_t * a)
+{
+	rsa_square_v(r, a, 24);
 }
 
 void rsa_square_256(uint8_t * r, uint8_t * a)
@@ -714,9 +910,15 @@ void rsa_square_1024(uint8_t * r, uint8_t * a)
 	rsa_square_v(r, a, 128);
 }
 
+void mp_square_521(uint8_t * r, uint8_t * a)
+{
+	rsa_square_v(r, a, 72);
+}
+
 #endif
 #if 1
-uint8_t __attribute__((naked)) bn_add_carry_v(void *r, uint8_t len, uint8_t carry)
+uint8_t __attribute__((aligned(8)))
+    __attribute__((naked)) bn_add_carry_v(void *r, uint8_t len, uint8_t carry)
 {
 	asm volatile (		//
 			     "push	{r4, lr}\n"	//
@@ -731,6 +933,9 @@ uint8_t __attribute__((naked)) bn_add_carry_v(void *r, uint8_t len, uint8_t carr
 			     "uxtb	r2,r2\n"	//
 			     "mov	r3, #0xff\n"	//
 // loop:
+			     "nop\n"	// align jump to multiple of 8..
+			     "nop\n"	// align jump to multiple of 8..
+			     "nop\n"	// align jump to multiple of 8..
 			     "1:\n"	//
 			     "ldr	r4, [r0]\n"	//
 			     "adcs	r4, r2\n"	//
@@ -764,7 +969,9 @@ uint8_t bn_sub_v(void *r, void *a, void *b, uint8_t len);
 // return 0/1 (index of t/help1, result is in upper part of rsa_long_num)
 extern uint8_t mod_len;
 
-uint8_t monPro0(uint8_t * t, uint8_t * help1, uint8_t * n, uint8_t * Mc, uint8_t * Bc)
+uint8_t
+    __attribute__((aligned(8))) monPro0(uint8_t * t, uint8_t * help1, uint8_t * n, uint8_t * Mc,
+					uint8_t * Bc)
 {
 	uint8_t carry;
 
