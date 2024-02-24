@@ -80,6 +80,9 @@ HAVE +=         -DSEC_MEM_SIZE=1024
 # Use the unique serial number of the device to derive the reader serial number and the card serial number
 HAVE +=		-DHW_SERIAL_ID
 HAVE +=		-DHW_SERIAL_NUMBER
+HAVE +=		-DHAVE_RSA_SQUARE_384
+HAVE +=		-DHAVE_RSA_SQUARE_256
+HAVE +=		-DHAVE_RSA_SQUARE_192
 
 # ECC size (in bytes 24,32,48,72)
 CFLAGS += -DMP_BYTES=72
@@ -184,6 +187,9 @@ readST:
 unlockST:
 	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
 
+readoptionsST:
+	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
+
 programMH:	$(BUILD)/card.bin
 	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
 
@@ -192,6 +198,18 @@ readMH:
 
 unlockMH:
 	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
+
+readoptionsMH:
+	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
+
+# option byte register = 0x3fffc3c
+# write protection register = 0xffffffff
+# read protection: off
+# watchdog: software
+# stop mode: no reset generated upon entry
+# standby mode: no reset generated upon entry
+# user data = 0xffff
+
 
 clean:
 	rm -f $(BUILD)/*
