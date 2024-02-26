@@ -28,6 +28,12 @@
 // RUN  = command parsing/response generating
 
 #ifndef SERIAL_DEBUG
+void led1_on(void);
+void led1_off(void);
+void led1_toggle(void);
+void led2_on(void);
+void led2_off(void);
+
 // led is on on idle, of on run
 #define LED1_INIT()
 #define LED1_BUSY()	led1_toggle()

@@ -3,14 +3,24 @@
 #
 # Please, check if your STLINKv2 is based on STM32F102/STM32F103 MCU or
 # MH2103 MCU. Depends on it use:
-# make -f Makefile.STM32F102 programST
+# make -f Makefile.STM32F102 programSTM
 # make -f Makefile.STM32F102 programMH
 #
 # For FLASH erase:
-# make -f Makefile.STM32F102 unlockST
+# make -f Makefile.STM32F102 unlockSTM
 # make -f Makefile.STM32F102 unlockMH
 # (You may have to ground the reset pin (by shorting pin 7 and 8)
 #
+
+# Default is STM32F103CB, but if your MCU is STM32F102CB, you may have a
+# problem with the fact that it runs at 72MHz, but the manufacturer allows
+# only 48MHz. In that case below enable STM32F102CB and block STM32F103CB
+# (there is no difference between the MH2103ACB and STM32F103CB versions)
+
+#MCU_IDENT = __STM32F102CB__
+MCU_IDENT = __STM32F103CB__
+#MCU_IDENT = __MH2103ACB__
+
 ARMGNU = arm-none-eabi
 MCU_SPEC  = cortex-m3
 
@@ -29,6 +39,7 @@ ASFLAGS += -Wall
 ASFLAGS += -fmessage-length=0
 
 CFLAGS += -mcpu=$(MCU_SPEC)
+CFLAGS += -D$(MCU_IDENT)
 CFLAGS += -mthumb
 CFLAGS += -Wall
 CFLAGS += -g
@@ -178,16 +189,16 @@ $(BUILD)/card.bin:	$(BUILD)/card.elf
 	$(OC) -S -O binary $(BUILD)/card.elf $(BUILD)/card.bin
 
 
-programST:	$(BUILD)/card.bin
+programSTM:	$(BUILD)/card.bin
 	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
 
-readST:
+readSTM:
 	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F102CB_flash_read.bin 0 131072"  -c "reset" -c "shutdown"
 
-unlockST:
+unlockSTM:
 	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
 
-readoptionsST:
+readoptionsSTM:
 	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
 
 programMH:	$(BUILD)/card.bin

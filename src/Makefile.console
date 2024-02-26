@@ -16,6 +16,8 @@ CFLAGS+= -DRSA_BYTES=128 -DCARD_RESTART -I$(TARGET)
 # to test prime generator:
 #grep 0x rsa_gen_debug.stat|awk '{print "IsPrime("$1")"}' |genius|grep -v true
 
+CFLAGS += -DDEBUG_DEVEL
+
 CC= gcc
 ##CFLAGS+= -D_FORTIFY_SOURCE=2
 #CC= cgcc -Wsparse-all
