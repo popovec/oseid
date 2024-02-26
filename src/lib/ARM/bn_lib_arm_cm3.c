@@ -568,7 +568,7 @@ static void
 #pragma GCC diagnostic pop
 // only low part of multiplication is needed (64 bytes..)
 // len is 64 maximum (for RSA 2048) ..
-void bn_mul_mod_v(uint8_t * R, uint8_t * A, uint8_t * B, uint8_t len)
+void __attribute__((aligned(8))) bn_mul_mod_v(uint8_t * R, uint8_t * A, uint8_t * B, uint8_t len)
 {
 	uint32_t *r32 = (uint32_t *) R;
 	uint32_t *a32 = (uint32_t *) A;
@@ -582,7 +582,7 @@ void bn_mul_mod_v(uint8_t * R, uint8_t * A, uint8_t * B, uint8_t len)
 }
 
 #if 1
-void bn_mul_v(void *R, void *A, void *B, uint8_t len)
+void __attribute__((aligned(8))) bn_mul_v(void *R, void *A, void *B, uint8_t len)
 {
 	uint32_t *r = (uint32_t *) R;
 	uint32_t *a = (uint32_t *) A;
@@ -678,7 +678,7 @@ void __attribute__((naked)) bn_mul_v(void *R, void *A, void *B, uint8_t len)
 }
 #endif
 #if 1
-uint32_t bn_mul_add_v(void *R, void *A, void *B, uint8_t len)
+uint32_t __attribute__((aligned(8))) bn_mul_add_v(void *R, void *A, void *B, uint8_t len)
 {
 	uint32_t *r = (uint32_t *) R;
 	uint32_t *a = (uint32_t *) A;

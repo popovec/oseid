@@ -73,7 +73,7 @@
 #endif
 
 
-#if !(defined __arm__) && !(defined __AVR__) && defined (DEBUG_V)
+#if defined(DEBUG_DEVEL) && defined (DEBUG_V)
 #include <stdlib.h>
 #include <stdio.h>
 #define DPRINT(msg...) {char *env_atr = getenv ("OsEID_DEBUG"); if(env_atr){if(atoi(env_atr)& DEBUG_V){fprintf(stderr,msg);}}}

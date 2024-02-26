@@ -56,6 +56,139 @@ static void enable_GPIOA_clock()
 	address[0x18 / 4] |= 4;
 }
 
+#ifdef __STM32F102CB__
+static void __attribute__((unused)) RCC_setup()
+{
+/*
+	PLL is running on 48MHz (from HSE xtal 8MHz)
+	1 is division factor for USB (48MHz)
+
+	APB1 max = 24MHz
+	APB2 max = 48MHz
+	AHB max - 48MHz
+	ADC max is 14MHz, from APB2 ->divisor 4, -> 12MHz
+*/
+
+	volatile uint32_t *address = (uint32_t *) (RCC_BASE);
+
+	// enable XTAL oscillator (8MHz)
+	address[0] |= (1 << 16);	//RCC_RC |= HSEON
+	// wait for HSE stable
+	while (!(address[0] & (1 << 17))) ;	// RCC_RC, HSERDY
+
+	// PLL source HSE (PLLSRC)
+	address[1] = (1 << 16);
+	// set pll factor (6x8=48MHz)
+	address[1] |= (4 << 18);
+	// enable PLL
+	address[0] |= (1 << 24);	//RCC_RC |= PLL_ON
+	// wait for PLL stable
+	while (!(address[0] & (1 << 25))) ;
+
+	// APB1 prescaler = 2
+	address[1] |= (4 << 8);
+
+	// ADC clock - 48MHz / 4 -> 12MHz
+	address[1] |= (1 << 14);
+
+	// for 24..48MHz two wait states for flash
+	address = (uint32_t *) (FLASH_R_BASE);
+	address[0] |= 1;	// FLASH_ACR register, bit 2,1,0 = latency
+
+	// switch system to PLL clock
+	address = (uint32_t *) (RCC_BASE);
+	address[1] |= 2;
+
+	// usb clock divisor = 1
+	address[1] |= (1 << 22);
+
+	// wait for system clock switch to PLL
+	while ((address[1] & 0x0c) != 8) ;
+
+	// enable TIM2 clock
+	address[0x1c / 4] |= (1 << 0);
+
+	// enable USB clock
+	address[0x1c / 4] |= (1 << 23);
+
+	// reset USB clock
+//      address[0x10 / 4] |= (1 << 23);
+//      address[0x10 / 4] &= ~(1 << 23);
+
+	// enable ADC1 clock (ADC is used for random generator)
+	address[0x18 / 4] = (1 << 9);
+
+}
+#elif defined(__MH2103ACB__)
+static void RCC_setup()
+{
+/*
+	APB1 max = 108MHz
+	APB2 max = 216MHz
+	AHB max = 216HHz
+	ADC max = 14MHz, from APB2
+	// 108..216 1 wait state
+
+	PLL is running on 96MHz (from HSE xtal 8MHz)
+	2 is division factor for USB (48MHz)
+
+	APB1 max = 48MHz
+	APB2 max = 96MHz
+	AHB max - 96HHz
+	ADC max is 14MHz, from APB2 ->divisor 8, -> 12MHz
+*/
+
+	volatile uint32_t *address = (uint32_t *) (RCC_BASE);
+
+	// enable XTAL oscillator (8MHz)
+	address[0] |= (1 << 16);	//RCC_RC |= HSEON
+	// wait for HSE stable
+	while (!(address[0] & (1 << 17))) ;	// RCC_RC, HSERDY
+
+	// PLL source HSE (PLLSRC)
+	address[1] = (1 << 16);
+	// set pll factor (12x8=96MHz)
+	address[1] |= 0x00280000;	// 96MHz
+	// USB 96MHz /2
+	address[1] |= 0x00C00000;
+
+	// enable PLL
+	address[0] |= (1 << 24);	//RCC_RC |= PLL_ON
+	// wait for PLL stable
+	while (!(address[0] & (1 << 25))) ;
+
+	// APB1 prescaler = 2
+	address[1] |= (4 << 8);
+
+	// ADC clock - 96MHz / 8 -> 12MHz
+	address[1] |= 0x0000C000;
+
+	// for 108.. 216 z two wait states for flash
+	address = (uint32_t *) (FLASH_R_BASE);
+	address[0] |= 1;	// FLASH_ACR
+
+	// switch system to PLL clock
+	address = (uint32_t *) (RCC_BASE);
+	address[1] |= 2;
+
+	// wait for system clock switch to PLL
+	while ((address[1] & 0x0c) != 8) ;
+
+	// enable TIM2 clock
+	address[0x1c / 4] |= (1 << 0);
+
+	// enable USB clock
+	address[0x1c / 4] |= (1 << 23);
+
+	// reset USB clock
+//      address[0x10 / 4] |= (1 << 23);
+//      address[0x10 / 4] &= ~(1 << 23);
+
+	// enable ADC1 clock (ADC is used for random generator)
+	address[0x18 / 4] = (1 << 9);
+
+}
+#else
 static void RCC_setup()
 {
 /*
@@ -115,7 +248,7 @@ static void RCC_setup()
 	address[0x18 / 4] = (1 << 9);
 
 }
-
+#endif
 //// USB
 #define EP0R (0/4)
 #define EP1R (4/4)
@@ -814,30 +947,28 @@ void get_HW_serial_number(uint8_t here[10])
 	}
 }
 
+static void nostart()
+{
+// stop her if PB12 /SWDIO/ is grouned
+	// GPIOB...
+	volatile uint32_t *address;
+	address = (uint32_t *) (RCC_BASE);
+	address[0x18 / 4] |= 8;
+	address = (uint32_t *) GPIOB_BASE;
+	address[1] = 0x48484444;
+	// activate pull-up
+	address[0x10 / 4] = (1 << 12) | (1 << 14);
+	// read state
+	while (!(address[0x8 / 4] & (1 << 12))) ;
+}
+
 void init_stm()
 {
 	RCC_setup();
 	enable_GPIOA_clock();
 	init_GPIOA_pins();
 	DEBUG_init();
-#ifdef SERIAL_DEBUG
-	{
-// stop if PA12 is grouned (to prevent suspend and
-// allow flash the device without RESET)
-		// GPIOB...
-		volatile uint32_t *address;
-		address = (uint32_t *) (RCC_BASE);
-		address[0x18 / 4] |= 8;
-		address = (uint32_t *) GPIOB_BASE;
-		address[1] = 0x48484444;
-		// activate pull-up
-		address[0x10 / 4] = (1 << 12) | (1 << 14);
-		// read state
-		DEBUG_print_hex16(address[0x8 / 4]);
-		while (!(address[0x8 / 4] & (1 << 12))) ;
-		DEBUG_print_string("P\n");
-	}
-#endif
+	nostart();
 	CCID_Init();
 	usbInit();
 	DEBUG_print_string("Init OK, starting main\n");

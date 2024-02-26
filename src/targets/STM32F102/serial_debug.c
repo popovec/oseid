@@ -45,9 +45,16 @@ void serial_init()
 // enable usart, enable TX
 	usart[3] = (1 << 13) | (1 << 3);	// CTRL1
 
+#if defined(__STM32F102CB__)
+// clock PCLK2 <- from APB2 prescaler[1] <- AHB prescaler [1] <- PLL [48 MHz]
+	usart[2] = 96;		// 500k
+#elif defined(__MH2103ACB__)
+// clock PCLK2 <- from APB2 prescaler[1] <- AHB prescaler [1] <- PLL [96 MHz]
+	usart[2] = 192;		// 500k
+#else
 // clock PCLK2 <- from APB2 prescaler[1] <- AHB prescaler [1] <- PLL [72 MHz]
 	usart[2] = 144;		// 500k
-
+#endif
 // overwrite GPIO pin function to alternate fcion - USART
 	gpio = (uint32_t *) GPIOA_BASE;
 	gpio[4 / 4] &= 0xFFFFFF0F;
