@@ -2,25 +2,105 @@
 # apt-get install openocd gcc-arm-none-eabi binutils-arm-none-eabi
 #
 # Please, check if your STLINKv2 is based on STM32F102/STM32F103 MCU or
-# MH2103 MCU. Depends on it use:
-# make -f Makefile.STM32F102 programSTM
-# make -f Makefile.STM32F102 programMH
+# MH2103 MCU. Depends on it use default MCU = STM32F103CB
+# make -f Makefile.STM32F10x program
+# or specify MCU:
+# make -f Makefile.STM32F10x program MCU=MH2103ACB
 #
-# For FLASH erase:
-# make -f Makefile.STM32F102 unlockSTM
-# make -f Makefile.STM32F102 unlockMH
+# optional:
+# make -f Makefile.STM32F10x lock
+#
+# Unlock and erase device
+# make -f Makefile.STM32F10x unlock
+
 # (You may have to ground the reset pin (by shorting pin 7 and 8)
+#
+# After locking/unlocking, a power cycle is required for the new setting to
+# take effect
 #
 
 # Default is STM32F103CB, but if your MCU is STM32F102CB, you may have a
 # problem with the fact that it runs at 72MHz, but the manufacturer allows
-# only 48MHz. In that case below enable STM32F102CB and block STM32F103CB
-# (there is no difference between the MH2103ACB and STM32F103CB versions)
+# only 48MHz. In that case below enable STM32F102CB.
+# The MH2103ACB is running at 96 MHz - this is STM32F103CB clone.
+# select MCU here or on comand line (according to the example given above)
 
-#MCU_IDENT = __STM32F102CB__
-MCU_IDENT = __STM32F103CB__
-#MCU_IDENT = __MH2103ACB__
+#MCU = STM32F102CB
+#MCU = STM32F103CB
+#MCU = MH2103ACB
+# untested, it should work on Bluepill where there is only 64kB flash
 
+# Some of the Bluepill boards are equipped with CKS32F103C8T6 processor,
+# this is STM32F103C8 clone ..  OPENOCD_LOCAL will need to be adjusted
+#
+#MCU = STM32F103C8
+#
+##########################################################################
+
+MCU ?= STM32F103CB
+MCU_IDENT = none
+
+ifeq ($(MCU),STM32F103C8)
+	MCU_FREQ= 72
+	MCU_RAM= 20
+        MCU_MAX_CODE_SIZE=36k
+	MCU_FLASH= 64
+	MCU_FLASHB= 65536
+	MCU_RAM= 20480
+	MCU_IDENT= __STM32F103C8__
+	MCU_FLASH_MAP_BASE= 0x08009000
+	MCU_FLASH_MAP_PAGE_COUNT= 2
+	MCU_FLASH_BASE= 0x08009800
+	MCU_FLASH_PAGE_COUNT= 26
+	OPENOCD_LOCAL=
+endif
+ifeq ($(MCU),STM32F103CB)
+	MCU_FREQ= 72
+	MCU_RAM= 20
+        MCU_MAX_CODE_SIZE=36k
+	MCU_FLASH= 128
+	MCU_FLASHB= 131072
+	MCU_RAM= 20480
+	MCU_IDENT= __STM32F103CB__
+	MCU_FLASH_MAP_BASE= 0x0800e800
+	MCU_FLASH_MAP_PAGE_COUNT= 4
+	MCU_FLASH_BASE= 0x0800f800
+	MCU_FLASH_PAGE_COUNT= 66
+	OPENOCD_LOCAL=
+endif
+ifeq ($(MCU),STM32F102CB)
+	MCU_FREQ= 48
+	MCU_RAM= 16
+        MCU_MAX_CODE_SIZE=36k
+	MCU_FLASH= 128
+	MCU_FLASHB= 131072
+	MCU_RAM= 16384
+	MCU_IDENT = __STM32F102CB__
+	MCU_FLASH_MAP_BASE= 0x0800e800
+	MCU_FLASH_MAP_PAGE_COUNT= 4
+	MCU_FLASH_BASE= 0x0800f800
+	MCU_FLASH_PAGE_COUNT= 66
+	OPENOCD_LOCAL=
+endif
+ifeq ($(MCU),MH2103ACB)
+	MCU_FREQ= 96
+	MCU_RAM= 20
+        MCU_MAX_CODE_SIZE=36k
+	MCU_FLASH= 128
+	MCU_FLASHB= 131072
+	MCU_RAM= 20480
+	MCU_IDENT = _MH2103ACB__
+	MCU_FLASH_MAP_BASE= 0x0800e800
+	MCU_FLASH_MAP_PAGE_COUNT= 4
+	MCU_FLASH_BASE= 0x0800f800
+	MCU_FLASH_PAGE_COUNT= 66
+	OPENOCD_LOCAL="-c set CPUTAPID 0x2ba01477"
+endif
+
+ifeq ($(MCU_IDENT),none)
+$(error Unknown MCU [${MCU_IDENT}])
+endif
+#########################################################################
 ARMGNU = arm-none-eabi
 MCU_SPEC  = cortex-m3
 
@@ -48,17 +128,20 @@ CFLAGS += -ffreestanding -fno-unwind-tables -fno-exceptions  -nostdlib -nostartf
 
 CFLAGS += -fmessage-length=0
 CFLAGS += -ffunction-sections
-LDFLAGS += -mcpu=$(MCU_SPEC)
-LDFLAGS += -mthumb
-LDFLAGS += -Wall
+#LDFLAGS += -mcpu=$(MCU_SPEC)
+#LDFLAGS += -mthumb
+#LDFLAGS += -Wall
 CFLAGS += --specs=nosys.specs
-LDFLAGS += -nostdlib
+#LDFLAGS += -nostdlib
 #LDFLAGS += -lgcc
-LDFLAGS += -mapcs-frame
-LDFLAGS= -Wl,-gc-sections
+#LDFLAGS += -mapcs-frame
+
+LDFLAGS  = -Wl,-gc-sections
+LDFLAGS += -Xlinker --defsym=CFG_CODE_SIZE=$(MCU_MAX_CODE_SIZE)
+LDFLAGS += -Xlinker --defsym=CFG_RAM_SIZE=$(MCU_RAM)
+
 TARGET = targets/STM32F102/
 BUILD = build/STM32F102/
-
 
 #CFLAGS += -DSERIAL_DEBUG
 
@@ -81,8 +164,11 @@ CFLAGS += -DTRANSMISSION_PROTOCOL_MODE_NEGOTIABLE
 CFLAGS += -DT1_TRANSPORT
 CFLAGS += -DT1_IFS=254
 
-CFLAGS += -DFLASH_BASE="((uint8_t*)0x0800f800)"
-CFLAGS += -DFLASH_MAP_BASE="((uint8_t*)0x0800e800)"
+CFLAGS += -DFLASH_BASE=$(MCU_FLASH_BASE)
+CFLAGS += -DFLASH_PAGE_COUNT=$(MCU_FLASH_PAGE_COUNT)
+CFLAGS += -DFLASH_MAP_BASE=$(MCU_FLASH_MAP_BASE)
+CFLAGS += -DFLASH_MAP_PAGE_COUNT=$(MCU_FLASH_MAP_PAGE_COUNT)
+CFLAGS += -DCORE_FREQ=$(MCU_FREQ)
 
 HAVE =          -DRSA_BYTES=128
 HAVE +=         -DE_BITS=5
@@ -188,30 +274,21 @@ $(BUILD)/card.elf:	builddir $(TARGET)/STM32F10x_init.S $(TARGET)/STM32F10x_dev_i
 $(BUILD)/card.bin:	$(BUILD)/card.elf
 	$(OC) -S -O binary $(BUILD)/card.elf $(BUILD)/card.bin
 
+program:	$(BUILD)/card.bin
+	openocd $(OPENOCD_LOCAL) -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
 
-programSTM:	$(BUILD)/card.bin
-	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
+read:
+	openocd $(OPENOCD_LOCAL) -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F10x_flash_read.bin 0 $(MCU_FLASHB)"  -c "reset" -c "shutdown"
 
-readSTM:
-	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F102CB_flash_read.bin 0 131072"  -c "reset" -c "shutdown"
+unlock:
+	openocd $(OPENOCD_LOCAL) -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
 
-unlockSTM:
-	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
+lock:
+	openocd $(OPENOCD_LOCAL) -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x lock 0" -c "reset halt" -c "reset" -c "shutdown"
 
-readoptionsSTM:
-	openocd -f interface/stlink.cfg -f target/stm32f1x.cfg -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
+readoptions:
+	openocd $(OPENOCD_LOCAL) -f interface/stlink.cfg -f target/stm32f1x.cfg  -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
 
-programMH:	$(BUILD)/card.bin
-	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "flash write_image erase $(BUILD)/card.bin 0x08000000 bin" -c "reset" -c "shutdown"
-
-readMH:
-	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "flash read_bank 0 STM32F102CB_flash_read.bin 0 131072"  -c "reset" -c "shutdown"
-
-unlockMH:
-	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "stm32f1x unlock 0" -c "reset halt" -c "stm32f1x mass_erase 0" -c "reset" -c "shutdown"
-
-readoptionsMH:
-	openocd -f interface/stlink.cfg -f targets/STM32F102/MH2103A.cfg -c init -c "reset halt" -c "stm32f1x options_read 0" -c "reset" -c "shutdown"
 
 # option byte register = 0x3fffc3c
 # write protection register = 0xffffffff

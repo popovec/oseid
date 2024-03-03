@@ -51,13 +51,21 @@ not a problem.
 
 // flash page size and how many pages we have available
 // (real capacity is FLASH_PAGE_SIZE * (FLASH_PAGE_COUNT - 1)
+#ifndef FLASH_PAGE_SIZE
 #define FLASH_PAGE_SIZE 1024U
+#endif
+#ifndef FLASH_PAGE_COUNT
 #define FLASH_PAGE_COUNT 66
+#endif
 
 // map is in flash but on another device maybe in another flash/eeprom
 // map page size, and how many pages we have available
+#ifndef FLASH_MAP_PAGE_SIZE
 #define FLASH_MAP_PAGE_SIZE 1024U
+#endif
+#ifndef FLASH_MAP_PAGE_COUNT
 #define FLASH_MAP_PAGE_COUNT 4
+#endif
 
 #ifndef FLASH_BASE
 uint8_t *flash_hw_get_base(void);
@@ -128,6 +136,14 @@ uint8_t checkflash[FLASH_PAGE_SIZE * FLASH_PAGE_COUNT];
 #undef FLASH_MAP_BASE
 #define FLASH_BASE	(testflashx)
 #define FLASH_MAP_BASE	(testflashmapx)
+#undef FLASH_PAGE_SIZE
+#define FLASH_PAGE_SIZE 1024U
+#undef FLASH_MAP_PAGE_SIZE
+#define FLASH_MAP_PAGE_SIZE 1024U
+#undef FLASH_PAGE_COUNT
+#define FLASH_PAGE_COUNT 66
+#undef FLASH_MAP_PAGE_COUNT
+#define FLASH_MAP_PAGE_COUNT 4
 uint8_t compare_whole_flash()
 {
 	int ret;
@@ -224,13 +240,6 @@ static int flash_hw_write_data(void *dst, void *src, uint16_t size)
 }
 #endif
 
-#ifndef FLASH_BASE
-#error Missing flash start address
-#endif
-#ifndef FLASH_MAP_BASE
-#error Missing flash map start address
-#endif
-
 static struct flash_page_map *flash_map_next(struct flash_page_map *page)
 {
 	page++;
@@ -286,7 +295,7 @@ static int
 		{
 			int erase_start = ((uint8_t *) test - (uint8_t *) FLASH_MAP_BASE);
 			erase_start /= FLASH_MAP_PAGE_SIZE;
-			if (flash_hw_erase_page(FLASH_MAP_BASE + erase_start * FLASH_MAP_PAGE_SIZE))
+			if (flash_hw_erase_page((uint8_t *)FLASH_MAP_BASE + erase_start * FLASH_MAP_PAGE_SIZE))
 				return FS_COW_FLASH;
 		}
 	}
@@ -447,7 +456,7 @@ uint8_t flash_device_write_block(void *buffer, uint32_t offset, uint32_t size)
 		}
 		// write new page
 		if (index < FLASH_PAGE_COUNT) {
-			if (flash_hw_write_data((FLASH_BASE + index * FLASH_PAGE_SIZE),
+			if (flash_hw_write_data((uint8_t *)(FLASH_BASE + index * FLASH_PAGE_SIZE),
 						page_buffer, FLASH_PAGE_SIZE))
 				return FS_COW_FLASH;
 		}
@@ -466,7 +475,7 @@ uint8_t flash_device_write_block(void *buffer, uint32_t offset, uint32_t size)
 			return FS_COW_FLASH;
 		// the page that has become free will be erased
 		if (erase_index < FLASH_PAGE_COUNT) {
-			if (flash_hw_erase_page(FLASH_BASE + erase_index * FLASH_PAGE_SIZE))
+			if (flash_hw_erase_page((uint8_t *)(FLASH_BASE + erase_index * FLASH_PAGE_SIZE)))
 				return FS_COW_FLASH;
 		}
 	}

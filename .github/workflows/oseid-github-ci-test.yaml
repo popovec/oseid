@@ -22,7 +22,7 @@ jobs:
           make -f Makefile.xmega128a4u
           make -f Makefile.atmega128
           make -f Makefile.simulavr
-          make -f Makefile.STM32F102
+          make -f Makefile.STM32F10x
           cd ..
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
