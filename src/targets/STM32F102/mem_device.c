@@ -26,9 +26,11 @@
 #include "mem_device.h"
 #include "flash_cow_dev.h"
 
-#if SEC_MEM_SIZE > 1024
+#if SEC_MEM_SIZE != 1024
 #error please recheck SEC_MEM_SIZE
 #endif
+
+#define DEV_SIZE ((FLASH_PAGE_COUNT - 2) * 1024)
 // size 0 is interpreted as 256!
 uint8_t sec_device_read_block(void *buffer, uint16_t offset, uint8_t size)
 {
@@ -73,7 +75,7 @@ uint8_t device_read_block(void *buffer, uint16_t offset, uint8_t size)
 
 	s = size ? size : 256;
 	overflow = offset + s - 1;
-	if (overflow > 65536)
+	if (overflow > DEV_SIZE)
 		return 1;
 	return flash_device_read_block(buffer, offset + 1024, s);
 }
@@ -98,7 +100,7 @@ uint8_t device_write_ff(uint16_t offset, uint8_t size)
 
 	s = size ? size : 256;
 	overflow = offset + s - 1;
-	if (overflow > 65536)
+	if (overflow > DEV_SIZE)
 		return 1;
 	memset(ffblock, 0xff, sizeof(ffblock));
 	return flash_device_write_block(ffblock, offset + 1024, s);
@@ -109,7 +111,7 @@ uint8_t device_format()
 	uint8_t ffblock[1024];
 
 	memset(ffblock, 0xff, sizeof(ffblock));
-	for (int i = 0; i < 64; i++)
+	for (int i = 0; i < (FLASH_PAGE_COUNT - 2); i++)
 		if (flash_device_write_block(ffblock, 1024 + i * 1024, 1024))
 			return 1;
 	return 0;

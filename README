@@ -5,6 +5,11 @@ the STM32F102CB/STM32F103CB/MH2103CB ARM processor.
 
 ST LINK V2 device is used as hardware.
 
+Alternatively, the STM development board "Bluepill" can also be used as
+hardware.  Bluepill is equipped with an STM32F103C8 processor, but it only
+has 64kB of flash memory, so the space for certificates and keys will be
+smaller (24kB).
+
 STLINK V2 can be found on the Internet at prices below 10 EUR and contain
 some of the above processors.
 
@@ -13,7 +18,7 @@ how to create a GNUK token on STLINKv2 hardware.  Follow the same procedure,
 just use the OsEID software from this branch instead of the GNUK software.
 
 Basic instructions for compiling and flashing the hardware can be found in
-Makefile.STM32F102
+Makefile.STM32F10x
 
 There is currently no further documentation for the ARM implementation of OsEID.
 

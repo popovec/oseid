@@ -56,7 +56,10 @@ static void enable_GPIOA_clock()
 	address[0x18 / 4] |= 4;
 }
 
-#ifdef __STM32F102CB__
+#ifndef CORE_FREQ
+#define CORE_FREQ 72
+#endif
+#if CORE_FREQ == 48
 static void __attribute__((unused)) RCC_setup()
 {
 /*
@@ -119,7 +122,7 @@ static void __attribute__((unused)) RCC_setup()
 	address[0x18 / 4] = (1 << 9);
 
 }
-#elif defined(__MH2103ACB__)
+#elif CORE_FREQ == 96
 static void RCC_setup()
 {
 /*

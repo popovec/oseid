@@ -60,7 +60,7 @@ int flash_hw_erase_page(void *address)
 	int i = 256;
 	uint32_t test = 0xffffffff;
 
-	if ((uint8_t *) address < (uint8_t *) 0x0800e800)
+	if ((uint8_t *) address < (uint8_t *) FLASH_MAP_BASE)
 		return 1;
 	if ((uint8_t *) address >= (uint8_t *) 0x08020000)
 		return 1;
@@ -105,7 +105,7 @@ int flash_hw_write_data(void *dst, void *src, uint16_t size)
 	uint8_t *test = (uint8_t *) dst;
 	uint16_t i;
 
-	if (test < (uint8_t *) 0x0800e800)
+	if (test < (uint8_t *) FLASH_MAP_BASE)
 		return 1;
 	if (test + size > (uint8_t *) 0x08020000)
 		return 1;
