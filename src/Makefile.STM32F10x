@@ -1,10 +1,15 @@
 # on debian systems install:
 # apt-get install openocd gcc-arm-none-eabi binutils-arm-none-eabi
 #
-# Please, check if your STLINKv2 is based on STM32F102/STM32F103 MCU or
-# MH2103 MCU. Depends on it use default MCU = STM32F103CB
+# Please, check if your STLINKv2 (which you want to change to OsEID ARM
+# token) is based on STM32F102CB/STM32F103CB MCU or MH2103 MCU.
+#
+# To program STM32F103CB (default) use:
+#
 # make -f Makefile.STM32F10x program
+#
 # or specify MCU:
+#
 # make -f Makefile.STM32F10x program MCU=MH2103ACB
 #
 # optional:
@@ -12,28 +17,22 @@
 #
 # Unlock and erase device
 # make -f Makefile.STM32F10x unlock
-
+#
 # (You may have to ground the reset pin (by shorting pin 7 and 8)
 #
 # After locking/unlocking, a power cycle is required for the new setting to
 # take effect
 #
-
-# Default is STM32F103CB, but if your MCU is STM32F102CB, you may have a
-# problem with the fact that it runs at 72MHz, but the manufacturer allows
-# only 48MHz. In that case below enable STM32F102CB.
-# The MH2103ACB is running at 96 MHz - this is STM32F103CB clone.
-# select MCU here or on comand line (according to the example given above)
-
-#MCU = STM32F102CB
-#MCU = STM32F103CB
-#MCU = MH2103ACB
+# Tested:
+# MCU=STM32F102CB
+# MCU=STM32F103CB
+# MCU=MH2103ACB
+#
 # untested, it should work on Bluepill where there is only 64kB flash
-
 # Some of the Bluepill boards are equipped with CKS32F103C8T6 processor,
 # this is STM32F103C8 clone ..  OPENOCD_LOCAL will need to be adjusted
 #
-#MCU = STM32F103C8
+# MCU=STM32F103C8
 #
 ##########################################################################
 
@@ -140,10 +139,13 @@ LDFLAGS  = -Wl,-gc-sections
 LDFLAGS += -Xlinker --defsym=CFG_CODE_SIZE=$(MCU_MAX_CODE_SIZE)
 LDFLAGS += -Xlinker --defsym=CFG_RAM_SIZE=$(MCU_RAM)
 
-TARGET = targets/STM32F102/
-BUILD = build/STM32F102/
+TARGET = targets/STM32F10x/
+BUILD = build/STM32F10x/
 
-#CFLAGS += -DSERIAL_DEBUG
+OsEID_ARM_DEBUG ?= 0
+ifeq ($(OsEID_ARM_DEBUG),1)
+CFLAGS += -DSERIAL_DEBUG
+endif
 
 # precalculate inverse P and Q into key file
 CFLAGS += -DUSE_P_Q_INV
