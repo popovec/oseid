@@ -11,7 +11,7 @@ Peter Popovec <popovec.peter@gmail.com>
               Card is supported by OpenSC with MyEID driver.
 
 
-Copyright (C) 2015-2021 Peter Popovec <popovec.peter@gmail.com>
+Copyright (C) 2015-2024 Peter Popovec <popovec.peter@gmail.com>
 
 Introduction
 ------------
@@ -19,6 +19,7 @@ Introduction
 OsEID is amateur/hobby smart card with <<RSA>> and <<EC>> cryptography
 support.  It is designed on low cost and easily accessible microcontroller
 Microchip AVR128DA32 or ATMEGA128.
+
 
 image:images/OsEID_AVR128DA_1_200.png[OsEID_AVR128DA]
 image:images/card_3x_200.png[OsEID_ATMEGA]
@@ -30,11 +31,23 @@ built in OsEID card.
 [%autofit]
 image::images/token2.png[OeEID-token]
 
+Note:[From 2022 (during the covid epidemic) the AVR microcontroller is not
+so easily available.  xmega128a4u is even worse available]
+
+<<<
+OsEID ARM based token amateur/hobby USB token based on STLINK V2 clones
+available from internet with STM32F103CB processor (or STM clone - MH2103A
+CB processor).
+
+[%autofit]
+image::images/OsEID_ARM_token.png[OsEID_ARM]
+
+
 Project website
 ---------------
 
 OsEID projects releases can be found at  at https://oseid.sourceforge.io or https://sourceforge.net/projects/oseid/
-
+Developer versions are available at https://github.com/popovec/oseid
 
 Features
 ~~~~~~~~
@@ -42,7 +55,8 @@ Features
 * Open source code (ASM and C)
 * OsEID card  - simple mechanical construction, only one integrated circuit!
 * OsEID token - single sided PCB, only 15 components
-* Based on easily accessible microcontroller Microchip AVR128DA / xmega128A4U
+* OsEID ARM token - based on cheap hardware that can be bought as a STLINK V2 clone from the Internet.
+* Based on microcontroller AVR128DA / xmega128A4U or STM32F103CB
 * ISO 7816 compatible 
   note:[Not all ISO specifications are respected, for example, card thickness cannot be accomplished.]
 * support for A,B and C class (ISO7816-3, operating voltage 1.8, 3.3 and 5V)
@@ -78,6 +92,7 @@ Drawbacks
   ** about 10.7 seconds for 2048 bit key / token about 10 seconds,
   ** about  5.3 seconds for 1536 bit key / token about 4.9 seconds,
   ** about  1.8 seconds for 1024 bit key / token about 1.7 seconds,
+  ** OsEID ARM token (STM32F103CB/72MHz) below 1.4 second for 2048 bit key
 * RSA key generation is really slow
 * EC operations for keys > 256 is slow, ECDSA operation timing:
   ** secp521r1  about 4.8 seconds / token about 4.4 seconds
@@ -85,9 +100,11 @@ Drawbacks
   ** prime256v1 about 1.2 seconds / token about 1.1 seconds
   ** prime192v1 below 0.6  second / token below 0.5 second
   ** secp256k1  about 2.1 seconds / token about 2 seconds
+  ** OsEID ARM token below 1 second for 521 bit key
 * not perfect constant time EC operations
 * OsEID card - ESD (electrostatic discharge) protection implemented only on token
-
+* OsEID ARM token: Device (STM32F103CB) security is weak.  Anyone who
+  borrows your token can read the keys from that token within about 1 hour.
 
 
 OsEID - MyEID differences
@@ -105,13 +122,7 @@ OsEID disadvantages to MyEID card (mechanical)
 
 OsEID disadvantages to MyEID card applet version 4.X:
 
-(These functionalities are not supported by MyEID driver in OpenSC up to
-0.18, perhaps OsEID will support these functions in future)
-
 - RSA - only value 65537 is allowed as public exponent
-- experimental support for symmetric encrypt/decrypt - DES and AES
-- experimental support for key unwrap
-- experimental support for key wrap
 - experimental challenge response PIN
 - experimental Admin state and Global unblocker state
 - no PIV/CIV emulation
@@ -127,8 +138,8 @@ OsEID disadvantages to MyEID card applet version 4.X:
 
 experimental = feature is supported by OsEID card, but original MyEID card
 function can work differently.  There is no enough information in MyEID
-applet reference manual 2.1.4/2/2.3.0 and no OpenSC implementation to test
-all functions.
+applet reference manual 2.1.4/2/2.3.0/2.4.1 and no OpenSC implementation to
+test all functions.
 
 OsEID disadvantages to MyEID card, applet version below 3.5:
 
@@ -190,6 +201,7 @@ pkcs11-tool --decrypt --slot 1 -m RSA-PKCS ..
 |  key size               | 512 | 768 | 1024 | 1536 | 2048
 |OsEID card  (5 keys)     | 2.7 | 3.0 |  3.9 |  7.4 | 12.7
 |OsEID token (5 keys)     | 1.2 | 1.4 |  2.3 |  5.5 | 10.6
+|OsEID ARM   (5 keys)     | -   |  -  |   -  |  -   |  2.0
 |MyEID (3.3.3) (1 key)    | -   |  -  |  2.7 |  -   |  -
 |MyEID (4.0.1) (2 keys)   | -   |  -  |  3.8 |  -   |  -
 |MyEID (3.3.3) (5 keys)   | 3.4 | 3.4 |  3.4 |  3.6 |  3.8
@@ -223,6 +235,7 @@ tests 4.8 MHz reader was used (opensc 0.21.0)
 |MyEID (4.0.1)        | 1.2   | 1.6    | 1.3   |  3.3  | 0.16  | 0.26
 |OsEID card           | 1.4   | 2.2    | 2.3   |  3.0  | 0.55  | 1.2
 |OsEID token          | 0.7   | 1.3    | 1.1   |  1.7  | 0.46  | 1.1
+|OsEID ARM token      |  -    |  -     | 0.25  |  0.45 |  -    |  -
 |=====================================================================
 
 As You can see, raw time is significant better for MyEID card, but whole ECC
@@ -238,6 +251,7 @@ OsEID card/token results:
 |             2+| pkcs15-crypt 2+| pkcs11-tool 2+|    raw
 |OsEID card     | 3.2   | 5.4    | 3.7   |  5.9  |  2.6  | 4.8
 |OsEID token    | 2.5   | 4.6    | 3.0   |  5.0  |  2.3  | 4.4
+|OsEID ARM token|  -    |  -     |  0.7  |  1.0  |  -    |  -
 |==============================================================
 
 NOTE: raw measurement - the starting time  of the measurement is before
@@ -254,7 +268,7 @@ OsEID benefits to MyEID card:
 - for people who don't trust commercial solutions because of backdoors
 - for people who are happy to make a card by themselves
 - card and reader simulation (without real card/reader)
-- AES192 (MyEID reference manual 2.1.4 documents only AES128 and AES256)
+- AES192 (MyEID reference manual 2.4.1 documents only AES128 and AES256)
 
 
 Disclaimer
@@ -310,7 +324,7 @@ https://www.tme.eu/en/details/avr128da32-i_pt/8-bit-avr-family/microchip-technol
 https://uk.farnell.com/microchip/avr128da32-e-pt/mcu-8bit-avr-24mhz-tqfp-32/dp/3481939?st=AVR128DA32
 https://www.digikey.com/product-detail/en/microchip-technology/AVR128DA32-I-PT/150-AVR128DA32-I-PT-ND/12081922
 
-Price of this component is below 2E.
+Price of this component is about 2E.
 
 In years 2015-2019 the  OsEID project, used the Atmega128 microcontroller.
 This component is still supported by OsEID project, but because price of
@@ -331,7 +345,7 @@ PCB producer.  Your producer needs Gerber file or PDF file or simple image
 as a manufacturing data for PCB production.  Please check download section
 for these files.  Thickness of PCB must be about 0.8mm to meet dimensions of
 card recommended by ISO/IEC 7810.  Picture of PCB is also included in
-<<appendixA,appendix A>>.
+<<appendixA>> .
 
 Soldering microcontroller to PCB
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -357,7 +371,7 @@ specification, which defines thickness of card to 0.76mm with tolerance
 +0.08mm.
 
 PCB dimensions must also match ISO/IEC 7810 specification: width 85.47mm -
-85.72mm and height 53.92mm - 54.03mm, and corner radiuses in range 2.88 to
+85.72mm and height 53.92mm - 54.03mm, and corner radius in range 2.88 to
 3.48mm.
 
 It is assumed that you have plenty of mechanical skills and experience with
@@ -575,8 +589,10 @@ Building OsEID-token
 ~~~~~~~~~~~~~~~~~~~~
 
 Only partial information here, schematics, PCB and list of components is in
-Appendix D.  It is assumed that only a skilled technician will try to
+<<OsEID_token>>.  It is assumed that only a skilled technician will try to
 build this device.
+
+Information about OsEID ARM token can be found in <<OsEID_ARM_token>> .
 
 <<<
 
@@ -590,8 +606,7 @@ of OpenSC package.  Download and install *pcscd* and *pcsc-tools* package.
 According to your card reader, you will need to install specific driver for
 your reader (for example *libccid* or *libacr38u* package, ..  )
 
-Windows users: download and install OpenSC 0.17.  (version 0.18 - 0.21 is only
-partially tested, please read comments about minidriver configuration below)
+Windows users: download and install OpenSC 0.23 or newer.
 
 
 Base functionality
@@ -679,6 +694,16 @@ firmware 20190102 or older, you need one more configuration directive in
         }
 ----
 
+If your OpenSC version is 0.24 or newer, and your using OsEID card with
+older firmware (like from 2024), you need to disable file cache, edit
+*/etc/opensc/opensc.conf*,  *app default* section:
+
+----
+        framework pkcs15 {
+                use_file_caching = no;
+        }
+----
+
 It is recommended that you install oseid profile files into OpenSC profile
 directory (usually /usr/share/opensc/). Profile files for different versions
 of OpenSC can be found in download directory.
@@ -693,13 +718,13 @@ Windows minidriver configuration
 If you plan to use OsEID card in Win 10 (for example in EDGE browser etc.) you
 need install *OpenSC* package
 
-OpenSC version 0.22.0-rc1 functionality with OsEID card has been tested in
+OpenSC version 0.23.0 functionality with OsEID card has been tested in
 WIN 10, *certutil* command is fully functional and TLS client auth in *EDGE*
 browser is working.
 
 To use OsEID card, with minidriver, you need to update  your registry file.
 Please use OsEID.reg file from download section. Here example used for
-opensc 0.22.0-rc1:
+opensc 0.23.0:
 
 ----
 [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography\Calais\SmartCards\OsEID-old]
@@ -773,15 +798,20 @@ There exists only one file on card. This is file with ID 3F00 - master file
 Card initialization (creation of pkcs15 structure)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ....
-pkcs15-init -C --so-pin 00000000 --so-puk 00000000 --pin 1111111
+pkcs15-init -C --so-pin 00000000 --so-puk 00000000
 ....
 or better way, determine OpenSC version by running
 ....
 opensc-tool -i
 ....
-Then use oseid profile with the same version as OpenSC (for example 0.20):
+Then use oseid profile with the same version as OpenSC (for example 0.22):
 ....
-pkcs15-init -C -c oseid_0.20 --so-pin 00000000 --so-puk 00000000 --pin 1111111
+pkcs15-init -C -c oseid_0.22 --so-pin 00000000 --so-puk 00000000
+....
+If you are using an OpenSC version lower than 0.22,.0, it is advisable to also
+enter the user PIN:
+....
+pkcs15-init -C -c oseid_0.22 --so-pin 00000000 --so-puk 00000000 --pin 11111111
 ....
 
 
@@ -874,16 +904,23 @@ INIT - do initialization of token by pkcs15-init
 EC-CREATE-KEYS - use openssl to generate EC keys
 EC-UPLOAD-KEYS - upload EC keys into initialized token
 EC-GENERATE-KEYS  - generate keys on card
-EC-SIGN-TEST - sign sample text by ECDSA operation and test this signature
+EC-SIGN-TEST - sign sample text by ECDSA operation and verify this signature
+EC-SIGN-PKCS11-TEST - sign (pkcs11-tool, several mechanisms), check results
 EC-ECDH-TEST - generate shared secrets and test shared secrets
 RSA-CREATE-KEYS -  use openssl to generate RSA keys
 RSA-UPLOAD-KEYS - upload RSA keys into initialized token
 RSA-GENERATE-KEYS - generate RSA key on card
-RSA-SIGN-TEST - sign sample text with token RSA operation and test this signature
-RSA-DECRYPT-TEST - decrypt test data
+RSA-SIGN-TEST - sign (raw, pkcs15-tool) and verify signature
+RSA-SIGN-PKCS11-TEST - sign (pkcs11-tool, several mechanisms), check results
+RSA-DECRYPT-TEST - decrypt test
+UNWRAP-WRAP-TEST
+ERASE-CARD - return card to creation state
 PKCS11-RSA-TEST - pkcs11-tool full test on RSA keys
+PKCS11-EC-TEST - pkcs11-tool full test on EC keys
 CSR [key] [subject] - generate certificate signing request
 CRT [key] [subject] - generate self signed certificate
+DES-AES-UPLOAD-KEYS - upload 3DES, AES 128 and AES 256 key
+SYM-CRYPT-TEST - AES ECB/CBC/CBC-PAD
 RND-TEST - test random generator entropy
 ----
 
@@ -947,7 +984,7 @@ In what application I can use this smart card ?
 
 * openssh - private rsa key can be stored on card
 * Firefox - secure login into web pages
-* windows Edge - secure login into web pages (tested with opensc 0.17)
+* windows Edge - secure login into web pages (tested with opensc 0.23)
 * Thunderbird - sign and decrypt emails
 * openvpn - secure login to openvpn server
 * easy-rsa - sign certificates by private key on card
@@ -965,7 +1002,7 @@ I found a bug in OsEID card, where can I report it ?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 You can contact me (author) by email <popovec.peter@gmail.com>
-
+Another option is to report an issue at https://github.com/popovec/oseid
 
 
 <<<
@@ -1048,8 +1085,7 @@ protocol to transport APDU from application to card and from card.  This low
 level transport uses Transport Protocol Data Unit - TPDU.
 
 APDU is mapped into TPDU, but mapping depends on card communication
-protocols.  OsEID card uses T0 protocol.  T0 protocol is byte oriented
-protocol.  OsEID token can use T0 or T1 protocol.
+protocols. OsEID card/token can use T0 or T1 protocol.
 
 
 APDU mapping to T0 protocol
@@ -1396,7 +1432,7 @@ about this, please read ISO7816-3/11.  APDU is splitted into *I* frames and
 then reassembled in card back to original APDU.  State machine for this can
 be found in opensource project <<CCIDusb>>, in directory src/towitoko/ and
 src/openct/proto-t1.c.  Reverse joining of *I* frames can be found in OsEID
-sources, in file targets/xmega128a4u/ccid.c. Of course, response APDU is
+sources, in file src/card_os/T1_transport.c. Of course, response APDU is
 splitted in card and reassembled in reader/host.
 
 
@@ -1414,9 +1450,18 @@ maximal message length is 261 bytes. Because *I* frames are chained, there
 is no limitation in transport of extended APDU over T1 protocol, T0 is
 limited - max 255 bytes in DATA field.
 
-In this documentation APDU - TPDU mapping is described for all commands (T0
-protocol).  Bytes CLA, INS, P1, P2 from APDU is mapped to TPDU without
-change, byte P3 in TPDU is mapped to *Lc* or *Le* field of APDU.
+There is no problem to determine APDU case if T1 protocol is used. Simple
+check of APDU length allow us to determine ADPU case:
+
+- CASE 1: APDU lenght 4 bytes (no *Lc*, *Le* field)
+- CASE 2: APDU length 5 (SHORT) or 7 bytes (EXTENDED) (one or three bytes
+  for *Le* field)
+- CASE 3: ADPU length 5 + *Lc* bytes (*Lc* is determined from APDU byte 5,
+  in case of APDU byte 5 is zero, this is EXTENDED APDU, and bytes 6,7
+  represents the *Lc* field)
+- CASE 4: same as case 3, but SHORT ADPU is one byte longer (*Le* field), or
+  on case of EXTENDED APDU the APDU is two bytes longer (*Le* field).
+
 
 APDU chaining
 ~~~~~~~~~~~~~
@@ -1448,10 +1493,14 @@ file, header, file....  header, file.  Simplicity of filesystem limits file
 delete operation.  Delete operation only marks file as deleted. 
 Deallocation of file space is available only for files at end of filesystem. 
 There does not exist any CRC data checks or other consistency check in
-filesystem.  (Already a BETA version of FLASH friendly COW filesystem
-exists, with CRC and other features, but not open source for now.  Because
-of the code size it may not be available at all.  The development is
-currently frozen.)
+filesystem.  Already a BETA version of FLASH friendly COW filesystem exists,
+with CRC and other features, but not open source for now.  Because of the
+code size it may not be available at all (atmega/xmega/AVR device).  The
+development is currently frozen.
+
+There is enough space for firmware in the STM32F103CB processor used in
+OsEID ARM token.  This implementation uses FLASH in COW mode and emulates
+EEPROM in flash. Simple wear leveling is also implemented.
 
 File size is limited to max 32767 bytes, DF files are always auto sized.  If
 DF file is created, only the space for file header is allocated in card.  DF
@@ -1597,7 +1646,7 @@ For rest of commands P2 is 0 or 0x0c:
   file matches ID.  If this fails too, file in neighbors of selected
   file is searched. (CASE 3/4)
 
-- P2 = 0x0c - do not return <<FCI>>/<<FCP>>/<<FMD>>. This is usefull for T0
+- P2 = 0x0c - do not return <<FCI>>/<<FCP>>/<<FMD>>. This is useful for T0
   protocol, where Ne is assumed to be 256.  Same functionality can be achieved
   if T1 protocol is used and *Le* is not present in APDU.
 
@@ -1703,7 +1752,7 @@ allowed values:
 0x29	EF proprietary, for AES key
 0x38	DF
 0x41	EF Generic secret file (this file can not be used for
-           cryptographics operation)
+           cryptographic operation)
 ----
 Any value can be orred with value 0x40, this mark file as shareable.
 
@@ -2337,7 +2386,7 @@ Only proprietary EF files can be used to hold key data. Please use
 the _File description byte_ values as described in the CREATE FILE
 command.
 
-For DES,  allowed size are: 56 or 64 bytes = standard DES, 128 bytes 2DES
+For DES,  allowed size are: 64 bytes = standard DES, 128 bytes 2DES
 (EDE mode), 256 bytes for 3DES (EDE mode).
 
 For AES,  allowed sizes are: 128, 192, or 256 bytes.
@@ -2820,26 +2869,13 @@ APDU chaining is available in OsEID card, for 2048 raw signature this
 transport is preferred.  (MyEID from version 4.5.X allow use of APDU
 chaining too).
 
-+
-Alternatives not supported by OsEID:
-
-*   P2 = ACh BER-TLV data (only value field is to be signed) in data field
-*   P2 = BCh BER-TLV to be signed in data field
-*   Lc = 0 data already present in card
-
 . Encipher plaintext (DES/3DES/AES128/AES192/AES256)
 
-*   CLA = 80h
+*   CLA = 00h or 0x80h
 *   P1 = 84h - return encrypted data
 *   P2 = 80h - plaintext in data field
 *   P2 = 00h - data field absent, use data from file (wrap)
 *   Lc = length of plaintext
-
-+
-Alternatives not supported by OsEID:
-
-*   P1 = 82h return encrypted SM object
-*   P1 = 86h return encrypted data (this depend on padding indicator)
 
 . Decipher ciphertext (RSA/DES/3DES/AES128/AES192/AES256)
 
@@ -2847,54 +2883,13 @@ Alternatives not supported by OsEID:
 *  P1 = 0 - no data is to be returned, result of operation is in file
             specified in security environment (tag 0x84) - used in UNWRAP operation
 *  P1 = 80h - return plain value
-*  P2 = 84h - data field contain ciphertext (Experimental)
+*  P2 = 84h - data field contain ciphertext
 *  P2 = 86h - data field contain padding indicator, then partial or full ciphertext
 *  Lc = length of ciphertext/ciphertext part + length of padding indicator if used
 
 APDU chaining is available in OsEID card, for 2048 decipher operation  this
 transport is preferred.  (MyEID from version 4.5.X allow use of APDU
 chaining too).
-
-+
-Alternatives not supported by OsEID:
-
-*   P2 = 82h encrypted SM objects in data field
-
-Rest of commands are not supported by OsEID:
-
-. Compute Cryptographic Checksum
-
-*   P1 = 0x8E
-*   P2 = 0x80
-
-. Verify Cryptographic Checksum
-
-*   P1 = 0    - do no return any data
-*   P2 = 0xA2
-
-+
-   Return codes are 0x9000, 0x6987 - checksum fail, 0x6988 - SM object(s) incorrect
-
-. Verify Digital Signature
-
-*  P1 = 0  - do not return any data (SW1,2 is used to test if signature is valid)
-*  P2 = 0xA8
-
-. Verify certificate
-
-*  P1 - 0x00  do not return any data (SW1,2 is used to test if cert is valid)
-*  P2 - 0x92
-*  P2 - 0xBE, or 0xAE self-descriptive/non-self descriptive certificate
-
-*   data      Certificate in the data field, signed signature input consists of non
-              BER-TLV-coded data: the certificate content is a concatenation of
-	      <<DE>>s)
-. Hash
-
-*   P1 = 0x90
-*   P2 = 0x80 or 0xa0
-
-
 
 
 Padding methods
@@ -2929,26 +2924,6 @@ decipher P2 = 0x86 is requested.  OsEID allows both values for AES/DES/RSA
 decipher.  OsEID allows arbitrary length of ciphertext parts for padding
 indicators 81h and 82h.  MyEID manual 2.1.4 defines use of this padding
 indicators for 2048 bit keys.
-
-OsEID does not support templates for now, but for completeness:
-
-Templates:
-0xA0 - Input template to calculate the hash code (template hashed)
-0xA2 - Input template for checking a cryptographic checksum (template is integrated)
-0xA8 - Digital signature verification input template (template signed)
-0xAC - Input template for calculating the digital signature (the associated value fields are signed)
-0xAE - Certificate Input Verification Template (associated value field certified)
-0xBC - Input template for calculating a digital signature (template signed)
-0xBE - Entry Template for Certificate Verification (Certified Template)
-
-Input data object
-
-0x80 Explicit meaning		All templates
-0x8E Cryptographic checksum	0xA2,0xAE,0xBE
-0x90 Hash			All except 0xA2
-0x92 Certificate		0xAE,0xBE
-0x9C Public key			0xA8,0xAE,0xBE
-0x9E digital signature		0xA8,0xAE,0xBE
 
 
 ECDH security operation is handled by GENERAL AUTHENTICATE command.
@@ -2999,15 +2974,15 @@ Le - number of requested random data (1..255)
 
 Card return 1..255 bytes of random data.
 
-Please read appendix *Random generator implementation* about random number
+Please read <<Random_generator>> about random number
 generator.
 
 Return values:
 - 0x9000 - All OK
 - 0x6f00 - if number of requested bytes is zero.
 
-Note: In future here comes more P1/P2 values, thats allow us to
-authenticate by challenge/response.  There is consideration about requested
+Note: More P1/P2 values are coming in the future, allowing us to
+authenticate with a challenge/response. There is consideration about requested
 number of random data bytes, for Le=0, 256 bytes of random data may be
 returned.
 
@@ -3184,7 +3159,7 @@ Proprietary, DES and AES ciphers ::
 - 80 2A xx xx xx
 
 <<<
-[[appendixD]]
+[[OsEID_token]]
 [appendix]
 OsEID token
 -----------
@@ -3344,7 +3319,131 @@ There is a plan for dual side PCB, with SD card reader. Development of this
 model is frozen for now. 
 
 <<<
-[[appendixE]]
+
+[[OsEID_ARM_token]]
+[appendix]
+OsEID ARM token
+---------------
+
+Why the OsEID ARM token was created
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In recent years, the availability of xmega128a4u processors has deteriorated
+significantly.  A new solution was proposed for people who opted for an
+OsEID token instead of an OsEID card.  The inspiration was the GNUK token.
+Gnuk uses hardware very well available on the Internet - STLINK V2 clone.
+
+Hardware used for OsEID ARM token
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+STLINK V2 is equipped with an ARM Cortex M3 STM32F103CB processor, but in
+some clones you can also find other processors.  For example STM32F102CB or
+STM processor clone MH2013A CB.  These processors contain 128 kB of flash
+memory and 16 to 20 kB of RAM and operate at a frequency of 48 to 72 MHz
+some of the clones even up to 216MHz.
+
+[%autofit]
+image::images/stlinkv2_versions.jpg[OsEID_ARM_VERS]
+
+The PCB is also designed differently, as can be seen from the photo.  On the
+PCB, however, there is an approach for programming the processor in the form
+of 4 contact points.  If you don't find the appropriate contacts on one side
+of the PCB, they will probably be on the other side, you can see more from
+the photo.
+
+[%autofit]
+image::images/stlinkv2_con2.jpg[OsEID_ARM_CON2]
+
+<<<
+
+Firmware installation
+~~~~~~~~~~~~~~~~~~~~~
+
+We also use the STLINK V2 device to upload the OsEID software into this
+"semi-finished product".  We will connect the programmer - STLINK V2 to the
+relevant contact points.  The GND and 3.3V connection can also be made
+outside of these connection points, by connecting the pins on the rear
+connector using connecting wires.  However, connecting to SWDIO and SWCLK of
+the programmed processor cannot be done without soldering or without
+connecting with a probe.  The photo shows the use of a probe for SOP 8
+integrated circuits.
+
+[%autofit]
+image::images/stlinkv2_sop8.jpg[OsEID_ARM_SOP8]
+
+We will check the connection thoroughly, the 3.3V power supply, ground,
+SWDIO and SWCLK from the programmer must be connected to the appropriate
+contacts (DIO, CLK) of the modified STLINK V2.
+
+We must first erase the original firmware.  Here we will probably encounter
+the problem that the programmer cannot connect to the processor, as this has
+a locked firmware, or the SWDIO and SWCLK inputs are disabled by port
+configuration and do not fulfill their function.  We can fix this problem by
+grounding the reset pin of the processor - by simply connecting pins 7 and 8
+with a needle..
+
+[%autofit]
+image::images/stlinkv2_reset.jpg[OsEID_ARM_RESET]
+
+
+The Makefile has prepared commands for storing the firmware using the
+"openocd" and using the STMLIK V2 programmer.
+
+----
+make -f Makefile.STM32F10x unlock
+make -f Makefile.STM32F10x program
+----
+Optionally you can use:
+----
+make -f Makefile.STM32F10x lock
+----
+
+If the MH2103A CB clone is used, it is necessary to use the variable that
+sets the processor type:
+
+----
+make -f Makefile.STM32F10x program MCU=MH2103ACB
+----
+
+
+The firmware is quite sufficient even with 16kB RAM, which is on STM32F102CB
+processors.  This processor has a maximum frequency of 48MHz defined by the
+manufacturer, so the token will be a bit slower.
+
+I found out with great surprise that my MCU STM32F102CB actually also has
+20kB of RAM, and it runs at 72MHz without any problems.  From the
+documentation, it is not clear how the software is supposed to find out
+whether it is a STM32F102CB or an STM32103CB.  According to the
+documentation, only information about the FLASH size is available, but not
+the RAM size.
+
+Similarly, it is possible to use STM32F103C8, which is installed on
+development board "Bluepill".  This processor will of course have less
+space for installed certificates and keys (24kB compared to 64kB on
+STM32F103CB)
+
+<<<
+
+Safety notice
+~~~~~~~~~~~~~
+Attention, this token ensures the protection of your private keys only if
+you do not lend it to anyone.  If someone has this token at their disposal,
+they can read your private keys from it.
+
+In this case, the problem cannot be solved, since even locking the firmware
+in the processor does not solve anything, since most of the FLASH memory can
+be read from the locked processor.  Of course, this is not a problem of
+the OsEID project, and the GNUK project on this processor also suffers from
+this problem.
+
+More information, for example, on these links:
+
+- https://gitlab.zapb.de/zapb/stm32f1-firmware-extractor
+- https://medium.com/@LargeCardinal/how-to-bypass-debug-disabling-and-crp-on-stm32f103-7116e7abb546
+- https://www.usenix.org/system/files/woot20-paper-obermaier.pdf
+
+<<<
+[[appendixF]]
 [appendix]
 AVR arithmetics
 ---------------
@@ -3623,7 +3722,7 @@ EC calculation uses projective coordinates.  Lot of code is inspired by NIST
 curves and for secp256k1 curve.  EC point multiplication is designed as
 constant time, with multiplication window of 4 bits.  Point multiplication
 is blinded.  For each supported curve, a separate fast reduction algorithm
-is used. The secp521r1 curve is supported only on devices with 8KB RAM and
+is used. The secp521r1 curve is supported only on devices with 8kB RAM and
 more (AVR128DA, xmega128A4U). Firmware for atmega128 microcontroller can
 be recompiled with two bits multiplication window, then secp521r1 is running
 on this device.
@@ -3714,13 +3813,13 @@ multiplication are unrolled as possible, with respect to flash memory size
 in AVR.
 
 Code size: about 20 000 lines in AVR assembler, about 10000 lines in C. AVR
-flash in ATmega128 is occupied by ~ 63kB code, 64Kb is used as data space for
+flash in ATmega128 is occupied by ~ 63kB code, 64kB is used as data space for
 card filesystem. RAM is almost full, there is approximately 80 bytes free in
-atmnega128 (4kB RAM space).
+atmega128 (4kB RAM space).
 
 
 <<<
-[[appendixF]]
+[[appendixG]]
 [appendix]
 Cryptographic algorithm security
 --------------------------------
@@ -3882,9 +3981,18 @@ really no way to run this faster with only one 8 bit multiplier in AVR)
 Keep in mind, if you generate a key, operation is not blinded.
 Exponentiation in Miller-Rabin test, squaring, and CRT components
 calculation (3x modular multiplicative inverse) is not blinded too.  SPA,
-DPA or IPA can be used to extract some informations about generated key.
+DPA or IPA can be used to extract some information about generated key.
 Therefore it is recommended to generate key only in secure environment, if
 key security is important.
+
+Due to the low speed of the described algorithm, a different procedure is
+used in versions newer than 20211007.  First, we randomly search for a prime
+number that corresponds to the required modulus for the RSA key.  The prime
+number found first is never discarded because finding it is a costly
+operation.  Next, a random number is searched for, which meets the condition
+that it is far enough from the found prime number and, even after
+multiplying by the found prime number, meets the conditions for the RSA
+module.  And finally, it is checked whether it is also a prime number.
 
 OsEID project does not use strong primes for P and Q.  Strong primes can
 protect us from factorization of modulus using Pollard's algorithm, but
@@ -3924,7 +4032,7 @@ been warned._
 (Do you know about these shortcomings in the world of commercial cards?)
 
 <<<
-[[appendixG]]
+[[appendixH]]
 [appendix]
 Literature
 ----------
@@ -4050,122 +4158,7 @@ Licence
 - [[[GPL]]] https://www.gnu.org/licenses/licenses.en.html
 
 <<<
-[[appendixH]]
-[appendix]
-OpenSC patches
---------------
-
-OpenSC 0.20 and 0.21
-~~~~~~~~~~~~~~~~~~~~
-
-Card is automatically detected. No patch is needed. If you need support for
-secp256k1, please read about experimental support for secp256k1 below.
-
-OpenSC 0.17, 018 and 0.19
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-OpenSC 0.17, 0.18 and 0.19 can detect all features of OsEID except of
-support for secp256k1.  To use myeid driver for OsEID card you need to
-configure OpenSC package only.  Please insert OsEID ATR into *opensc.conf*
-file.
-
-Experimental support for secp256k1
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-OpenSC can signalize support for secp256k1 curve.  For OpenSC 0.17, 0.18 and
-0.19 following patch is suggested:
-
-............................................................................................................
---- opensc-0.17rc1/src/libopensc/card-myeid.c.orig     2017-06-13 13:23:53.000000000 +0200
-+++ opensc-0.17rc1-patched/src/libopensc/card-myeid.c  2017-06-20 08:58:43.650806261 +0200
-@@ -79,6 +79,7 @@
-        "3B:89:80:01:09:38:33:B1:4D:79:45:49:44:4C",
-        "3B:F5:96:00:00:80:31:FE:45:4D:79:45:49:44:15", /* Infineon's chip */
-        "3B:F5:96:00:00:81:31:FE:45:4D:79:45:49:44:14",
-+       "3B:F5:18:00:02:10:80:4F:73:45:49:44",          /* OsEID */
-+       "3B:F5:18:00:02:80:01:4F:73:45:49:44:1A",       /* OsEID token*/
-        NULL
- };
-
-@@ -113,6 +114,7 @@
-        {"secp384r1", {{1, 3, 132, 0, 34, -1}},         384},
-        {"secp521r1", {{1, 3, 132, 0, 35, -1}},         521},
-        {NULL, {{-1}}, 0},
-+       {"secp256k1", {{1, 3, 132, 0, 10, -1}},         256},   /* OsEID */
- };
-
- static int myeid_get_info(struct sc_card *card, u8 *rbuf, size_t buflen);
-@@ -227,6 +229,9 @@
-                if (card_caps.max_aes_key_length >= 256)
-                        _sc_card_add_symmetric_alg(card, SC_ALGORITHM_AES, 256, flags);
-        }
-+        /* OsEID support for secp256k1 */
-+        if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 5, 5))
-+               _sc_card_add_ec_alg(card,  ec_curves[5].size, flags, ext_flags, &ec_curves[5].curve_oid);
-+        if (0 == memcmp("OsEID", card->atr.value + card->atr.len - 6, 5))
-+               _sc_card_add_ec_alg(card,  ec_curves[5].size, flags, ext_flags, &ec_curves[5].curve_oid);
-
-        /* State that we have an RNG */
-        card->caps |= SC_CARD_CAP_RNG | SC_CARD_CAP_ISO7816_PIN_INFO;
-............................................................................................................
-
-With this patch you can upload secp256k1 key into card. You can generate key
-by openssl and upload to card by standard opensc tool:
-
-....
-pkcs1515-init --store-private-key key.pem
-....
-
-There is no simple way to decide what curve is used (secp256k1/secp256r1) in
-card firmware/OpenSC.  Original MyEID card does not support curve OID
-specification in key upload/key generate functions.  It is not simple to
-design a reasonable method for specifying curve OID, which does not affect
-compatibility with newer versions of MyEID card.  For now, filetype 0x23 is
-used to mark secp256k1 internal key file.
-
-After uploading secp256k1 key, you need to determine key file path (use
-pkcs15-tool -D command).  Then change type of this file.  For this purpose
-proprietary APDU can be used.  This proprietary APDU is a special variant of
-PUT DATA command, but with CLA code 0x80:
-
-0x80 0xDA 0x00 0x00 0x00
-
-
-Before use of this APDU, SELECT and VERIFY command must be issued on key
-file. (Key file path can be determined by pkcs15-tool -D command)
-
-Please read OsEID-tool script for example usage.
-
-Card can generate secp256k1 key, but this needs more patches in OpenSC
-(before key is generated, key file must be created with 0x23 value in tag
-0x82).  Unfortunately, there is no curve type information available in this
-part of OpenSC (ver 0.16.0) code and there is no simple way to determine
-what curve is to be used (secp256k1/prime256v1).
-
-To test key generation, there is a simple way - recompile OpenSC to always
-generate 0x23 value in tag 0x82 for EC keys.
-
-
-............................................................................
---- opensc-0.16.0/src/libopensc/cardctl.h       2016-05-31 09:36:09.000000000 +0200
-+++ opensc-0.16.0-patched/src/libopensc/cardctl.h       2016-12-13 13:19:23.461149289 +0100
-@@ -856,7 +856,7 @@
-  */
-        enum SC_CARDCTL_MYEID_KEY_TYPE {
-                SC_CARDCTL_MYEID_KEY_RSA = 0x11,
--               SC_CARDCTL_MYEID_KEY_EC  = 0x22
-+               SC_CARDCTL_MYEID_KEY_EC  = 0x23
-        };
-
-        struct sc_cardctl_myeid_data_obj {
-............................................................................
-
-After generating secp256k1 key, recompile OpenSC with original
-libopensc/cardctl.h, and load/generate rest of normal (NIST) EC keys, RSA
-keys etc.
-
-<<<
-[[appendixI]]
+[[Random_generator]]
 [appendix]
 Random generator implementation
 -------------------------------
@@ -4301,7 +4294,8 @@ USB utilization  also have an impact on speed tests.
 | 32 bytes in APDU|  460 bytes/sec| 750 bytes/sec| 340 bytes/sec| 225 bytes/sec|  340 bytes/sec
 |==============================================================================================
 
-Note: OsEID card uses T0 protocol, MyEID and OsEID token use T1 protocol.
+Note: OsEID atmega128 based card uses the T0 protocol, OsEID AVR128DA32
+based card, OsEID token and MyEID card use the T1 protocol.
 
 <<<
 [[appendixJ]]
@@ -4402,6 +4396,9 @@ Code is really small, 800 bytes for DES or 828 bytes if 3DES is needed.
 Speed about 50 000 clock cycles for DES decipher or encipher.
 
 More informations can be found in C and ASM sources.
+
+AVR128DA code is slightly different. This hardware does not allow indirect
+addressing of r0..r31 registers. Code is slightly bigger and slower.
 
 AES
 ~~~
