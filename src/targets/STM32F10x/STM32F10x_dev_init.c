@@ -952,7 +952,13 @@ void get_HW_serial_number(uint8_t here[10])
 
 static void nostart()
 {
-// stop her if PB12 /SWDIO/ is grouned
+// RED led ON
+	volatile uint32_t *gpioa = (uint32_t *) GPIOA_BASE;
+	// clear PA9 mode
+	gpioa[4 / 4] &= 0xFFFFFF0F;
+	gpioa[4 / 4] |= 0x0010;	// PA9 push pull, 10MHz
+	gpioa[0x10 / 4] = (1 << (9 + 16));
+// stop here if PB12 /SWDIO/ is grouned
 	// GPIOB...
 	volatile uint32_t *address;
 	address = (uint32_t *) (RCC_BASE);
@@ -969,9 +975,9 @@ void init_stm()
 {
 	RCC_setup();
 	enable_GPIOA_clock();
+	nostart();
 	init_GPIOA_pins();
 	DEBUG_init();
-	nostart();
 	CCID_Init();
 	usbInit();
 	DEBUG_print_string("Init OK, starting main\n");
