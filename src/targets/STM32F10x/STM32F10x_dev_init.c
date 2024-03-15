@@ -675,8 +675,7 @@ static void USB_Send_Data_Handler(uint8_t ep)
 
 uint8_t USB_send_data_to_host(uint8_t ep, uint8_t * data, uint16_t length)
 {
-	// error endpoint is busy
-	if (data_for_host_status[ep] != EP_TO_HOST_FREE) {
+	if (data_for_host_status[ep] == EP_TO_HOST_BUSY) {
 		DEBUG_print_string("ERR");
 		DEBUG_print_hex(ep);
 		DEBUG_print_string("\n");
