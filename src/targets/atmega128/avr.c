@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2015-2019 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2015-2025 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@
 #endif
 
 #ifndef X_GCC_OK
-#error only AVR GCC version 4.8.1 / 4.9.2 / 5.4.0 are tested to compile this code
+#warning only AVR GCC version 4.8.1 / 4.9.2 / 5.4.0 are tested to compile this code
 #endif
 
 
