@@ -30,6 +30,7 @@ jobs:
             src/build/*
       - name: OsEID compile and run
         run: |
+          sudo cp .github/001-enable-pcscd.rules /etc/polkit-1/rules.d/001-enable-pcscd.rules
           cd src
           make -f Makefile.console
           mkdir tmp;

@@ -3,7 +3,7 @@
 
     This is part of OsEID (Open source Electronic ID)
 
-    Copyright (C) 2016-2021 Peter Popovec, popovec.peter@gmail.com
+    Copyright (C) 2016-2025 Peter Popovec, popovec.peter@gmail.com
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -92,6 +92,10 @@ alt:
 #include <reader.h>
 #include <stdlib.h>
 #include "serial.h"
+
+#ifndef DELAY_POWER
+#define DELAY_POWER 0
+#endif
 
 static uint8_t cached_atr[MAX_ATR_SIZE];
 static uint8_t cached_atr_len = 0;
@@ -260,7 +264,9 @@ IFDHSetProtocolParameters (DWORD Lun, DWORD Protocol,
 RESPONSECODE
 IFDHPowerICC (DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD AtrLength)
 {
+#if DELAY_POWER == 1
   static uint8_t first_run = 0;
+#endif
   if (Lun)
     return IFD_COMMUNICATION_ERROR;
 
@@ -268,6 +274,7 @@ IFDHPowerICC (DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD AtrLength)
     {
     case IFD_POWER_UP:
       Log1 (PCSC_LOG_INFO, "Card power up");
+#if DELAY_POWER == 1
       if (first_run != 0)
 	{
 	  WritePort (Lun, 4, (uint8_t *) "> P\n");
@@ -281,7 +288,10 @@ IFDHPowerICC (DWORD Lun, DWORD Action, PUCHAR Atr, PDWORD AtrLength)
       *AtrLength = 0;
       proto = 0;
       return IFD_ERROR_POWER_ACTION;
-
+#else
+      WritePort (Lun, 4, (uint8_t *) "> P\n");
+      break;
+#endif
     case IFD_RESET:
       Log1 (PCSC_LOG_INFO, "Card reset");
       WritePort (Lun, 4, (uint8_t *) "> R\n");
