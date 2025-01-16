@@ -1199,6 +1199,12 @@ rm -f tmp/rsa_sign_testfile.txt.${file_hash}.sign
 #	-in tmp/rsa_sign_testfile.txt.sha1 \
 #	-inkey _private_key.pem_ -pkeyopt digest:sha1 -pkeyopt rsa_padding_mode:pss -pkeyopt rsa_pss_saltlen:-1 \
 #	-out tmp/rsa_sign_testfile.txt.sha1.sign
+# rsa_pss_saltlen setting:
+# Old openssl							New
+# -1 sets the salt length to the digest length  		rsa_pss_saltlen:digest
+# -2 sets the salt length to the maximum permissible value	rsa_pss_saltlen:max
+# -2 for verify mode						rsa_pss_saltlen:auto
+#
 echo "using pkcs11 interface to sign message, mechanism ${MECHANISM}"
 PKCS11-TOOL --sign  -m "${MECHANISM}" \
 	--id $keyID \
@@ -1209,7 +1215,7 @@ if [ $? -eq 0 ]; then
 	openssl pkeyutl -pubin -verify -in tmp/rsa_sign_testfile.txt.${file_hash} \
 		 -sigfile tmp/rsa_sign_testfile.txt.${file_hash}.sign \
 	         -inkey tmp/exported_rsa_key.pub -pkeyopt rsa_padding_mode:pss \
-		 -pkeyopt rsa_pss_saltlen:-1 \
+		 -pkeyopt rsa_pss_saltlen:digest \
 		 -pkeyopt digest:${file_hash}
 	if [ $?	-ne 0 ]; then
 		failecho "openssl signature test fail"
