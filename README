@@ -1,29 +1,15 @@
 Description
 
-This is a test branch for the OsEID project for
-the STM32F102CB/STM32F103CB/MH2103CB ARM processor.
+AVR128DA32 microcontroller based open source EID smartcard with RSA
+(512-2048) and ECC - ECDSA and ECDH operations on prime192v1, prime256v1,
+secp384r1, secp256k1 and secp521r1. Compatible with MyEID card from Aventra.
+Supported in windows and linux by opensc package.  Allow about 64KiB space
+for keys/certificates. PKCS#15 structure supported.
 
-ST LINK V2 device is used as hardware.
+USB token with CCID interface based on atmel xmega128a4u with same features as card.
 
-Alternatively, the STM development board "Bluepill" can also be used as
-hardware.  Bluepill is equipped with an STM32F103C8 processor, but it only
-has 64kB of flash memory, so the space for certificates and keys will be
-smaller (24kB).
+USB token based on ST LINK V2 (STM32F102CB/STM32F103CB/MH2103CB ARM processor).
 
-STLINK V2 can be found on the Internet at prices below 10 EUR and contain
-some of the above processors.
+Online HTML doc https://popovec.github.io/OsEID/
 
-This link - https://nx3d.org/gnuk-st-link-v2/ - has good documentation on
-how to create a GNUK token on STLINKv2 hardware.  Follow the same procedure,
-just use the OsEID software from this branch instead of the GNUK software.
-
-Basic instructions for compiling and flashing the hardware can be found in
-Makefile.STM32F10x
-
-There is currently no further documentation for the ARM implementation of OsEID.
-
-AUTHOR IS NOT RESPONSIBLE FOR ANY DAMAGE OF YOUR EQUIPMENTS OR  DATA LOSS,
-USE AT YOUR OWN RISK ONLY!
-
-
-!!!! WARNING !!!!, this branch may be rebased, force-pushed, or deleted/renamed.
+PDF documentation available at https://oseid.sourceforge.io
